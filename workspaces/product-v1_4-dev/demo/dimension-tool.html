@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JetCheck 尺寸工具 Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="dimension-tool-body">
+    <div class="dt-desktop" id="dtDesktop">
+      <header class="dt-desktop-topbar">
+        <div class="dt-desktop-brand">
+          <span class="dt-windows-badge">JetCheck</span>
+          <span class="dt-desktop-text">尺寸工具桌面端 Demo</span>
+        </div>
+        <div class="dt-desktop-session">Windows 工作站 / Operator-A / 今天 14:20</div>
+      </header>
+
+      <main class="dt-desktop-stage" id="dtDesktopStage">
+        <section class="dt-shell-window dt-startup-window is-active" data-window="startup">
+          <header class="dt-shell-titlebar">
+            <div class="dt-shell-title-main">
+              <span class="dt-shell-appicon">JC</span>
+              <div class="dt-shell-title-copy">
+                <strong>启动尺寸工具</strong>
+              </div>
+            </div>
+            <div class="dt-shell-controls" aria-hidden="true">
+              <button type="button" class="dt-shell-control">_</button>
+              <button type="button" class="dt-shell-control">□</button>
+              <button type="button" class="dt-shell-control is-close">×</button>
+            </div>
+          </header>
+
+          <div class="dt-startup-window-body">
+            <div class="dt-startup-window-brand">
+              <div class="brand-logo">Jetcheck</div>
+              <div class="dt-startup-window-copy">
+                <strong>尺寸工具桌面端</strong>
+              </div>
+            </div>
+
+            <div class="form-grid single-column">
+              <label class="field">
+                <span>账号</span>
+                <input id="dtStartupAccountInput" type="text" value="operator-a" />
+              </label>
+              <label class="field">
+                <span>密码</span>
+                <input id="dtStartupPasswordInput" type="password" value="JetCheck#2026" />
+              </label>
+            </div>
+
+            <div class="dt-startup-window-actions">
+              <button class="primary-btn dt-startup-enter-btn" id="dtStartupEnterBtn">登录</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="dt-shell-window dt-manager-window is-active" data-window="manager">
+          <header class="dt-shell-titlebar">
+            <div class="dt-shell-title-main">
+              <span class="dt-shell-appicon">JC</span>
+              <div class="dt-shell-title-copy">
+                <strong>工程管理</strong>
+              </div>
+            </div>
+            <div class="dt-shell-controls" aria-hidden="true">
+              <button type="button" class="dt-shell-control">_</button>
+              <button type="button" class="dt-shell-control">□</button>
+              <button type="button" class="dt-shell-control is-close">×</button>
+            </div>
+          </header>
+
+          <div class="dt-shell-toolbar">
+            <div class="dt-shell-toolbar-left">
+              <label class="dt-toolbar-search">
+                <span>搜索</span>
+                <input id="dtProjectSearch" type="search" placeholder="按工程名称搜索" />
+              </label>
+            </div>
+            <div class="dt-shell-toolbar-right">
+              <button type="button" class="dt-toolbar-btn" id="dtOpenSettingsBtn">设置</button>
+              <button type="button" class="dt-toolbar-btn is-primary" id="dtCreateProjectBtn">新建工程</button>
+              <button type="button" class="dt-toolbar-btn" id="dtImportProjectBtn">导入工程</button>
+            </div>
+          </div>
+
+          <div class="dt-manager-layout">
+            <section class="dt-manager-list-panel">
+              <div class="dt-panel-head">
+                <h2>工程列表</h2>
+                <span id="dtManagerHint"></span>
+              </div>
+              <div class="dt-inline-message" id="dtManagerMessage" hidden></div>
+              <div class="dt-project-table">
+                <div class="dt-project-table-head">
+                  <span>工程名称</span>
+                  <span>备注</span>
+                  <span>状态</span>
+                  <span>最近修改时间</span>
+                  <span>操作</span>
+                  <span></span>
+                </div>
+                <div class="dt-project-list" id="dtProjectList"></div>
+              </div>
+              <div class="dt-empty-state" id="dtManagerEmpty" hidden>
+                <strong id="dtEmptyTitle">当前还没有尺寸工程</strong>
+                <p id="dtEmptyDesc">先新建一个工程，或者导入已有工程。</p>
+                <div class="dt-empty-actions">
+                  <button type="button" class="dt-toolbar-btn is-primary" data-empty-action="create">新建工程</button>
+                  <button type="button" class="dt-toolbar-btn" data-empty-action="import">导入工程</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="dt-shell-window dt-editor-window" data-window="editor">
+          <header class="dt-shell-titlebar">
+            <div class="dt-shell-title-main">
+              <span class="dt-shell-appicon">JC</span>
+              <div class="dt-shell-title-copy">
+                <strong id="dtEditorWindowTitle">--</strong>
+              </div>
+            </div>
+            <div class="dt-shell-controls">
+              <button type="button" class="dt-shell-control">_</button>
+              <button type="button" class="dt-shell-control">□</button>
+              <button type="button" class="dt-shell-control is-close" id="dtEditorCloseBtn">×</button>
+            </div>
+          </header>
+
+          <div class="dt-editor-layout">
+            <section class="dt-editor-main">
+              <div class="dt-wizard-head">
+              </div>
+
+              <div class="dt-wizard-steps" id="dtTabList"></div>
+
+              <div class="dt-workspace" id="dtWorkspace">
+                <aside class="dt-side-panel dt-side-panel-left" id="dtLeftPanel" hidden></aside>
+                <div class="dt-stage-panel">
+                  <div class="dt-stage-upload" id="dtStageUpload" hidden></div>
+                  <div class="dt-stage-content" id="dtStageContent" hidden></div>
+                  <img id="dtStageImage" class="dt-stage-image" alt="样例图像" />
+                  <div id="dtOverlay" class="dt-overlay"></div>
+                </div>
+                <aside class="dt-side-panel dt-side-panel-right" id="dtRightPanel" hidden></aside>
+              </div>
+
+              <div class="dt-wizard-actions dt-wizard-actions-bottom">
+                <button type="button" class="dt-toolbar-btn" id="dtSkipStepBtn" hidden>跳过标定</button>
+                <button type="button" class="dt-toolbar-btn" id="dtPrevStepBtn">上一步</button>
+                <button type="button" class="dt-toolbar-btn is-primary" id="dtNextStepBtn">下一步</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <footer class="dt-taskbar">
+        <button type="button" class="dt-start-btn">开始</button>
+        <div class="dt-taskbar-apps">
+          <button type="button" class="dt-taskbar-app is-active" data-window-target="manager">工程管理</button>
+          <button type="button" class="dt-taskbar-app" data-window-target="editor" id="dtEditorTaskbarBtn">工程配置</button>
+        </div>
+        <div class="dt-taskbar-clock">14:20</div>
+      </footer>
+
+      <div class="dt-modal-backdrop" id="dtProjectModal" hidden>
+        <div class="dt-modal-card">
+          <div class="dt-modal-head">
+            <div>
+              <strong id="dtModalTitle">新建工程</strong>
+              <p id="dtModalDesc">填写工程名称后，创建一个新的尺寸工程草稿。</p>
+            </div>
+            <button type="button" class="dt-modal-close" id="dtModalCloseBtn">×</button>
+          </div>
+          <form class="dt-modal-form" id="dtProjectForm">
+            <label class="dt-modal-field">
+              <span>工程名称</span>
+              <input id="dtProjectNameInput" name="name" type="text" maxlength="48" placeholder="例如：安全卡扣A04型号左件" required />
+            </label>
+            <label class="dt-modal-field">
+              <span>备注</span>
+              <textarea id="dtProjectNoteInput" name="note" placeholder="补充说明这次工程的用途、样本来源或当前阶段。"></textarea>
+            </label>
+            <div class="dt-modal-error" id="dtModalError" hidden></div>
+            <div class="dt-modal-actions">
+              <button type="button" class="dt-toolbar-btn" id="dtModalCancelBtn">取消</button>
+              <button type="submit" class="dt-toolbar-btn is-primary" id="dtModalSubmitBtn">创建并打开</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="dt-modal-backdrop" id="dtSettingsModal" hidden>
+        <div class="dt-modal-card dt-settings-modal-card">
+          <div class="dt-modal-head">
+            <div>
+              <strong>本地设置</strong>
+            </div>
+            <button type="button" class="dt-modal-close" id="dtSettingsCloseBtn">×</button>
+          </div>
+
+          <div class="dt-settings-modal-body">
+            <div class="dt-settings-section">
+              <div class="dt-settings-section-title">本地目录</div>
+              <div class="dt-settings-list" id="dtSettingsPathList"></div>
+            </div>
+
+            <div class="dt-settings-section">
+              <div class="dt-settings-section-title">工程管理</div>
+              <label class="dt-settings-toggle">
+                <div class="dt-settings-toggle-copy">
+                  <strong>自动保存</strong>
+                  <span>创建或修改工程后自动保存本地草稿</span>
+                </div>
+                <input id="dtSettingsAutoSaveInput" type="checkbox" />
+              </label>
+            </div>
+
+            <div class="dt-modal-actions">
+              <button type="button" class="dt-toolbar-btn" id="dtSettingsCancelBtn">关闭</button>
+              <button type="button" class="dt-toolbar-btn is-primary" id="dtSettingsSaveBtn">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./dimension-tool.js"></script>
+  </body>
+</html>

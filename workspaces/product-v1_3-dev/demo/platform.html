@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JetCheck 平台端</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="platform-body">
+    <div class="app-shell platform-shell">
+      <header class="platform-topbar">
+        <div class="platform-topbar-left">
+          <div class="platform-mark">捷</div>
+          <div class="brand">
+            <div class="brand-logo">Jetcheck</div>
+            <div class="brand-name">捷检</div>
+          </div>
+        </div>
+        <nav class="platform-main-nav">
+          <button class="top-nav-item">首页</button>
+          <button class="top-nav-item">模型管理</button>
+          <button class="top-nav-item">图像库</button>
+          <button class="top-nav-item is-active">客户端管理</button>
+        </nav>
+        <div class="topbar-actions">
+          <button class="secondary-btn" id="openAccountCenterBtn">账号中心</button>
+          <button class="demo-btn" id="refreshPlatformBtn">Demo: 刷新状态</button>
+          <button class="demo-btn" id="resetPlatformDemo">Demo: 重置数据</button>
+        </div>
+      </header>
+
+      <main class="platform-main">
+        <section class="page-header">
+          <div class="page-title-inline">
+            <h1>客户端管理</h1>
+            <span class="inline-metric" id="platformQuotaText">客户端配额：0/0</span>
+          </div>
+        </section>
+
+        <div id="platformStatusBanner"></div>
+
+        <div class="toolbar-row toolbar-row-wrap">
+          <div class="toolbar-left">
+            <select id="platformStatusFilter">
+              <option value="all">全部状态</option>
+              <option value="在线">在线</option>
+              <option value="离线">离线</option>
+            </select>
+            <input id="platformKeywordInput" type="text" placeholder="搜索客户端名称或硬件识别码" />
+          </div>
+          <div class="toolbar-right">
+            <button class="secondary-btn" id="resetPlatformFilters">重置</button>
+            <button class="primary-btn" id="runPlatformFilters">查询</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>客户端名称</th>
+                <th>硬件识别码</th>
+                <th>绑定时间</th>
+                <th>在线状态</th>
+                <th>最近离线时间</th>
+              </tr>
+            </thead>
+            <tbody id="platformClientTableBody"></tbody>
+          </table>
+          <div class="empty-state" id="platformClientEmpty" hidden>没有符合当前筛选条件的客户端记录</div>
+          <div class="table-footer">
+            <span class="muted" id="platformPaginationText">共 0 条</span>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="platformModalBackdrop" hidden></div>
+
+    <div class="modal" id="accountCenterModal" hidden>
+      <div class="modal-header">
+        <h3>账号中心</h3>
+        <button class="icon-btn" id="closeAccountCenterModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="card">
+          <div class="section-head section-head-tight">
+            <div>
+              <h4>账号信息</h4>
+            </div>
+          </div>
+          <div class="form-grid double-column">
+            <label class="field">
+              <span>登录手机号</span>
+              <input id="accountMobileInput" type="text" placeholder="请输入手机号" />
+            </label>
+            <label class="field">
+              <span>联系人</span>
+              <input id="accountContactNameInput" type="text" placeholder="请输入联系人姓名" />
+            </label>
+          </div>
+          <div class="divider"></div>
+          <div class="form-grid single-column">
+            <label class="field">
+              <span>登录密码</span>
+              <input id="accountPasswordInput" type="text" placeholder="请输入登录密码" />
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-head section-head-tight">
+            <div>
+              <h4>企业信息</h4>
+            </div>
+          </div>
+          <div class="form-grid single-column">
+            <label class="field">
+              <span>企业名称</span>
+              <input id="accountCompanyNameInput" type="text" placeholder="请输入企业名称" />
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary-btn" id="cancelAccountCenterBtn">取消</button>
+        <button class="primary-btn" id="saveAccountCenterBtn">保存</button>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack"></div>
+
+    <script src="./shared.js"></script>
+    <script src="./platform.js"></script>
+  </body>
+</html>

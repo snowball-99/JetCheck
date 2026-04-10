@@ -74,8 +74,8 @@ JetCheck 产品工作区仓库，按 `workspace-first` 组织。
 1. 复制 `workspaces/` 和 `reference/` 到发布目录
 2. 保留原始 demo 相对路径，避免图片和脚本在线上失效
 3. 在发布目录根部生成一个公开首页 `index.html`
-4. 为各工作区生成短链接路由，例如 `/demos/product-v1_4-dev/`
-5. 为复制过去的 Markdown 生成对应的 `.html` 浏览页，保证 demo 中的 README 链接在线可打开
+4. 为复制过去的 Markdown 生成对应的 `.html` 浏览页，保证 demo 中的 README 链接在线可打开
+5. 自动跳过超过 Cloudflare Pages 单文件上限的附件，避免大文件阻断部署
 
 ### Cloudflare Pages 推荐配置
 
@@ -98,12 +98,12 @@ JetCheck 产品工作区仓库，按 `workspace-first` 组织。
 发布成功后建议优先分享下面两类地址：
 
 1. 站点首页 `/`
-2. 工作区短链接 `/demos/<workspace>/`
+2. 工作区真实目录 `/workspaces/<workspace>/demo/`
 
 例如：
 
-1. `/demos/product-v1_4-dev/`
-2. `/demos/product-v1_4-dev/client`
-3. `/demos/product-v1_4-dev/platform`
+1. `/workspaces/product-v1_4-dev/demo/`
+2. `/workspaces/product-v1_4-dev/demo/client.html`
+3. `/workspaces/product-v1_4-dev/demo/platform.html`
 
 如有歧义，先确认当前 workspace，再修改。

@@ -30,7 +30,6 @@ def main() -> None:
     demos = discover_demos()
     write_landing_page(demos)
     write_not_found_page()
-    write_redirects(demos)
     write_headers()
 
     published = ", ".join(demo["workspace"] for demo in demos)
@@ -105,7 +104,6 @@ def discover_demos() -> list[dict[str, object]]:
                 "summary": extract_summary(readme_content, workspace_dir.name),
                 "readme_path": f"/workspaces/{workspace_dir.name}/README.html",
                 "demo_path": f"/workspaces/{workspace_dir.name}/demo/",
-                "short_path": f"/demos/{workspace_dir.name}/",
                 "entries": html_entries,
             }
         )
@@ -116,13 +114,11 @@ def discover_demos() -> list[dict[str, object]]:
 def create_entry(file_name: str, workspace: str) -> dict[str, str]:
     name_without_ext = file_name.removesuffix(".html")
     direct_path = f"/workspaces/{workspace}/demo/" if file_name == "index.html" else f"/workspaces/{workspace}/demo/{file_name}"
-    short_path = f"/demos/{workspace}/" if file_name == "index.html" else f"/demos/{workspace}/{name_without_ext}"
 
     return {
         "file_name": file_name,
         "label": ENTRY_LABELS.get(file_name, name_without_ext),
         "direct_path": direct_path,
-        "short_path": short_path,
     }
 
 
@@ -319,8 +315,7 @@ def rewrite_markdown_links(root_dir: Path) -> None:
 
 def write_landing_page(demos: list[dict[str, object]]) -> None:
     latest_demo = demos[0] if demos else None
-    latest_path = latest_demo["short_path"] if latest_demo else "/"
-    placeholder_path = "/demos/<workspace>/"
+    latest_path = latest_demo["demo_path"] if latest_demo else "/"
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -570,8 +565,8 @@ def write_landing_page(demos: list[dict[str, object]]) -> None:
 
       <section class="info-grid">
         <article class="info-card">
-          <strong>短链接</strong>
-          <p>发布后可以直接分享 <code>{escape_html(str(latest_path if latest_demo else placeholder_path))}</code> 这种短路径，不必手动复制长目录。</p>
+          <strong>统一入口</strong>
+          <p>发布后可以先从首页进入，再按工作区跳到真实 demo 目录，例如 <code>{escape_html(str(latest_path))}</code>。</p>
         </article>
         <article class="info-card">
           <strong>目录保真</strong>
@@ -604,7 +599,7 @@ def render_demo_card(demo: dict[str, object]) -> str:
       <strong>{escape_html(str(demo["workspace"]))}</strong>
       <h2 class="demo-title">{escape_html(str(demo["title"]))}</h2>
     </div>
-    <span class="chip">{escape_html(str(demo["short_path"]))}</span>
+    <span class="chip">{escape_html(str(demo["demo_path"]))}</span>
   </div>
   <p class="demo-summary">{escape_html(str(demo["summary"]))}</p>
   <div class="entry-row">
@@ -612,8 +607,8 @@ def render_demo_card(demo: dict[str, object]) -> str:
     <a class="entry-link" href="{escape_attr(str(demo["readme_path"]))}">工作区 README</a>
   </div>
   <div class="meta-row">
-    <span>短链接入口：<code>{escape_html(str(demo["short_path"]))}</code></span>
-    <span>真实目录：<code>{escape_html(str(demo["demo_path"]))}</code></span>
+    <span>Demo 目录：<code>{escape_html(str(demo["demo_path"]))}</code></span>
+    <span>README：<code>{escape_html(str(demo["readme_path"]))}</code></span>
   </div>
 </article>"""
 
@@ -667,31 +662,13 @@ def write_not_found_page() -> None:
   <body>
     <main>
       <h1>这个地址没有对应页面</h1>
-      <p>可以回到发布站首页重新进入 demo，或者直接使用 <code>/demos/&lt;workspace&gt;/</code> 形式的短链接。</p>
+      <p>可以回到发布站首页重新进入 demo，或者直接访问 <code>/workspaces/&lt;workspace&gt;/demo/</code> 形式的真实目录。</p>
       <a href="/">返回首页</a>
     </main>
   </body>
 </html>
 """,
     )
-
-
-def write_redirects(demos: list[dict[str, object]]) -> None:
-    lines: list[str] = []
-    for demo in demos:
-        workspace = str(demo["workspace"])
-        demo_path = str(demo["demo_path"])
-        lines.append(f"/demos/{workspace} {demo_path} 302")
-        lines.append(f"/demos/{workspace}/ {demo_path} 302")
-
-        for entry in demo["entries"]:
-            file_name = str(entry["file_name"])
-            if file_name == "index.html":
-                continue
-            route = f"/demos/{workspace}/{file_name.removesuffix('.html')}"
-            lines.append(f"{route} {entry['direct_path']} 302")
-
-    write_text(OUTPUT_DIR / "_redirects", "\n".join(lines) + "\n")
 
 
 def write_headers() -> None:

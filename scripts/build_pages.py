@@ -9,6 +9,7 @@ from pathlib import Path
 REPO_ROOT = Path.cwd()
 OUTPUT_DIR = REPO_ROOT / "dist" / "cloudflare-pages"
 WORKSPACE_ROOT = REPO_ROOT / "workspaces"
+PAGES_FILE_SIZE_LIMIT = 25 * 1024 * 1024
 
 ENTRY_LABELS = {
     "index.html": "总入口",
@@ -51,7 +52,24 @@ def copy_root_assets() -> None:
 def copy_recursive(relative_path: str) -> None:
     source = REPO_ROOT / relative_path
     target = OUTPUT_DIR / relative_path
-    shutil.copytree(source, target, dirs_exist_ok=True)
+    skipped_files: list[Path] = []
+
+    def ignore_large_files(_dir: str, names: list[str]) -> set[str]:
+        ignored: set[str] = set()
+        current_dir = Path(_dir)
+
+        for name in names:
+            candidate = current_dir / name
+            if candidate.is_file() and candidate.stat().st_size > PAGES_FILE_SIZE_LIMIT:
+                ignored.add(name)
+                skipped_files.append(candidate.relative_to(REPO_ROOT))
+
+        return ignored
+
+    shutil.copytree(source, target, dirs_exist_ok=True, ignore=ignore_large_files)
+
+    for skipped_file in skipped_files:
+        print(f"Skipped oversized file: {skipped_file}")
 
 
 def copy_file(relative_path: str) -> None:

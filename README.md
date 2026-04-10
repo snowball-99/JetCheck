@@ -58,4 +58,52 @@ JetCheck 产品工作区仓库，按 `workspace-first` 组织。
 - 工作区：`product-版本-状态` 或 `project-项目名-based-on-版本`
 - `reference/` 的分类和命名后续再整理，以当前目录实际内容为准
 
+## Cloudflare Pages Demo 发布
+
+仓库已经补了一套面向 Cloudflare Pages 的静态发布构建，目标是把当前 `workspaces/*/demo` 页面统一整理成一个可公开访问的发布站。
+
+### 本地生成发布目录
+
+1. 运行 `python3 scripts/build_pages.py`
+2. 构建产物输出到 `dist/cloudflare-pages/`
+3. 如需本地预览，运行 `python3 -m http.server 8788 -d dist/cloudflare-pages`
+4. 打开 `http://localhost:8788`
+
+构建脚本会自动：
+
+1. 复制 `workspaces/` 和 `reference/` 到发布目录
+2. 保留原始 demo 相对路径，避免图片和脚本在线上失效
+3. 在发布目录根部生成一个公开首页 `index.html`
+4. 为各工作区生成短链接路由，例如 `/demos/product-v1_4-dev/`
+5. 为复制过去的 Markdown 生成对应的 `.html` 浏览页，保证 demo 中的 README 链接在线可打开
+
+### Cloudflare Pages 推荐配置
+
+如果你想让每次提交后自动更新 demo，优先使用 Pages 的 Git 集成：
+
+1. 在 Cloudflare Dashboard 进入 `Workers & Pages`
+2. 选择 `Create application` -> `Pages` -> `Connect to Git`
+3. 连接这个仓库
+4. Build command 填 `python3 scripts/build_pages.py`
+5. Build output directory 填 `dist/cloudflare-pages`
+6. Root directory 保持仓库根目录即可
+
+如果你暂时不接 Git，也可以先做 Direct Upload：
+
+1. 先本地运行 `python3 scripts/build_pages.py`
+2. 再执行 `npx wrangler pages deploy dist/cloudflare-pages --project-name=<你的项目名>`
+
+### 当前发布后的入口约定
+
+发布成功后建议优先分享下面两类地址：
+
+1. 站点首页 `/`
+2. 工作区短链接 `/demos/<workspace>/`
+
+例如：
+
+1. `/demos/product-v1_4-dev/`
+2. `/demos/product-v1_4-dev/client`
+3. `/demos/product-v1_4-dev/platform`
+
 如有歧义，先确认当前 workspace，再修改。

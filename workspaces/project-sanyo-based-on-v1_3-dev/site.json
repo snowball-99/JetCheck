@@ -1,0 +1,23 @@
+{
+  "group": "project",
+  "status": {
+    "label": "开发中",
+    "tone": "active"
+  },
+  "title": "三洋定制版",
+  "summary": "基于 1.3 的项目化定制版本。",
+  "buttons": [
+    {
+      "label": "客户端",
+      "url": "demo/client.html"
+    },
+    {
+      "label": "平台端",
+      "url": "demo/platform.html"
+    },
+    {
+      "label": "方案文档-飞书",
+      "url": "https://yimuzn2018.feishu.cn/wiki/ZIjmwjx0YiO7szk5vGIcdjQ8n8c"
+    }
+  ]
+}

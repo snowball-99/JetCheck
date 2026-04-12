@@ -12,7 +12,10 @@ from pathlib import Path
 REPO_ROOT = Path.cwd()
 OUTPUT_DIR = REPO_ROOT / "dist" / "cloudflare-pages"
 WORKSPACE_ROOT = REPO_ROOT / "workspaces"
-SITE_CONFIG_PATH = REPO_ROOT / "site" / "demo-site.json"
+SITE_CONFIG_PATH = REPO_ROOT / "site" / "site.json"
+LEGACY_SITE_CONFIG_PATH = REPO_ROOT / "site" / "demo-site.json"
+WORKSPACE_SITE_CONFIG_NAME = "site.json"
+WORKSPACE_UPDATES_NAME = "updates.md"
 PAGES_FILE_SIZE_LIMIT = 25 * 1024 * 1024
 
 ENTRY_LABELS = {
@@ -85,7 +88,6 @@ def copy_file(relative_path: str) -> None:
 
 def discover_demos(site_config: dict[str, object]) -> list[dict[str, object]]:
     demos: list[dict[str, object]] = []
-    workspace_config_map = site_config.get("workspaces", {}) if isinstance(site_config.get("workspaces", {}), dict) else {}
 
     for workspace_dir in sorted(WORKSPACE_ROOT.iterdir()):
         if not workspace_dir.is_dir():
@@ -97,7 +99,7 @@ def discover_demos(site_config: dict[str, object]) -> list[dict[str, object]]:
 
         readme_path = workspace_dir / "README.md"
         readme_content = read_text(readme_path) if readme_path.exists() else ""
-        workspace_config = workspace_config_map.get(workspace_dir.name, {}) if isinstance(workspace_config_map.get(workspace_dir.name, {}), dict) else {}
+        workspace_config = load_workspace_config(workspace_dir, site_config)
 
         html_entries = sorted(
             [create_entry(item.name, workspace_dir.name) for item in demo_dir.iterdir() if item.is_file() and item.suffix == ".html"],
@@ -155,6 +157,7 @@ def filter_visible_entries(entries: list[dict[str, str]], workspace_config: dict
 
 def build_workspace_links(entries: list[dict[str, str]], workspace_config: dict[str, object]) -> list[dict[str, str]]:
     configured_buttons = workspace_config.get("buttons", [])
+    workspace_name = str(workspace_config.get("_workspace_name", "")).strip()
     if isinstance(configured_buttons, list) and configured_buttons:
         buttons: list[dict[str, str]] = []
         for button in configured_buttons:
@@ -166,7 +169,7 @@ def build_workspace_links(entries: list[dict[str, str]], workspace_config: dict[
             if not label or not url:
                 continue
 
-            normalized_url = normalize_link_url(url)
+            normalized_url = resolve_workspace_link_url(url, workspace_name)
             next_button = {
                 "label": label,
                 "direct_path": normalized_url,
@@ -185,6 +188,10 @@ def build_workspace_links(entries: list[dict[str, str]], workspace_config: dict[
 
 
 def build_workspace_updates(workspace_dir: Path, workspace_config: dict[str, object]) -> list[dict[str, str]]:
+    markdown_updates = parse_updates_markdown(workspace_dir / WORKSPACE_UPDATES_NAME)
+    if markdown_updates:
+        return markdown_updates
+
     configured_updates = workspace_config.get("updates", [])
     if isinstance(configured_updates, list) and configured_updates:
         updates: list[dict[str, str]] = []
@@ -1314,15 +1321,32 @@ def read_text(file_path: Path) -> str:
 
 
 def load_site_config() -> dict[str, object]:
-    if not SITE_CONFIG_PATH.exists():
+    config_path = SITE_CONFIG_PATH if SITE_CONFIG_PATH.exists() else LEGACY_SITE_CONFIG_PATH
+    if not config_path.exists():
         return {}
 
     try:
-        data = json.loads(read_text(SITE_CONFIG_PATH))
+        data = json.loads(read_text(config_path))
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid JSON in {SITE_CONFIG_PATH}: {exc}") from exc
+        raise SystemExit(f"Invalid JSON in {config_path}: {exc}") from exc
 
     return data if isinstance(data, dict) else {}
+
+
+def load_workspace_config(workspace_dir: Path, site_config: dict[str, object]) -> dict[str, object]:
+    config_path = workspace_dir / WORKSPACE_SITE_CONFIG_NAME
+    if config_path.exists():
+        try:
+            data = json.loads(read_text(config_path))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Invalid JSON in {config_path}: {exc}") from exc
+
+        if isinstance(data, dict):
+            return {**data, "_workspace_name": workspace_dir.name}
+
+    workspace_map = site_config.get("workspaces", {}) if isinstance(site_config.get("workspaces", {}), dict) else {}
+    fallback = workspace_map.get(workspace_dir.name, {}) if isinstance(workspace_map.get(workspace_dir.name, {}), dict) else {}
+    return {**fallback, "_workspace_name": workspace_dir.name}
 
 
 def relative_href(from_relative_path: str, to_relative_path: str) -> str:
@@ -1351,6 +1375,15 @@ def normalize_link_url(url: str) -> str:
         normalized = normalized[:-3] + ".html"
 
     return normalized
+
+
+def resolve_workspace_link_url(url: str, workspace_name: str) -> str:
+    normalized = normalize_link_url(url)
+    if is_external_url(normalized):
+        return normalized
+    if normalized.startswith("workspaces/") or not workspace_name:
+        return normalized
+    return f"workspaces/{workspace_name}/{normalized.lstrip('./')}"
 
 
 def is_external_url(url: str) -> bool:
@@ -1395,6 +1428,34 @@ def get_workspace_updates(workspace_dir: Path, limit: int = 5) -> list[dict[str,
                 "detail": f"提交 {commit}",
             }
         )
+
+    return updates
+
+
+def parse_updates_markdown(file_path: Path) -> list[dict[str, str]]:
+    if not file_path.exists():
+        return []
+
+    updates: list[dict[str, str]] = []
+    for raw_line in read_text(file_path).splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        bullet_match = re.match(r"^[-*]\s+(.*)$", line)
+        if bullet_match:
+            line = bullet_match.group(1).strip()
+
+        parts = re.split(r"\s*[|｜]\s*", line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+
+        date = parts[0].strip()
+        text = parts[1].strip()
+        if not date or not text:
+            continue
+
+        updates.append({"date": date, "text": text})
 
     return updates
 

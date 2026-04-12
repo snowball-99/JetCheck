@@ -1,0 +1,24 @@
+{
+  "group": "main",
+  "status": {
+    "label": "存档",
+    "tone": "archived"
+  },
+  "title": "捷检 1.3",
+  "summary": "基于1.2的检测工具重构，调整相机、模型管理、记录等模块功能。",
+  "buttons": [
+    {
+      "label": "客户端",
+      "url": "demo/client.html"
+    },
+    {
+      "label": "平台端",
+      "url": "demo/platform.html"
+    },
+    {
+      "label": "PRD·AI",
+      "url": "docs/v1.3增量-PRD-v2-评审版.md"
+    }
+    
+  ]
+}

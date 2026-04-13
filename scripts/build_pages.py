@@ -926,22 +926,37 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
       }}
 
       .updates-more {{
-        margin-top: 12px;
+        margin-top: 8px;
       }}
 
       .updates-toggle {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0;
+        border: 0;
+        background: transparent;
         cursor: pointer;
         color: var(--accent);
-        font-size: 14px;
-        list-style: none;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.3;
+        opacity: 0.84;
       }}
 
-      .updates-toggle::-webkit-details-marker {{
-        display: none;
+      .updates-toggle::after {{
+        content: "›";
+        transform: rotate(90deg);
+        transition: transform 160ms ease;
       }}
 
-      .updates-more[open] .updates-toggle {{
-        margin-bottom: 12px;
+      .updates-toggle[data-expanded="true"]::after {{
+        transform: rotate(-90deg);
+      }}
+
+      .updates-toggle:hover {{
+        opacity: 1;
       }}
 
       .entry-link:hover,
@@ -1061,13 +1076,26 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
           item.dataset.unread = signature && !seenSignatures.has(signature) ? 'true' : 'false';
         }});
 
-        card.querySelectorAll('a, details').forEach((node) => {{
-          const eventName = node.tagName === 'DETAILS' ? 'toggle' : 'click';
-          node.addEventListener(eventName, () => {{
-            if (node.tagName !== 'DETAILS' || node.open) {{
-              markSeen(card);
-            }}
+        card.querySelectorAll('a, [data-toggle-updates]').forEach((node) => {{
+          node.addEventListener('click', () => {{
+            markSeen(card);
           }});
+        }});
+      }});
+
+      document.querySelectorAll('[data-toggle-updates]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          const group = button.dataset.toggleUpdates || '';
+          if (!group) {{
+            return;
+          }}
+
+          const expanded = button.dataset.expanded === 'true';
+          document.querySelectorAll(`[data-extra-group="${{group}}"]`).forEach((item) => {{
+            item.hidden = expanded;
+          }});
+          button.dataset.expanded = expanded ? 'false' : 'true';
+          button.textContent = expanded ? '展开更多' : '收起';
         }});
       }});
     </script>
@@ -1189,50 +1217,49 @@ def render_entry_link(entry: dict[str, str]) -> str:
 
 def render_workspace_updates(updates: object) -> str:
     if not isinstance(updates, list) or not updates:
-        return """<div class="updates-block"><p class="updates-title">版本更新</p><p class="updates-detail">当前还没有可显示的更新记录。</p></div>"""
+        return """<div class="updates-block"><p class="updates-title">版本更新记录</p><p class="updates-detail">当前还没有可显示的更新记录。</p></div>"""
 
-    primary_items: list[str] = []
-    hidden_items: list[str] = []
+    items: list[str] = []
 
-    for update in updates:
+    for index, update in enumerate(updates):
         if not isinstance(update, dict):
             continue
-        item_html = render_update_item(update)
+        item_html = render_update_item(update, hidden=index >= 3)
         if not item_html:
             continue
-        if len(primary_items) < 3:
-            primary_items.append(item_html)
-        else:
-            hidden_items.append(item_html)
+        items.append(item_html)
 
-    if not primary_items and not hidden_items:
-        return """<div class="updates-block"><p class="updates-title">版本更新</p><p class="updates-detail">当前还没有可显示的更新记录。</p></div>"""
+    if not items:
+        return """<div class="updates-block"><p class="updates-title">版本更新记录</p><p class="updates-detail">当前还没有可显示的更新记录。</p></div>"""
 
     more_html = ""
-    if hidden_items:
-        more_html = f"""<details class="updates-more">
-  <summary class="updates-toggle">展开更多更新</summary>
-  <ul class="updates-list">
-    {''.join(hidden_items)}
-  </ul>
-</details>"""
+    hidden_count = max(len(items) - 3, 0)
+    if hidden_count:
+        extra_group = f'updates-extra-{hidden_count}-{abs(hash("".join(items)))}'
+        rendered_items = "".join(items[:3]) + "".join(
+            item.replace("<li ", f'<li data-extra-group="{extra_group}" ', 1) for item in items[3:]
+        )
+        more_html = f'<div class="updates-more"><button class="updates-toggle" type="button" data-toggle-updates="{extra_group}" data-expanded="false">展开更多</button></div>'
+    else:
+        rendered_items = "".join(items)
 
     return f"""<div class="updates-block">
-  <p class="updates-title">版本更新</p>
+  <p class="updates-title">版本更新记录</p>
   <ul class="updates-list">
-    {''.join(primary_items)}
+    {rendered_items}
   </ul>
   {more_html}
 </div>"""
 
 
-def render_update_item(update: dict[str, object]) -> str:
+def render_update_item(update: dict[str, object], *, hidden: bool = False) -> str:
     date_label = str(update.get("date", "")).strip()
     text = update_display_text(update)
     if not date_label or not text:
         return ""
     signature = f"{date_label}|{text}"
-    return f'<li class="updates-item" data-update-signature="{escape_attr(signature)}" data-unread="false"><span class="updates-line"><span class="update-dot" aria-hidden="true"></span>{escape_html(date_label)} · {escape_html(text)}</span></li>'
+    hidden_attr = ' hidden' if hidden else ""
+    return f'<li class="updates-item" data-update-signature="{escape_attr(signature)}" data-unread="false"{hidden_attr}><span class="updates-line"><span class="update-dot" aria-hidden="true"></span>{escape_html(date_label)} · {escape_html(text)}</span></li>'
 
 
 def update_display_text(update: dict[str, object]) -> str:

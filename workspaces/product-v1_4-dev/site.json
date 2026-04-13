@@ -16,10 +16,6 @@
       "url": "demo/client.html"
     },
     {
-      "label": "平台端",
-      "url": "demo/platform.html"
-    },
-    {
       "label": "方案文档·AI",
       "url": "docs/1.4尺寸工具与客户端整合方案-v0.1.md"
     },

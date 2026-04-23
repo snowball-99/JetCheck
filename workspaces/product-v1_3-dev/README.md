@@ -18,13 +18,11 @@ JetCheck 1.3 增量开发工作区。
 ## 边界
 
 - 默认只修改本工作区
-- `reference/` 只作参考
+- 历史参考资料已暂时移除，不作为当前口径
 - 不主动修改其他 `workspaces/`
 
 ## 参考
 
-- `reference/analysis/`
-- `reference/projects/`
 - `docs/1.3-demo示例项目口径说明.md`
 
 ## 协作

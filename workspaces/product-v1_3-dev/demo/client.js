@@ -73,16 +73,22 @@ const TOOL_ITEM_LIMITS = {
 };
 
 const RUN_MODE_OPTIONS = [
-  { value: "acquire", label: "原图采样", hint: "仅采集原图样本。", requiredStep: "acquire" },
-  { value: "process", label: "处理结果采样", hint: "执行图像获取与图像处理。", requiredStep: "process" },
-  { value: "detect", label: "完整检测", hint: "执行完整检测链路。", requiredStep: "detect" },
+  { value: "acquire", label: "采图模式", hint: "仅采集原始图像。", requiredStep: "acquire" },
+  { value: "process", label: "图像处理模式", hint: "采集图像并输出处理结果。", requiredStep: "process" },
+  { value: "detect", label: "检测模式", hint: "完成检测并给出最终结果。", requiredStep: "detect" },
 ];
 
 const els = {
   loginShell: document.getElementById("loginShell"),
+  loginClientNameField: document.getElementById("loginClientNameField"),
   loginClientName: document.getElementById("loginClientName"),
+  loginClientNameError: document.getElementById("loginClientNameError"),
+  loginAccountField: document.getElementById("loginAccountField"),
   loginAccount: document.getElementById("loginAccount"),
+  loginAccountError: document.getElementById("loginAccountError"),
+  loginPasswordField: document.getElementById("loginPasswordField"),
   loginPassword: document.getElementById("loginPassword"),
+  loginPasswordError: document.getElementById("loginPasswordError"),
   loginHint: document.getElementById("loginHint"),
   loginError: document.getElementById("loginError"),
   loginSubmit: document.getElementById("loginSubmit"),
@@ -492,9 +498,43 @@ function renderLoginScreen() {
   renderLoginScenarioButtons();
   els.loginHint.className = "login-text-hint";
   els.loginHint.textContent = getLoginScenarioHint(activeScenario);
-  els.loginError.hidden = true;
+  clearLoginErrors();
   els.loginSubmit.disabled = false;
   els.loginSubmit.textContent = "登录";
+}
+
+function clearLoginErrors() {
+  [
+    [els.loginClientNameField, els.loginClientNameError],
+    [els.loginAccountField, els.loginAccountError],
+    [els.loginPasswordField, els.loginPasswordError],
+  ].forEach(([field, errorEl]) => {
+    field?.classList.remove("is-error");
+    if (errorEl) {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+  });
+  els.loginError.hidden = true;
+  els.loginError.textContent = "";
+}
+
+function showLoginFieldErrors(errors = {}) {
+  clearLoginErrors();
+  const fieldMap = {
+    clientName: [els.loginClientNameField, els.loginClientNameError],
+    account: [els.loginAccountField, els.loginAccountError],
+    password: [els.loginPasswordField, els.loginPasswordError],
+  };
+  Object.entries(errors).forEach(([key, message]) => {
+    if (!message || !fieldMap[key]) return;
+    const [field, errorEl] = fieldMap[key];
+    field?.classList.add("is-error");
+    if (errorEl) {
+      errorEl.hidden = false;
+      errorEl.textContent = message;
+    }
+  });
 }
 
 function renderLoginScenarioButtons() {
@@ -519,12 +559,12 @@ function getActiveLoginDemoMode() {
 
 function getLoginScenarioHint(type) {
   if (type === "quota-full") {
-    return "当前演示场景为额度已满，新设备登录会提示当前账号下的客户端额度已满。";
+    return "当前账号可用设备数已满，新设备暂时无法登录。";
   }
   if (type === "offline") {
-    return "当前演示场景为离线，登录会提示无法连接云端服务。";
+    return "当前网络异常，暂时无法登录，请检查网络后重试。";
   }
-  return "首次登录将自动绑定当前设备并保存客户端名称。";
+  return "首次登录后，系统会自动绑定当前设备。";
 }
 
 function applyLoginDemoScenario(type) {
@@ -579,13 +619,13 @@ function renderGlobalAlerts() {
 
   const alerts = [];
   if (Demo.isStorageBlocked(state)) {
-    alerts.push(renderTopbarAlert("danger", `剩余空间 ${Demo.formatGb(state.storage.remainingGb)}，低于阻断阈值 ${Demo.formatGb(state.storage.blockGb)}`, "去清理", "open-storage-cleanup"));
+    alerts.push(renderTopbarAlert("danger", "剩余空间过低，新的检测任务已暂停，请先清理数据。", "去清理", "open-storage-cleanup"));
   } else if (Demo.isStorageWarning(state)) {
-    alerts.push(renderTopbarAlert("warning", `剩余空间 ${Demo.formatGb(state.storage.remainingGb)}，低于提醒阈值 ${Demo.formatGb(state.storage.warningGb)}`, "去清理", "open-storage-cleanup"));
+    alerts.push(renderTopbarAlert("warning", "剩余空间不足，可能影响检测，请尽快清理数据。", "去清理", "open-storage-cleanup"));
   }
 
   if (!state.runtimeDevice.networkOnline) {
-    alerts.push(renderTopbarAlert("neutral", "离线模式"));
+    alerts.push(renderTopbarAlert("neutral", "当前离线"));
   }
 
   els.globalAlerts.innerHTML = alerts.join("");
@@ -631,16 +671,21 @@ function renderToolBuilder() {
   const tool = getActiveTool();
   if (!tool) return;
   const editingLocked = isToolEditingLocked(tool);
-  const detectInvalidTargetCount = getToolInvalidDetectTargetCount(tool);
+  const invalidAcquireCount = getToolInvalidAcquireCount(tool);
+  const invalidProcessCount = getToolInvalidProcessCount(tool);
+  const invalidDetectCount = getToolInvalidDetectConfigCount(tool);
   els.builderToolTitle.textContent = tool.name;
   els.builderSteps.forEach((button) => {
-    const isDetectStep = button.dataset.builderStep === "detect";
-    const hasInvalidDetectConfig = isDetectStep && detectInvalidTargetCount > 0;
+    const step = button.dataset.builderStep;
+    const hasInvalidConfig =
+      (step === "acquire" && invalidAcquireCount > 0) ||
+      (step === "process" && invalidProcessCount > 0) ||
+      (step === "detect" && invalidDetectCount > 0);
     button.classList.toggle("is-active", button.dataset.builderStep === ui.builderStep);
-    button.classList.toggle("is-invalid", hasInvalidDetectConfig);
-    if (hasInvalidDetectConfig) {
+    button.classList.toggle("is-invalid", hasInvalidConfig);
+    if (hasInvalidConfig) {
       button.title = "配置失效";
-    } else if (isDetectStep) {
+    } else {
       button.removeAttribute("title");
     }
   });
@@ -649,36 +694,36 @@ function renderToolBuilder() {
 
   if (ui.builderStep === "acquire") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像获取实例",
+      title: "图像来源",
       limitText: getBuilderLimitText("acquire", tool.acquire.length),
-      actionLabel: "新增图像获取实例",
+      actionLabel: "添加图像来源",
       actionKey: "add-acquire",
       items: tool.acquire.map((item) => renderAcquireItem(tool, item)),
-      emptyText: "当前还没有图像获取实例。至少创建 1 个实例后才能进入下一步。",
+      emptyText: "当前还没有图像来源。",
       disabled: editingLocked || tool.acquire.length >= TOOL_ITEM_LIMITS.acquire,
     });
   }
 
   if (ui.builderStep === "process") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像处理实例",
+      title: "图像处理步骤",
       limitText: getBuilderLimitText("process", tool.process.length),
-      actionLabel: "新增图像处理实例",
+      actionLabel: "添加处理步骤",
       actionKey: "add-process",
       items: tool.process.map((item) => renderProcessItem(tool, item)),
-      emptyText: tool.acquire.length ? "当前还没有图像处理实例。" : "请先完成图像获取实例配置，才能新增图像处理实例。",
+      emptyText: tool.acquire.length ? "当前还没有处理步骤。" : "当前没有可选图像，请前往上一步创建图像来源。",
       disabled: editingLocked || !tool.acquire.length || tool.process.length >= TOOL_ITEM_LIMITS.process,
     });
   }
 
   if (ui.builderStep === "detect") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像检测实例",
+      title: "检测判断步骤",
       limitText: getBuilderLimitText("detect", tool.detect.length),
-      actionLabel: "新增图像检测实例",
+      actionLabel: "添加检测步骤",
       actionKey: "add-detect",
       items: tool.detect.map((item) => renderDetectItem(tool, item)),
-      emptyText: tool.process.length ? "当前还没有图像检测实例。" : "请先完成图像处理实例配置，才能新增图像检测实例。",
+      emptyText: tool.process.length ? "当前还没有检测步骤。" : "当前没有可选图像，请前往上一步创建处理步骤。",
       disabled: editingLocked || !tool.process.length || tool.detect.length >= TOOL_ITEM_LIMITS.detect,
     });
   }
@@ -688,7 +733,14 @@ function renderToolBuilder() {
   els.prevBuilderStep.disabled = stepIndex === 0;
   els.nextBuilderStep.disabled = stepIndex >= 2 || !canNext;
   els.nextBuilderStep.hidden = stepIndex >= 2;
-  els.finishBuilderBtn.disabled = stepIndex < 2 || !Demo.evaluateToolCompletion(tool);
+  els.finishBuilderBtn.disabled =
+    stepIndex < 2 ||
+    !tool.acquire.length ||
+    !tool.process.length ||
+    !tool.detect.length ||
+    invalidAcquireCount > 0 ||
+    invalidProcessCount > 0 ||
+    invalidDetectCount > 0;
 }
 
 function getBuilderLimitText(type, count) {
@@ -723,7 +775,7 @@ function getRuntimeInitialImageResults(tool) {
     return {
       id: `preview_${acquire.id || index}`,
       acquireId: acquire.id,
-      acquireName: acquire.name || `图像获取实例 ${index + 1}`,
+      acquireName: acquire.name || `图像来源 ${index + 1}`,
       imageLabel: getAcquireSampleName(acquire),
       sourceImageUrl: "",
       sourceImageName: "",
@@ -765,10 +817,13 @@ function renderToolRuntime() {
   const runningBusy = pendingCurrentTool || playing;
   const visibleTags = getRuntimeVisibleTags(tool, latestRecord);
   const tagsEditable = canEditRuntimeTags(latestRecord, tool) && !playing;
+  const sessionMode = tool.runtime?.sessionMode || getHighestAvailableRunMode(tool);
+  const runActionLabel = getRunActionLabel(sessionMode);
+  const waitingLabel = getRunWaitingLabel(sessionMode);
   if (activeImageResult) ui.activeRuntimeImageId = activeImageResult.id;
 
   els.runtimeToolTitle.textContent = tool.name;
-  els.runtimeModeSummary.textContent = getRunModeLabel(tool.runtime?.sessionMode || getHighestAvailableRunMode(tool));
+  els.runtimeModeSummary.textContent = getRunModeLabel(sessionMode);
   els.runtimePrimaryResult.textContent = !sessionActive
     ? "未运行"
     : pendingCurrentTool
@@ -776,12 +831,12 @@ function renderToolRuntime() {
       : playing
         ? "执行中"
         : latestRecord
-          ? latestRecord.totalResult || latestRecord.businessResult || tool.runtime.primaryResult || "-"
-          : "等待信号";
+          ? (activeRunMode === "detect" ? latestRecord.totalResult || latestRecord.businessResult || tool.runtime.primaryResult || "暂无结果" : "已完成")
+          : waitingLabel;
   els.runtimeCycleTime.textContent = waitingForCurrentRun ? "-" : tool.runtime.cycleTime || "-";
   els.startToolRun.disabled = !sessionActive || Demo.isStorageBlocked(state) || !!ui.pendingDetectionToolId || playing;
-  els.startToolRun.textContent = pendingCurrentTool ? "Demo: 信号处理中..." : playing ? "Demo: 结果回显中..." : "Demo: 模拟信号";
-  els.resetCurrentRunBtn.disabled = !sessionActive;
+  els.startToolRun.textContent = pendingCurrentTool ? `${runActionLabel}中...` : playing ? `${runActionLabel}中...` : runActionLabel;
+  els.resetCurrentRunBtn.disabled = !sessionActive || (!pendingCurrentTool && !latestRecord);
   els.stopToolRunBtn.disabled = !sessionActive;
   const runtimeImageResultText = getDisplayResultText(activeImageResult?.result || "-");
   els.runtimeCurrentImageResult.hidden =
@@ -792,19 +847,19 @@ function renderToolRuntime() {
   els.runtimeTagCount.textContent = `已添加 ${visibleTags.length}/3`;
   els.runtimeTagInfo.innerHTML = renderRuntimeTagInfo(visibleTags, {
     editable: tagsEditable,
-    hint: runningBusy ? "运行执行中，暂不可编辑标签" : "当前可添加标签",
+    hint: runningBusy ? `${runActionLabel}进行中，暂不能编辑标签` : "当前可添加标签",
   });
   els.runtimeCameraInfo.innerHTML = renderRuntimeCameraInfo(activeImageResult);
 
   if (!imageResults.length) {
-    els.runtimeImageResultList.innerHTML = `<div class="builder-empty">${initialState ? "当前暂无图像获取实例" : "暂无运行记录"}</div>`;
-    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${initialState ? "当前工具正在等待触发信号" : "暂无图像结果"}</div></div>`;
-    els.runtimeImageCaption.textContent = initialState ? "等待触发信号" : "暂无运行结果图像";
+    els.runtimeImageResultList.innerHTML = `<div class="builder-empty">${initialState ? "当前暂无图像来源" : "暂无运行记录"}</div>`;
+    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${initialState ? waitingLabel : "暂无图像结果"}</div></div>`;
+    els.runtimeImageCaption.textContent = initialState ? "等待开始" : "暂无图像结果";
     els.runtimeCurrentImageResult.hidden = true;
     els.runtimeTagCount.textContent = `已添加 ${visibleTags.length}/3`;
     els.runtimeTagInfo.innerHTML = renderRuntimeTagInfo(visibleTags, {
       editable: tagsEditable,
-      hint: runningBusy ? "运行执行中，暂不可编辑标签" : "当前可添加标签",
+      hint: runningBusy ? `${runActionLabel}进行中，暂不能编辑标签` : "当前可添加标签",
     });
     els.runtimeCameraInfo.innerHTML = `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
     stopRuntimeCarousel();
@@ -821,8 +876,8 @@ function renderToolRuntime() {
     )
     .join("");
   if (waitingForCurrentRun) {
-    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">等待触发信号</div></div>`;
-    els.runtimeImageCaption.textContent = "等待触发信号";
+    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${waitingLabel}</div></div>`;
+    els.runtimeImageCaption.textContent = "等待开始";
     stopRuntimeCarousel();
     return;
   }
@@ -830,7 +885,7 @@ function renderToolRuntime() {
   els.runtimeImageCaption.textContent = activeImageResult
     ? activeImageResult.acquireName || activeImageResult.imageLabel || "当前图像"
     : initialState
-      ? "等待触发信号"
+      ? "等待开始"
       : activeRunMode === "detect"
         ? "等待检测结果"
         : "等待运行结果";
@@ -847,13 +902,13 @@ function renderRuntimeImageResultItem(item, index, active, options = {}) {
     <div class="runtime-image-result-item ${active ? "is-active" : ""}">
       <button class="runtime-image-result-main" data-action="select-runtime-image" data-id="${item.id}" type="button">
         <div class="runtime-image-result-copy">
-          <strong>${escapeHtml(item.acquireName || `图像获取实例 ${index + 1}`)}</strong>
+          <strong>${escapeHtml(item.acquireName || `图像来源 ${index + 1}`)}</strong>
         </div>
         ${badgeMarkup}
       </button>
       ${
         shouldRenderSubResultButton
-          ? `<button class="table-btn" data-action="open-runtime-image-detail" data-id="${item.id}" type="button" ${buttonDisabled ? "disabled" : ""}>查看子图（${subResultCount}）</button>`
+          ? `<button class="table-btn" data-action="open-runtime-image-detail" data-id="${item.id}" type="button" ${buttonDisabled ? "disabled" : ""}>查看分区结果（${subResultCount}）</button>`
           : ""
       }
     </div>
@@ -882,7 +937,7 @@ function renderRuntimeCameraInfo(imageResult) {
     return `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
   }
   if (context.acquire.type !== "camera" || !context.camera) {
-    return `<div class="runtime-camera-empty">当前图像来源为接口输入，不显示相机信息</div>`;
+    return `<div class="runtime-camera-empty">当前图像来自接口，不显示相机信息。</div>`;
   }
   const cameraStatusText = getRuntimeCameraStatusText(context.camera);
   return `
@@ -1076,10 +1131,10 @@ function renderRuntimeMappedResult(item, index, imageResultId = "") {
       data-image-id="${imageResultId}"
       data-sub-id="${item.id}"
       type="button"
-      title="查看对应子图结果"
-      aria-label="查看对应子图结果"
+      title="查看对应分区结果"
+      aria-label="查看对应分区结果"
     >
-      <span class="runtime-mapped-index">ROI${index + 1}</span>
+      <span class="runtime-mapped-index">检测区域${index + 1}</span>
       ${showResultBadge ? `<span class="runtime-mapped-result-badge ${toneClass}">${escapeHtml(resultText)}</span>` : ""}
     </button>
   `;
@@ -1271,7 +1326,7 @@ function openRuntimeImageResultsModal(imageResultId, activeSubId = "") {
   stopRuntimeCarousel();
   const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
   openSubResultViewerModal({
-    title: `${imageResult.acquireName} · 子图结果（${subResults.length}）`,
+    title: `${imageResult.acquireName} · 分区结果（${subResults.length}）`,
     subResults,
     tool: state.tools.find((item) => item.id === record.toolId) || getActiveTool(),
     activeSubId,
@@ -1317,7 +1372,7 @@ function openSubResultViewerModal({ title, subResults = [], tool = getActiveTool
 
 function renderSubResultViewerLayout(subResults, activeId, tool = getActiveTool()) {
   if (!subResults.length) {
-    return `<div class="runtime-subresult-dialog"><div class="builder-empty">当前暂无子图结果</div></div>`;
+    return `<div class="runtime-subresult-dialog"><div class="builder-empty">当前暂无分区结果</div></div>`;
   }
   const activeIndex = Math.max(0, subResults.findIndex((item) => item.id === activeId));
   const activeItem = subResults[activeIndex] || subResults[0];
@@ -1325,7 +1380,7 @@ function renderSubResultViewerLayout(subResults, activeId, tool = getActiveTool(
   return `
     <div class="runtime-subresult-viewer">
       <aside class="runtime-subresult-sidebar">
-        <div class="runtime-subresult-sidebar-title">子图列表（${subResults.length}）</div>
+        <div class="runtime-subresult-sidebar-title">分区结果（${subResults.length}）</div>
         <div class="runtime-subresult-list">
           ${subResults
             .map((item, index) => renderSubResultViewerListItem(item, index, item.id === activeItem.id, tool))
@@ -1387,11 +1442,11 @@ function renderSubResultViewerStage(item, index) {
 
 function getRuntimeSubResultDisplayName(item, index, tool = getActiveTool()) {
   const rawName = String(item?.name || "").trim();
-  if (/ROI\s*\d+$/i.test(rawName)) return rawName;
-  const processName = tool?.process?.find((process) => process.id === item?.processId)?.name || rawName || `图像处理实例 ${index + 1}`;
+  if (/ROI\s*\d+$/i.test(rawName)) return rawName.replace(/ROI/i, "检测区域");
+  const processName = tool?.process?.find((process) => process.id === item?.processId)?.name || rawName || `处理步骤 ${index + 1}`;
   const roiMatch = String(item?.source || "").match(/ROI\s*#?\s*(\d+)/i);
   const roiIndex = roiMatch?.[1] || index + 1;
-  return `${processName} ROI${roiIndex}`;
+  return `${processName} 检测区域${roiIndex}`;
 }
 
 function updateSelectOptions(selectEl, options, selectedValue, emptyLabel) {
@@ -1414,14 +1469,34 @@ function updateSelectOptions(selectEl, options, selectedValue, emptyLabel) {
   }
 }
 
+function getRunningToolNames(filterFn) {
+  return state.tools.filter((tool) => isToolSessionRunning(tool) && filterFn(tool)).map((tool) => tool.name);
+}
+
+function getRunningToolNamesUsingCamera(cameraId) {
+  return getRunningToolNames((tool) => tool.acquire.some((item) => item.type === "camera" && item.cameraId === cameraId));
+}
+
+function getRunningToolNamesUsingParamGroup(paramGroupId) {
+  return getRunningToolNames((tool) => tool.acquire.some((item) => item.type === "camera" && item.paramGroupId === paramGroupId));
+}
+
+function getRunningToolNamesUsingModel(modelId) {
+  return getRunningToolNames(
+    (tool) =>
+      tool.process.some((item) => item.modelId === modelId) ||
+      tool.detect.some((item) => item.modelId === modelId),
+  );
+}
+
 function renderCameraPage() {
   els.cameraKeywordInput.value = ui.cameraFilters.keyword;
   els.cameraVendorFilter.value = ui.cameraFilters.vendor;
-  const referencedCameras = Demo.getReferencedCameraIds(state);
   const rows = getFilteredCameras();
   els.cameraTableBody.innerHTML = rows
     .map((camera) => {
-      const canDelete = !referencedCameras.has(camera.id);
+      const runningReferenceNames = getRunningToolNamesUsingCamera(camera.id);
+      const canDelete = runningReferenceNames.length === 0;
       const canManageParam = camera.status === "空闲";
       return `
         <tr>
@@ -1571,12 +1646,12 @@ function renderClientInfo() {
   const client = Demo.getRuntimeClient(state);
   const clientStatus = client ? Demo.getClientStatus(client, state.meta.now) : "未绑定";
   els.clientInfoMeta.innerHTML = [
-    ["客户端名称", client?.name || state.runtimeDevice.name],
-    ["客户端版本", "JetCheck Client Demo v1.3"],
-    ["硬件识别码", state.runtimeDevice.hardwareCode],
+    ["设备名称", client?.name || state.runtimeDevice.name],
+    ["客户端版本", "JetCheck Client v1.3"],
+    ["设备编号", state.runtimeDevice.hardwareCode],
     ["绑定时间", Demo.formatDateTime(client?.boundAt)],
     ["登录手机号", state.enterprise.account],
-    ["客户端状态", clientStatus],
+    ["设备状态", clientStatus],
   ]
     .map(([label, value]) => `<span>${label}</span><span>${escapeHtml(String(value))}</span>`)
     .join("");
@@ -1588,24 +1663,24 @@ function editClientName() {
   const client = Demo.getRuntimeClient(state);
   const currentName = client?.name || state.runtimeDevice.name || "";
   openSharedModal({
-    title: "编辑客户端名称",
+    title: "编辑设备名称",
     body: `
       <label class="field">
-        <span>客户端名称</span>
-        <input id="clientNameInput" type="text" maxlength="24" value="${escapeAttribute(currentName)}" placeholder="请输入客户端名称" />
+        <span>设备名称</span>
+        <input id="clientNameInput" type="text" maxlength="24" value="${escapeAttribute(currentName)}" placeholder="请输入设备名称" />
       </label>
     `,
     confirmText: "保存",
     onConfirm() {
       const nextName = document.getElementById("clientNameInput").value.trim();
       if (!nextName) {
-        showToast("请输入客户端名称");
+        showToast("请输入设备名称");
         return false;
       }
       state.runtimeDevice.name = nextName;
       if (client) client.name = nextName;
       closeSharedModal();
-      persistState("客户端名称已更新");
+      persistState("设备名称已更新");
       return true;
     },
   });
@@ -1659,7 +1734,7 @@ function renderAddCameraModal() {
         .join("")
     : `
         <tr>
-          <td colspan="7" class="empty-state">当前没有可添加的相机</td>
+          <td colspan="7" class="empty-state">暂无数据</td>
         </tr>
       `;
 }
@@ -1672,7 +1747,7 @@ function renderParamModal() {
   if (!camera) {
     els.paramGroupList.innerHTML = `<div class="builder-empty">暂无可管理的相机参数组。</div>`;
     els.paramFormFields.innerHTML = "";
-    els.paramPreviewCaption.textContent = "预览调试区";
+    els.paramPreviewCaption.textContent = "相机画面";
     els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
     return;
   }
@@ -1681,7 +1756,7 @@ function renderParamModal() {
   els.paramGroupList.innerHTML = renderParamGroupList(camera, referencedParamIds);
   if (!group) {
     els.paramFormFields.innerHTML = "";
-    els.paramPreviewCaption.textContent = "预览调试区";
+    els.paramPreviewCaption.textContent = "相机画面";
     els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
     return;
   }
@@ -1696,7 +1771,7 @@ function renderParamGroupList(camera, referencedParamIds) {
     .map((item) => {
       const referenced = referencedParamIds.has(item.id);
       const active = item.id === ui.activeParamGroupId;
-      const canDelete = !referenced && camera.paramGroups.length > 1;
+      const canDelete = camera.paramGroups.length > 1 && getRunningToolNamesUsingParamGroup(item.id).length === 0;
       return `
         <article class="param-group-item ${active ? "is-active" : ""}">
           <button class="param-group-main" data-group-id="${item.id}">
@@ -1726,7 +1801,7 @@ function renderModelDrawer() {
   els.modelSelectPanel.hidden = ui.modelDrawerMode !== "select-local";
   els.cloudModelPanel.hidden = ui.modelDrawerMode !== "cloud-add";
   els.modelDrawer.querySelector(".drawer-header h3").textContent =
-    ui.modelDrawerMode === "select-local" ? ui.modelTarget?.title || "选择本地模型" : "从云端添加模型";
+    ui.modelDrawerMode === "select-local" ? ui.modelTarget?.title || "选择检测模型" : "从云端下载模型";
   if (ui.modelDrawerMode === "select-local") {
     renderSelectorModels();
     return;
@@ -1752,11 +1827,12 @@ function renderLocalModels() {
   const rows = getFilteredLocalModels();
   const hasModels = rows.length > 0;
   els.localModelEmpty.hidden = hasModels;
-  els.localModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "当前本地暂无模型";
+  els.localModelEmpty.textContent = "暂无数据";
   els.localModelTableBody.innerHTML = hasModels
     ? rows
         .map((model) => {
           const referenceCount = getLocalModelReferenceCount(model.id);
+          const runningReferenceNames = getRunningToolNamesUsingModel(model.id);
           return `
             <tr>
               <td>${escapeHtml(model.modelName)}</td>
@@ -1765,7 +1841,7 @@ function renderLocalModels() {
               <td>${escapeHtml(model.source)}</td>
               <td>${Demo.formatDateTime(model.addedAt)}</td>
               <td>${renderReferenceStatusHtml(referenceCount)}</td>
-              <td><button class="table-btn table-btn-danger" data-action="delete-local-model" data-model-id="${model.id}" ${referenceCount ? "disabled" : ""}>删除</button></td>
+              <td><button class="table-btn table-btn-danger" data-action="delete-local-model" data-model-id="${model.id}" ${runningReferenceNames.length ? "disabled" : ""}>删除</button></td>
             </tr>
           `;
         })
@@ -1805,7 +1881,7 @@ function renderSelectorModels() {
   const hasModels = rows.length > 0;
   els.confirmModelSelectBtn.disabled = !hasModels;
   els.selectorModelEmpty.hidden = hasModels;
-  els.selectorModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "当前本地暂无模型";
+  els.selectorModelEmpty.textContent = "暂无数据";
   els.selectorModelTableBody.innerHTML = hasModels
     ? rows
         .map((model) => {
@@ -2077,7 +2153,7 @@ function openLaunchToolModal(toolId) {
     return;
   }
   openSharedModal({
-    title: `启动检测工具 · ${tool.name}`,
+    title: `开始检测 · ${tool.name}`,
     panelClass: "modal-launch",
     bodyClass: "modal-body-launch",
     hideConfirm: true,
@@ -2097,7 +2173,7 @@ function openLaunchToolModal(toolId) {
               <div class="launch-mode-head">
                 <strong>${escapeHtml(item.label)}</strong>
               </div>
-              <p>${escapeHtml(enabled ? item.hint : `当前配置未满足${item.label}要求`)}</p>
+              <p>${escapeHtml(enabled ? item.hint : `当前设置未满足${item.label}要求`)}</p>
               ${enabled ? "" : `<span class="launch-mode-state">当前不可用</span>`}
             </button>
           `;
@@ -2120,7 +2196,7 @@ function startToolRunSession(toolId, runMode) {
   if (!tool) return;
   syncToolCompletionState(tool);
   if (!evaluateToolRunModeAvailability(tool, runMode)) {
-    showToast("当前模式所需配置尚未完成");
+    showToast("当前模式所需设置还不完整，请先补全后再开始。");
     return;
   }
   tool.runtime.sessionActive = true;
@@ -2131,7 +2207,7 @@ function startToolRunSession(toolId, runMode) {
   closeSharedModal();
   activateRuntimeInitialState(toolId);
   syncUiSelections();
-  persistState(`已开始运行：${getRunModeLabel(runMode)}`);
+  persistState(`已开始：${getRunModeLabel(runMode)}`);
 }
 
 function handleBuilderBodyClick(event) {
@@ -2162,9 +2238,9 @@ function ensureToolItemCapacity(type, currentId = "") {
 }
 
 function getToolItemLabel(type) {
-  if (type === "acquire") return "图像获取实例";
-  if (type === "process") return "图像处理实例";
-  return "图像检测实例";
+  if (type === "acquire") return "图像来源";
+  if (type === "process") return "处理步骤";
+  return "检测步骤";
 }
 
 function openAcquireModal(acquireId) {
@@ -2186,26 +2262,26 @@ function openAcquireModal(acquireId) {
     "";
 
   openSharedModal({
-    title: existing ? "编辑图像获取实例" : "新增图像获取实例",
+    title: existing ? "编辑图像来源" : "添加图像来源",
     panelClass: "modal-param",
     body: `
       <div class="form-grid double-column">
         <label class="field">
-          <span>实例名称</span>
-          <input id="acquireNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入实例名称" />
+          <span>图像名称</span>
+          <input id="acquireNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入图像名称" />
         </label>
         <label class="field">
-          <span>获取类型</span>
+          <span>采集方式</span>
           <select id="acquireTypeSelect">
-            <option value="camera" ${existing?.type !== "api" ? "selected" : ""}>相机获取</option>
-            <option value="api" ${existing?.type === "api" ? "selected" : ""}>接口获取</option>
+            <option value="camera" ${existing?.type !== "api" ? "selected" : ""}>相机</option>
+            <option value="api" ${existing?.type === "api" ? "selected" : ""}>接口</option>
           </select>
         </label>
       </div>
       <div id="acquireCameraFields">
         <div class="form-grid double-column">
           <label class="field">
-            <span>选择相机</span>
+            <span>相机</span>
             <select id="acquireCameraSelect">
               ${state.cameras.map((item) => `<option value="${item.id}" ${item.id === defaultCameraId ? "selected" : ""}>${escapeHtml(Demo.getCameraLabel(item))}</option>`).join("")}
             </select>
@@ -2227,9 +2303,9 @@ function openAcquireModal(acquireId) {
       <div class="builder-sample-card">
         <div class="section-head section-head-tight">
           <div>
-            <h4>示例图片</h4>
+            <h4>示例图像</h4>
           </div>
-          <button class="secondary-btn" type="button" id="acquireSampleUploadBtn">本地上传</button>
+          <button class="secondary-btn" type="button" id="acquireSampleUploadBtn">上传示例图像</button>
         </div>
         <input id="acquireSampleFileInput" type="file" accept="image/*" hidden />
         <div class="builder-sample-preview" id="acquireSamplePreview"></div>
@@ -2258,8 +2334,8 @@ function openAcquireModal(acquireId) {
 
       function renderAcquireSamplePreview() {
         samplePreview.innerHTML = `
-          ${renderSamplePreviewHtml(draftSample.url, draftSample.name || "未上传示例图片")}
-          <p class="muted">${escapeHtml(draftSample.name || "请上传示例图片")}</p>
+          ${renderSamplePreviewHtml(draftSample.url, draftSample.name || "请上传示例图像")}
+          <p class="muted">${escapeHtml(draftSample.name || "请上传示例图像")}</p>
         `;
       }
 
@@ -2280,7 +2356,7 @@ function openAcquireModal(acquireId) {
           };
           renderAcquireSamplePreview();
         } catch (error) {
-          showToast("示例图片处理失败，请重试");
+          showToast("示例画面处理失败，请重试");
         } finally {
           sampleUploadBtn.disabled = false;
           sampleFileInput.value = "";
@@ -2293,18 +2369,18 @@ function openAcquireModal(acquireId) {
       const name = document.getElementById("acquireNameInput").value.trim();
       const type = document.getElementById("acquireTypeSelect").value;
       if (!name) {
-        showToast("请输入实例名称");
+        showToast("请输入图像名称。");
         return false;
       }
       if (!draftSample.url) {
-        showToast("请上传示例图片");
+        showToast("请上传示例图像");
         return false;
       }
       if (type === "camera") {
         const cameraId = document.getElementById("acquireCameraSelect").value;
         const paramGroupId = document.getElementById("acquireParamSelect").value;
         if (!cameraId || !paramGroupId) {
-          showToast("相机获取模式下必须选择相机和参数组");
+          showToast("请选择相机和参数组。");
           return false;
         }
         const next = existing || { id: Demo.makeId("acq") };
@@ -2322,7 +2398,7 @@ function openAcquireModal(acquireId) {
       } else {
         const endpoint = document.getElementById("acquireEndpointInput").value.trim();
         if (!endpoint) {
-          showToast("接口获取模式下必须填写接口地址");
+          showToast("请输入接口地址。");
           return false;
         }
         const next = existing || { id: Demo.makeId("acq") };
@@ -2339,7 +2415,7 @@ function openAcquireModal(acquireId) {
         upsertToolItem("acquire", next);
       }
       closeSharedModal();
-      persistState(existing ? "图像获取实例已更新" : "图像获取实例已创建");
+      persistState(existing ? "图像来源已更新" : "图像来源已添加");
       return true;
     },
   });
@@ -2349,7 +2425,7 @@ function openProcessModal(processId) {
   if (!ensureToolItemCapacity("process", processId)) return;
   const tool = getActiveTool();
   if (!tool.acquire.length) {
-    showToast("请先创建图像获取实例");
+    showToast("请先添加图像来源");
     return;
   }
   const existing = tool.process.find((item) => item.id === processId);
@@ -2361,16 +2437,16 @@ function openProcessModal(processId) {
   let activeDrawType = draftRegions.find((item) => item.type === "ignore") ? "ignore" : "roi";
   let liveDraftRegion = null;
   openSharedModal({
-    title: existing ? "编辑图像处理实例" : "新增图像处理实例",
+    title: existing ? "编辑处理步骤" : "新增处理步骤",
     panelClass: "modal-param",
     body: `
       <div class="form-grid double-column">
         <label class="field">
-          <span>实例名称</span>
-          <input id="processNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入实例名称" />
+          <span>处理步骤名称</span>
+          <input id="processNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入处理步骤名称" />
         </label>
         <label class="field">
-          <span>关联图像获取实例</span>
+          <span>关联图像</span>
           <select id="processInputSelect">
             ${tool.acquire.map((item) => `<option value="${item.id}" ${item.id === draftInputId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
           </select>
@@ -2380,15 +2456,15 @@ function openProcessModal(processId) {
         <label class="field">
           <span>处理方式</span>
           <select id="processModeSelect">
-            <option value="full-image" ${initialMode === "full-image" ? "selected" : ""}>全图处理</option>
-            <option value="manual-roi" ${initialMode === "manual-roi" ? "selected" : ""}>手绘 ROI</option>
-            <option value="model-roi" ${initialMode === "model-roi" ? "selected" : ""}>模型 ROI</option>
+            <option value="full-image" ${initialMode === "full-image" ? "selected" : ""}>整图处理</option>
+            <option value="manual-roi" ${initialMode === "manual-roi" ? "selected" : ""}>手动划区</option>
+            <option value="model-roi" ${initialMode === "model-roi" ? "selected" : ""}>自动分区</option>
           </select>
         </label>
       </div>
       <div id="processModelSection" hidden>
         <label class="field">
-          <span>ROI 模型</span>
+          <span>模型</span>
           <div class="model-picker-row">
             <div class="model-picker-value" id="processModelSummary">${escapeHtml(Demo.getModelLabel(state, draftModelId) || "未选择模型")}</div>
             <button class="secondary-btn" id="openProcessModelDrawer" type="button">选择模型</button>
@@ -2400,8 +2476,8 @@ function openProcessModal(processId) {
       <div id="processRoiSection" hidden class="roi-editor-layout">
         <div class="roi-toolbar">
           <div class="roi-toolbar-group">
-            <button class="secondary-btn" type="button" id="drawRoiBtn">绘制 ROI</button>
-            <button class="ghost-btn" type="button" id="drawIgnoreBtn">绘制不检测区域</button>
+            <button class="secondary-btn" type="button" id="drawRoiBtn">绘制检测区域</button>
+            <button class="ghost-btn" type="button" id="drawIgnoreBtn">绘制排除区域</button>
             <button class="ghost-btn" type="button" id="clearProcessRegionsBtn">清空区域</button>
           </div>
           <div class="roi-toolbar-group">
@@ -2414,7 +2490,7 @@ function openProcessModal(processId) {
           <article class="card roi-stage-card">
             <div class="section-head section-head-tight">
               <div>
-                <h4>区域绘制</h4>
+                <h4>检测区域</h4>
               </div>
             </div>
             <div class="roi-stage-shell">
@@ -2424,7 +2500,7 @@ function openProcessModal(processId) {
           <article class="card roi-region-card">
             <div class="section-head section-head-tight">
               <div>
-                <h4>已绘制区域</h4>
+                <h4>已设置区域</h4>
               </div>
             </div>
             <div class="roi-region-list" id="processRegionList"></div>
@@ -2477,9 +2553,9 @@ function openProcessModal(processId) {
         const sameType = draftRegions.filter((item) => item.type === region.type);
         const index = sameType.findIndex((item) => item.id === region.id);
         if (index < 0) {
-          return region.type === "ignore" ? "不检测区域" : "ROI";
+          return region.type === "ignore" ? "排除区域" : "检测区域";
         }
-        return region.type === "ignore" ? `不检测区域 ${index + 1}` : `ROI ${index + 1}`;
+        return region.type === "ignore" ? `排除区域 ${index + 1}` : `检测区域 ${index + 1}`;
       }
 
       function renderRegionBox(region, draft = false) {
@@ -2495,7 +2571,7 @@ function openProcessModal(processId) {
 
       function renderProcessRegionList() {
         if (!draftRegions.length) {
-          processRegionList.innerHTML = `<div class="builder-empty">还没有绘制区域</div>`;
+          processRegionList.innerHTML = `<div class="builder-empty">还没有检测区域</div>`;
           return;
         }
         processRegionList.innerHTML = draftRegions
@@ -2504,7 +2580,7 @@ function openProcessModal(processId) {
               <div class="roi-region-item">
                 <div>
                   <strong>${escapeHtml(getRegionLabel(region))}</strong>
-                  <p>${region.type === "ignore" ? "不参与检测" : isFullImageRegion(region) ? "整张图片参与检测" : "参与检测"}</p>
+                  <p>${region.type === "ignore" ? "该区域不参与判断" : isFullImageRegion(region) ? "整张图片参与判断" : "该区域参与判断"}</p>
                 </div>
                 <button class="table-btn table-btn-danger" type="button" data-remove-region="${region.id}">删除</button>
               </div>
@@ -2528,7 +2604,7 @@ function openProcessModal(processId) {
         const sampleUrl = getAcquireSampleUrl(sourceAcquire);
         processRoiStage.innerHTML = `
           <div class="roi-stage-surface ${sampleUrl ? "" : "is-placeholder"}" id="processRoiSurface">
-            ${sampleUrl ? `<img src="${escapeAttribute(sampleUrl)}" alt="${escapeAttribute(getAcquireSampleName(sourceAcquire))}" />` : `<div class="sample-preview-frame is-placeholder"><div class="sample-preview-grid"></div><span>请先为当前图像获取实例上传示例图片</span></div>`}
+            ${sampleUrl ? `<img src="${escapeAttribute(sampleUrl)}" alt="${escapeAttribute(getAcquireSampleName(sourceAcquire))}" />` : `<div class="sample-preview-frame is-placeholder"><div class="sample-preview-grid"></div><span>请先为当前图像来源上传示例图像</span></div>`}
             <div class="roi-overlay-layer">
               ${draftRegions.map((region) => renderRegionBox(region)).join("")}
               ${liveDraftRegion ? renderRegionBox(liveDraftRegion, true) : ""}
@@ -2620,7 +2696,7 @@ function openProcessModal(processId) {
           const categories = getModelCategoriesById(modelId);
           processModelSummary.textContent = Demo.getModelLabel(state, modelId) || "未选择模型";
           processModelCategories.hidden = !categories.length;
-          processModelCategories.textContent = categories.length ? `类别：${categories.join(" / ")}` : "";
+          processModelCategories.textContent = categories.length ? `可识别类别：${categories.join(" / ")}` : "";
         }
       }
 
@@ -2630,7 +2706,7 @@ function openProcessModal(processId) {
           valueId: "processModelValue",
           summaryId: "processModelSummary",
           selectedModelId: processModelValue.value || draftModelId || null,
-          title: "选择 ROI 分类模型",
+          title: "选择模型",
           allowedScenes: ["分类"],
         });
       });
@@ -2690,29 +2766,29 @@ function openProcessModal(processId) {
       const inputId = inputSelect?.value || draftInputId;
       const mode = normalizeProcessMode(modeSelect?.value || draftMode);
       if (!name) {
-        showToast("请输入实例名称");
+        showToast("请输入处理步骤名称");
         return false;
       }
       if (!inputId) {
-        showToast("请选择图像获取实例");
+        showToast("请选择关联图像");
         return false;
       }
       const selectedModelId = String(processModelValue?.value || draftModelId || "").trim() || null;
       const selectedCategories = mode === "model-roi" ? getModelCategoriesById(selectedModelId) : [];
       if (mode === "model-roi" && !selectedModelId) {
-        showToast("请选择 ROI 模型");
+        showToast("请选择模型");
         return false;
       }
       if (mode === "model-roi" && !isCategoryOutputModelId(selectedModelId)) {
-        showToast("ROI 模式仅支持选择分类模型");
+        showToast("自动分区只支持分类模型");
         return false;
       }
       if (mode === "model-roi" && !selectedCategories.length) {
-        showToast("当前模型未提供可选类别");
+        showToast("当前模型没有可识别类别");
         return false;
       }
       if (mode === "manual-roi" && !draftRegions.some((item) => item.type !== "ignore")) {
-        showToast("请至少绘制一个 ROI 区域");
+        showToast("请至少绘制一个检测区域");
         return false;
       }
       const next = existing || { id: Demo.makeId("proc") };
@@ -2728,7 +2804,7 @@ function openProcessModal(processId) {
       delete next.details;
       upsertToolItem("process", next);
       closeSharedModal();
-      persistState(existing ? "图像处理实例已更新" : "图像处理实例已创建");
+      persistState(existing ? "处理步骤已更新" : "处理步骤已添加");
       return true;
     },
   });
@@ -2738,20 +2814,20 @@ function openDetectModal(detectId) {
   if (!ensureToolItemCapacity("detect", detectId)) return;
   const tool = getActiveTool();
   if (!tool.process.length) {
-    showToast("请先创建图像处理实例");
+    showToast("请先添加处理步骤");
     return;
   }
   const existing = tool.detect.find((item) => item.id === detectId);
   openSharedModal({
-    title: existing ? "编辑图像检测实例" : "新增图像检测实例",
+    title: existing ? "编辑检测步骤" : "新建检测步骤",
     panelClass: "modal-param",
     body: `
       <label class="field">
-        <span>检测实例名称</span>
-        <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测实例名称" />
+        <span>检测项名称</span>
+        <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测项名称" />
       </label>
       <div class="field">
-        <span>关联输入目标</span>
+        <span>关联处理结果图像</span>
         <div class="detect-process-group-list">
           ${tool.acquire
             .map((acquire) => {
@@ -2806,13 +2882,13 @@ function openDetectModal(detectId) {
                                               .join("")}
                                           </div>
                                         `
-                                        : `<div class="builder-empty builder-empty-compact">当前 ROI 模型未提供可选类别</div>`
+                                        : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
                                     }
                                   </div>
                                 `;
                               }
                               const checked = selectedTargets.some((target) => !target.categoryKey);
-                              const desc = mode === "manual-roi" ? getProcessRoiSummary(item) : "输出整图结果";
+                              const desc = mode === "manual-roi" ? getProcessRoiSummary(item) : "使用整张图片";
                               return `
                                 <label class="selection-item detect-selection-item ${checked ? "is-selected" : ""}">
                                   <div class="selection-item-copy">
@@ -2835,7 +2911,7 @@ function openDetectModal(detectId) {
                             .join("")}
                         </div>
                       `
-                      : `<div class="builder-empty builder-empty-compact">当前图像获取实例下暂无图像处理实例</div>`
+                      : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
                   }
                 </div>
               `;
@@ -2844,7 +2920,7 @@ function openDetectModal(detectId) {
         </div>
       </div>
       <div class="field">
-        <span>使用模型</span>
+        <span>检测模型</span>
         <div class="model-picker-row">
           <div class="model-picker-value" id="detectModelSummary">${escapeHtml(Demo.getModelLabel(state, existing?.modelId) || "未选择模型")}</div>
           <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择模型</button>
@@ -2880,15 +2956,15 @@ function openDetectModal(detectId) {
         categoryLabel: input.dataset.categoryLabel || "",
       }));
       if (!name) {
-        showToast("请输入检测实例名称");
+        showToast("请输入检测项名称");
         return false;
       }
       if (!targets.length) {
-        showToast("至少选择一个输入目标");
+        showToast("请至少选择一个处理结果图像。");
         return false;
       }
       if (!modelId) {
-        showToast("请选择本地模型");
+        showToast("请选择检测模型");
         return false;
       }
       const next = existing || { id: Demo.makeId("det") };
@@ -2898,7 +2974,7 @@ function openDetectModal(detectId) {
       next.modelId = modelId;
       upsertToolItem("detect", next);
       closeSharedModal();
-      persistState(existing ? "图像检测实例已更新" : "图像检测实例已创建");
+      persistState(existing ? "检测步骤已更新" : "检测步骤已添加");
       return true;
     },
   });
@@ -2907,32 +2983,59 @@ function openDetectModal(detectId) {
 function deleteAcquire(id) {
   const tool = getActiveTool();
   const referenced = tool.process.some((item) => item.inputId === id);
-  if (referenced) {
-    showToast("当前图像获取实例已被图像处理实例引用，无法删除");
+  if (!referenced) {
+    tool.acquire = tool.acquire.filter((item) => item.id !== id);
+    syncToolCompletionState(tool);
+    persistState("图像来源已删除");
     return;
   }
-  tool.acquire = tool.acquire.filter((item) => item.id !== id);
-  syncToolCompletionState(tool);
-  persistState("图像获取实例已删除");
+  openSharedModal({
+    title: "删除图像来源",
+    body: `<p class="banner banner-danger">当前图像已被引用，删除后会清空相关设置，确认删除？</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      tool.acquire = tool.acquire.filter((item) => item.id !== id);
+      tool.process.forEach((item) => {
+        if (item.inputId === id) item.inputId = "";
+      });
+      syncToolCompletionState(tool);
+      closeSharedModal();
+      persistState("图像来源已删除，相关配置已清空。");
+      return true;
+    },
+  });
 }
 
 function deleteProcess(id) {
   const tool = getActiveTool();
   const referenced = tool.detect.some((item) => item.processIds.includes(id));
-  if (referenced) {
-    showToast("当前图像处理实例已被检测实例引用，无法删除");
+  if (!referenced) {
+    tool.process = tool.process.filter((item) => item.id !== id);
+    syncToolCompletionState(tool);
+    persistState("处理步骤已删除");
     return;
   }
-  tool.process = tool.process.filter((item) => item.id !== id);
-  syncToolCompletionState(tool);
-  persistState("图像处理实例已删除");
+  openSharedModal({
+    title: "删除处理步骤",
+    body: `<p class="banner banner-danger">当前处理结果图像已被引用，删除后会清空相关设置，确认删除？</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      tool.process = tool.process.filter((item) => item.id !== id);
+      syncToolCompletionState(tool);
+      closeSharedModal();
+      persistState("处理步骤已删除，相关配置已清空。");
+      return true;
+    },
+  });
 }
 
 function deleteDetect(id) {
   const tool = getActiveTool();
   tool.detect = tool.detect.filter((item) => item.id !== id);
   syncToolCompletionState(tool);
-  persistState("图像检测实例已删除");
+  persistState("检测步骤已删除");
 }
 
 function upsertToolItem(type, nextItem) {
@@ -2950,16 +3053,21 @@ function upsertToolItem(type, nextItem) {
 function startDetectionRun() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) {
-    showToast("请先开始运行当前工具");
+    showToast("请先进入检测状态。");
     return;
   }
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法发起新的运行任务");
+    showToast("剩余空间不足，暂时不能开始新的检测，请先清理数据。");
     return;
   }
-  if (ui.pendingDetectionToolId) return;
+  if (ui.pendingDetectionToolId) {
+    showToast("已有任务进行中，请稍后再试");
+    return;
+  }
 
   const runToolId = tool.id;
+  const runMode = tool.runtime?.sessionMode || getHighestAvailableRunMode(tool);
+  const runActionLabel = getRunActionLabel(runMode);
   clearRuntimeInitialState(runToolId);
   if (!tool.runtime || typeof tool.runtime !== "object") tool.runtime = {};
   tool.runtime.activeTags = getRuntimeDraftTags(tool);
@@ -2967,14 +3075,14 @@ function startDetectionRun() {
   ui.pendingDetectionStartedAt = Date.now();
   tool.runtime.status = "执行中";
   renderAll();
-  showToast("已模拟外部信号触发");
+  showToast(`开始${runActionLabel}`);
 
   timers.detection = window.setTimeout(() => {
     timers.detection = null;
     const runtimeTool = state.tools.find((item) => item.id === runToolId);
     try {
       if (Demo.isStorageBlocked(state)) {
-        abortDetectionRun("剩余空间低于阻断阈值，当前运行任务已中断", { toolId: runToolId });
+        abortDetectionRun("剩余空间不足，当前任务已中断。", { toolId: runToolId });
         return;
       }
 
@@ -3000,7 +3108,7 @@ function startDetectionRun() {
       ui.runtimePlaybackRecordId = latestRecord.id;
       ui.pendingDetectionToolId = null;
       ui.pendingDetectionStartedAt = 0;
-      persistState("运行完成，已生成记录");
+      persistState(runMode === "detect" ? "检测完成。" : "采图完成。");
     } catch (error) {
       console.error("[JetCheck Demo] detection run failed", error);
       ui.pendingDetectionToolId = null;
@@ -3009,7 +3117,7 @@ function startDetectionRun() {
         runtimeTool.runtime.status = "等待信号";
         runtimeTool.runtime.activeTags = [];
       }
-      persistState("运行异常，已回到等待信号");
+      persistState("运行异常，已返回待检测状态。");
     }
   }, 1800);
 }
@@ -3041,18 +3149,23 @@ function resetCurrentRunTask() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) return;
   openSharedModal({
-    title: "重置当前任务",
-    body: `<p class="banner banner-warning">重置后会清空当前任务展示并回到等待信号状态，不会删除历史记录，也不会释放当前相机或接口资源。</p>`,
+    title: "重置",
+    body: `<p class="banner banner-warning">将会清空本条${getRunActionLabel(tool.runtime?.sessionMode || "detect")}结果，确认重置？</p>`,
     confirmText: "确认重置",
     onConfirm() {
       closeSharedModal();
       if (ui.pendingDetectionToolId === tool.id) {
-        abortDetectionRun("当前任务已重置，继续等待触发信号");
+        abortDetectionRun("当前结果已重置，等待重新开始。");
         return true;
       }
+      removeLatestRuntimeRecord(tool.id);
       tool.runtime.status = "等待信号";
+      tool.runtime.primaryResult = "-";
+      tool.runtime.cycleTime = "-";
+      tool.runtime.draftTags = [];
+      tool.runtime.activeTags = [];
       activateRuntimeInitialState(tool.id);
-      persistState("当前任务已重置，继续等待触发信号");
+      persistState("当前结果已重置，等待重新开始。");
       return true;
     },
   });
@@ -3062,18 +3175,18 @@ function stopToolRunSession() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) return;
   openSharedModal({
-    title: "结束运行",
-    body: `<p class="banner banner-danger">结束运行后，当前工具会退出运行态并释放对应相机或接口资源。历史记录会保留。</p>`,
-    confirmText: "确认结束",
+    title: "退出工具",
+    body: `<p class="banner banner-danger">确认结束运行并退出当前工具？</p>`,
+    confirmText: "确认退出",
     confirmClass: "danger-btn",
     onConfirm() {
       closeSharedModal();
       if (ui.pendingDetectionToolId === tool.id) {
-        abortDetectionRun("当前工具已结束运行", { keepSession: false });
+        abortDetectionRun("已退出当前工具。", { keepSession: false });
       } else {
         endToolRunSessionState(tool);
         ui.toolView = "overview";
-        persistState("当前工具已结束运行");
+        persistState("已退出当前工具。");
       }
       return true;
     },
@@ -3122,7 +3235,7 @@ function previewCamera(cameraId) {
         <div class="stage-caption">${escapeHtml(Demo.getCameraLabel(camera))} / ${escapeHtml(camera.vendor)} / ${escapeHtml(camera.model)}</div>
       </div>
       <div class="meta-list">
-        <span>相机 ID</span>
+        <span>相机编号</span>
         <span>${escapeHtml(camera.id)}</span>
         <span>设备序列号</span>
         <span>${escapeHtml(camera.serial)}</span>
@@ -3166,7 +3279,7 @@ function openRuntimeCameraPreview(acquireId) {
           <div class="runtime-camera-preview-summary">
             <span>相机状态</span>
             <strong>${escapeHtml(cameraStatusText)}</strong>
-            <span>相机ID</span>
+            <span>相机编号</span>
             <strong>${escapeHtml(camera.id)}</strong>
             <span>参数组</span>
             <strong>${escapeHtml(paramGroup?.name || "-")}</strong>
@@ -3199,22 +3312,36 @@ function openRuntimeCameraPreview(acquireId) {
 }
 
 function deleteCamera(cameraId) {
-  const referenced = Demo.getReferencedCameraIds(state);
-  if (referenced.has(cameraId)) {
-    showToast("当前相机已被检测工具引用，无法删除");
+  const runningToolNames = getRunningToolNamesUsingCamera(cameraId);
+  if (runningToolNames.length) {
+    showToast(`相机正在被检测工具“${runningToolNames[0]}”运行，无法删除。`);
     return;
   }
   const camera = state.cameras.find((item) => item.id === cameraId);
   if (!camera) return;
+  const referenced = Demo.getReferencedCameraIds(state).has(cameraId);
   openSharedModal({
     title: "删除相机",
-    body: `<p class="banner banner-danger">确定删除相机“${escapeHtml(Demo.getCameraLabel(camera))}”吗？未被引用的相机才允许删除。</p>`,
+    body: `<p class="banner banner-danger">${
+      referenced
+        ? `相机被检测工具引用，删除相机将清空相应配置，确认删除？`
+        : `确认删除相机“${escapeHtml(Demo.getCameraLabel(camera))}”？`
+    }</p>`,
     confirmText: "确认删除",
     confirmClass: "danger-btn",
     onConfirm() {
+      state.tools.forEach((tool) => {
+        tool.acquire.forEach((item) => {
+          if (item.type === "camera" && item.cameraId === cameraId) {
+            item.cameraId = "";
+            item.paramGroupId = "";
+          }
+        });
+        syncToolCompletionState(tool);
+      });
       state.cameras = state.cameras.filter((item) => item.id !== cameraId);
       closeSharedModal();
-      persistState("相机已删除");
+      persistState(referenced ? "相机已删除，相关配置已清空。" : "相机已删除");
       return true;
     },
   });
@@ -3278,7 +3405,7 @@ function openParamModal(cameraId) {
   const camera = state.cameras.find((item) => item.id === cameraId);
   if (!camera) return;
   if (camera.status !== "空闲") {
-    showToast("仅空闲相机支持参数组管理");
+    showToast("相机正在使用中，暂时不能设置参数组。");
     return;
   }
   ui.activeCameraId = cameraId;
@@ -3367,17 +3494,39 @@ function deleteParamGroup(groupId = ui.activeParamGroupId) {
   const group = camera?.paramGroups?.find((item) => item.id === groupId) || null;
   const referenced = Demo.getReferencedParamIds(state);
   if (!camera || !group) return;
-  if (referenced.has(group.id)) {
-    showToast("当前参数组已被检测工具引用，无法删除");
+  const runningToolNames = getRunningToolNamesUsingParamGroup(group.id);
+  if (runningToolNames.length) {
+    showToast(`参数组正在被检测工具“${runningToolNames[0]}”运行，无法删除。`);
     return;
   }
   if (camera.paramGroups.length <= 1) {
     showToast("至少保留一个参数组");
     return;
   }
-  camera.paramGroups = camera.paramGroups.filter((item) => item.id !== group.id);
-  ui.activeParamGroupId = camera.paramGroups[0]?.id || null;
-  persistState("参数组已删除");
+  const isReferenced = referenced.has(group.id);
+  openSharedModal({
+    title: "删除参数组",
+    body: `<p class="banner banner-danger">${
+      isReferenced ? "参数组被检测工具引用，删除参数组将清空对应配置，确认删除？" : `确认删除参数组“${escapeHtml(getParamGroupDisplayName(group))}”？`
+    }</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.tools.forEach((tool) => {
+        tool.acquire.forEach((item) => {
+          if (item.type === "camera" && item.paramGroupId === group.id) {
+            item.paramGroupId = "";
+          }
+        });
+        syncToolCompletionState(tool);
+      });
+      camera.paramGroups = camera.paramGroups.filter((item) => item.id !== group.id);
+      ui.activeParamGroupId = camera.paramGroups[0]?.id || null;
+      closeSharedModal();
+      persistState(isReferenced ? "参数组已删除，相关配置已清空。" : "参数组已删除");
+      return true;
+    },
+  });
 }
 
 function openModelSelector(target) {
@@ -3437,7 +3586,7 @@ function startModelDownload(modelId, versionId) {
     return;
   }
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法下载云端模型");
+    showToast("剩余空间不足，暂时无法下载模型。");
     return;
   }
   if (ui.pendingDownload) return;
@@ -3453,7 +3602,7 @@ function startModelDownload(modelId, versionId) {
 
   ui.pendingDownload = { modelId, versionId };
   renderModelDrawer();
-  showToast("模型下载已开始");
+  showToast("开始下载模型。");
 
   timers.download = window.setTimeout(() => {
     timers.download = null;
@@ -3462,7 +3611,7 @@ function startModelDownload(modelId, versionId) {
       return;
     }
     if (Demo.isStorageBlocked(state)) {
-      abortModelDownload("剩余空间低于阻断阈值，模型下载已中断");
+      abortModelDownload("剩余空间不足，模型下载已中断。");
       return;
     }
 
@@ -3491,7 +3640,7 @@ function abortModelDownload(message) {
 
 function openImportModelModal() {
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法上传本地模型");
+    showToast("剩余空间不足，暂时无法导入模型。");
     return;
   }
   els.importModelFileInput.value = "";
@@ -3502,7 +3651,7 @@ function handleImportModelFileChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法上传本地模型");
+    showToast("剩余空间不足，暂时无法导入模型。");
     event.target.value = "";
     return;
   }
@@ -3523,19 +3672,19 @@ function handleImportModelFileChange(event) {
     modelName: meta.modelName,
     sceneType: meta.sceneType,
     categories: meta.sceneType === "分类" ? Demo.normalizeModelCategories(meta) : [],
-    source: "本地上传",
+    source: "导入本地模型",
     addedAt: state.meta.now,
   });
   ui.selectedModelId = id;
   event.target.value = "";
-  persistState(`本地模型已上传：${file.name}`);
+  persistState(`模型已导入：${file.name}`);
 }
 
 function inferImportedModelMeta(fileName) {
   const baseName = String(fileName || "")
     .replace(/\.(zip|7z|rar|tar|gz|tgz)$/i, "")
     .trim();
-  const normalizedName = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || "本地模型";
+  const normalizedName = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || "检测模型";
   const matched = normalizedName.match(/^(.*?)[\s]+([A-Za-z]?\d[\w.-]{5,})$/);
   const modelName = (matched?.[1] || normalizedName).trim();
   const fallbackVersion = `UP${state.meta.now.slice(0, 19).replace(/[-:T]/g, "")}`;
@@ -3565,20 +3714,45 @@ function buildMockAlgorithmOutput(output, businessResult, modelSceneType = "") {
 }
 
 function deleteLocalModel(modelId) {
-  if (getLocalModelReferenceCount(modelId)) {
-    showToast("当前模型已被检测工具引用，无法删除");
+  const runningToolNames = getRunningToolNamesUsingModel(modelId);
+  if (runningToolNames.length) {
+    showToast(`模型正在被检测工具“${runningToolNames[0]}”运行，无法删除。`);
     return;
   }
-  state.localModels = state.localModels.filter((item) => item.id !== modelId);
-  if (ui.selectedModelId === modelId) {
-    ui.selectedModelId = state.localModels[0]?.id || null;
-  }
-  persistState("本地模型已删除");
+  const model = state.localModels.find((item) => item.id === modelId);
+  if (!model) return;
+  const referenceCount = getLocalModelReferenceCount(modelId);
+  openSharedModal({
+    title: "删除模型",
+    body: `<p class="banner banner-danger">${
+      referenceCount ? "模型被检测工具引用，删除模型将清空相应配置，确认删除？" : `确认删除模型“${escapeHtml(model.modelName)}”？`
+    }</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.tools.forEach((tool) => {
+        tool.process.forEach((item) => {
+          if (item.modelId === modelId) item.modelId = null;
+        });
+        tool.detect.forEach((item) => {
+          if (item.modelId === modelId) item.modelId = null;
+        });
+        syncToolCompletionState(tool);
+      });
+      state.localModels = state.localModels.filter((item) => item.id !== modelId);
+      if (ui.selectedModelId === modelId) {
+        ui.selectedModelId = state.localModels[0]?.id || null;
+      }
+      closeSharedModal();
+      persistState(referenceCount ? "模型已删除，相关配置已清空。" : "模型已删除");
+      return true;
+    },
+  });
 }
 
 function confirmModelSelection() {
   if (!ui.selectedModelId) {
-    showToast("请先选择一个本地模型");
+    showToast("请先选择一个模型");
     return;
   }
   let targetInput = null;
@@ -3823,7 +3997,7 @@ function openRecordDetailModalWithState(recordId, viewerState = {}) {
     showOverlay: true,
   };
   openSharedModal({
-    title: `${record.id} · 检测记录详情`,
+    title: `记录详情 · ${record.id}`,
     panelClass: "modal-record-result",
     bodyClass: "modal-body-record-detail",
     body: renderRecordDetailModal(record),
@@ -3896,7 +4070,7 @@ function renderRecordDetailImageItem(record, imageResult, index, active) {
         type="button"
       >
         <div class="record-detail-image-copy">
-          <strong>${escapeHtml(imageResult.acquireName || `图像获取实例 ${index + 1}`)}</strong>
+          <strong>${escapeHtml(imageResult.acquireName || `图像来源 ${index + 1}`)}</strong>
         </div>
         ${resultBadge}
       </button>
@@ -3912,7 +4086,7 @@ function renderRecordDetailImageItem(record, imageResult, index, active) {
                 type="button"
                 ${subResults.length ? "" : "disabled"}
               >
-                查看子图（${subResults.length}）
+                查看分区结果（${subResults.length}）
               </button>
             </div>
           `
@@ -3958,7 +4132,7 @@ function openRecordImageSubResultsModal(recordId, imageResultId, activeSubId = "
   const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
   const currentShowRoi = ui.recordImageViewer?.showRoi !== false;
   openSubResultViewerModal({
-    title: `${imageResult.acquireName} · 子图结果（${subResults.length}）`,
+    title: `${imageResult.acquireName} · 分区结果（${subResults.length}）`,
     subResults,
     tool,
     activeSubId,
@@ -4009,17 +4183,17 @@ function getRecordViewerTool() {
 function openRecordExportModal() {
   const rows = getFilteredRecords();
   if (!rows.length) {
-    showToast("当前没有可导出的检测记录");
+    showToast("当前没有可导出的记录。");
     return;
   }
   const availability = getRecordExportAvailability(rows);
   const exportFileName = `检测记录导出_${formatExportFileTimestamp(state.meta.now)}.zip`;
 
   openSharedModal({
-    title: "导出检测记录",
+    title: "导出记录",
     panelClass: "modal-lg",
     body: `
-      <p class="record-export-note">导出对象为当前筛选范围内的检测记录。</p>
+      <p class="record-export-note">将导出当前筛选范围内的记录。</p>
       <section class="record-export-section">
         <div class="section-head section-head-tight">
           <div><h4>检测记录</h4></div>
@@ -4044,13 +4218,13 @@ function openRecordExportModal() {
           })}
           ${renderRecordExportOption({
             id: "exportImageSub",
-            title: "子图",
+            title: "分区图",
             desc: availability.subImageEnabled ? "" : "当前筛选记录不包含处理结果采样或完整检测",
             disabled: !availability.subImageEnabled,
           })}
           ${renderRecordExportOption({
             id: "exportImageRendered",
-            title: "结果渲染图",
+            title: "结果标注图",
             desc: availability.renderedEnabled ? "" : "当前筛选记录不包含完整检测",
             disabled: !availability.renderedEnabled,
           })}
@@ -4066,7 +4240,7 @@ function openRecordExportModal() {
       }
       const labels = selection.map((item) => item.title).join("、");
       closeSharedModal();
-      showToast(`已触发浏览器下载：${exportFileName} / ${rows.length} 条检测记录 / ${labels}`);
+      showToast(`导出成功`);
       return true;
     },
   });
@@ -4119,8 +4293,8 @@ function getRecordExportSelection() {
   const options = [
     { id: "exportRecordExcel", title: "检测记录.xlsx" },
     { id: "exportImageOriginal", title: "图像 / 原图" },
-    { id: "exportImageSub", title: "图像 / 子图" },
-    { id: "exportImageRendered", title: "图像 / 结果渲染图" },
+    { id: "exportImageSub", title: "图像 / 分区图" },
+    { id: "exportImageRendered", title: "图像 / 结果标注图" },
   ];
   return options.filter((item) => document.getElementById(item.id)?.checked);
 }
@@ -4160,7 +4334,7 @@ function renderRecordResultImageViewer(
             ${
               subResults.length
                 ? subResults.map((item, index) => renderRecordResultThumb(item, index, item.id === activeSubId)).join("")
-                : `<div class="builder-empty builder-empty-compact">当前暂无子图结果</div>`
+                : `<div class="builder-empty builder-empty-compact">当前暂无分区结果</div>`
             }
           </div>
         </aside>
@@ -4240,10 +4414,10 @@ function renderRecordFocusableMappedResult(item, index) {
       data-action="focus-record-subresult"
       data-sub-id="${item.id}"
       type="button"
-      title="查看对应子图结果"
-      aria-label="查看对应子图结果"
+      title="查看对应分区结果"
+      aria-label="查看对应分区结果"
     >
-      <span class="runtime-mapped-index">ROI${index + 1}</span>
+      <span class="runtime-mapped-index">检测区域${index + 1}</span>
       ${showResultBadge ? `<span class="runtime-mapped-result-badge ${toneClass}">${escapeHtml(resultText)}</span>` : ""}
     </button>
   `;
@@ -4461,7 +4635,7 @@ function openExportModal(type) {
       const scope = document.getElementById("exportScopeSelect").value;
       const content = document.getElementById("exportContentSelect").value;
       closeSharedModal();
-      showToast(`已触发浏览器下载：${scope} / ${content}`);
+      showToast("导出成功");
       return true;
     },
   });
@@ -4474,11 +4648,11 @@ function confirmUnbindClient() {
     return;
   }
   if (!state.runtimeDevice.networkOnline) {
-    showToast("请联网后再解绑当前客户端");
+    showToast("请联网后再解绑当前设备");
     return;
   }
   openSharedModal({
-    title: "解绑当前客户端",
+    title: "解绑当前设备",
     body: `<p class="banner banner-danger">解绑后当前设备将退出可用状态，需重新登录并重新绑定后才能继续使用。是否确认解绑？</p>`,
     confirmText: "确认解绑",
     confirmClass: "danger-btn",
@@ -4490,7 +4664,7 @@ function confirmUnbindClient() {
       state.session.account = "";
       state.session.lastMessage = "";
       closeSharedModal();
-      persistState("解绑成功，当前设备已回到首次绑定状态");
+      persistState("解绑成功");
       return true;
     },
   });
@@ -4925,8 +5099,8 @@ function getDefaultCleanupMode(type) {
 
 function checkRunningOperationGuard() {
   if (Demo.isStorageBlocked(state)) {
-    if (ui.pendingDownload) abortModelDownload("剩余空间低于阻断阈值，模型下载已中断");
-    if (ui.pendingDetectionToolId) abortDetectionRun("剩余空间低于阻断阈值，当前运行任务已中断");
+    if (ui.pendingDownload) abortModelDownload("剩余空间不足，模型下载已中断。");
+    if (ui.pendingDetectionToolId) abortDetectionRun("剩余空间不足，当前任务已中断。");
   }
   if (!state.runtimeDevice.networkOnline && ui.pendingDownload) {
     abortModelDownload("客户端离线，云端模型下载已中断");
@@ -4959,17 +5133,25 @@ function submitLogin() {
   const clientName = els.loginClientName.value.trim();
   const account = els.loginAccount.value.trim();
   const password = els.loginPassword.value.trim();
-  if (!clientName || !account || !password) {
-    return showLoginError("请输入客户端名称、手机号和密码。");
+  const errors = {};
+  if (!clientName) errors.clientName = "请输入设备名称";
+  if (!account) {
+    errors.account = "请输入正确的手机号码";
+  } else if (!/^1\d{10}$/.test(account)) {
+    errors.account = "请输入正确的手机号码";
   }
-  if (!/^1\d{10}$/.test(account)) {
-    return showLoginError("请输入 11 位手机号。");
+  if (!password) errors.password = "登录密码不能为空";
+  if (Object.keys(errors).length) {
+    showLoginFieldErrors(errors);
+    return;
   }
+  clearLoginErrors();
   if (!state.runtimeDevice.networkOnline) {
-    return showLoginError("无法连接云端服务，请检查网络。");
+    return showLoginError("当前网络异常，暂时无法登录，请检查网络后重试。");
   }
   if (account !== state.enterprise.account || password !== state.enterprise.password) {
-    return showLoginError("手机号或密码错误。");
+    showLoginFieldErrors({ password: "密码错误" });
+    return;
   }
 
   Demo.advanceDemoClock(state, 1);
@@ -4978,10 +5160,10 @@ function submitLogin() {
 
   const quotaFull = Demo.getQuotaUsage(state) >= state.enterprise.quota;
   if (!client && quotaFull) {
-    state.session.lastMessage = "当前账号下的客户端额度已满，新设备暂无法登录。";
+    state.session.lastMessage = "当前账号可用设备数已满，请联系销售。";
     Demo.saveState(state);
     renderAll();
-    return showLoginError("当前账号下的客户端额度已满，新设备暂无法登录。");
+    return showLoginError("当前账号可用设备数已满，请联系销售。");
   }
 
   if (!client) {
@@ -5012,11 +5194,12 @@ function submitLogin() {
   state.session.loggedIn = true;
   state.session.clientId = client.id;
   state.session.account = account;
-  state.session.lastMessage = "当前设备已完成绑定，可直接进入系统。";
-  persistState("登录成功，当前设备已自动绑定");
+  state.session.lastMessage = "登录成功，当前设备已绑定。";
+  persistState("登录成功，当前设备已绑定。");
 }
 
 function showLoginError(message) {
+  clearLoginErrors();
   els.loginError.hidden = false;
   els.loginError.textContent = message;
 }
@@ -5096,6 +5279,22 @@ function getActiveRuntimeRecord() {
   const tool = getActiveTool();
   if (!tool) return null;
   return state.detectionRecords.find((record) => record.toolId === tool.id) || null;
+}
+
+function removeLatestRuntimeRecord(toolId) {
+  const index = state.detectionRecords.findIndex((record) => record.toolId === toolId);
+  if (index < 0) return null;
+  const [removedRecord] = state.detectionRecords.splice(index, 1);
+  if (ui.activeRecordId === removedRecord.id) {
+    ui.activeRecordId = state.detectionRecords[0]?.id || null;
+  }
+  if (ui.runtimePlaybackRecordId === removedRecord.id) {
+    ui.runtimePlaybackRecordId = null;
+  }
+  if (ui.recordImageViewer?.recordId === removedRecord.id) {
+    ui.recordImageViewer = null;
+  }
+  return removedRecord;
 }
 
 function getRecordImageResults(record) {
@@ -5204,6 +5403,32 @@ function getRunModeLabel(mode) {
   return getRunModeMeta(mode).label;
 }
 
+function getRunActionLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "检测" : "采图";
+}
+
+function getRunWaitingLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "等待开始检测" : "等待开始采图";
+}
+
+function isAcquireReady(acquire) {
+  if (!acquire) return false;
+  if (acquire.type === "api") return Boolean(String(acquire.endpoint || "").trim());
+  const camera = state.cameras.find((item) => item.id === acquire.cameraId);
+  if (!camera) return false;
+  return camera.paramGroups.some((group) => group.id === acquire.paramGroupId);
+}
+
+function getToolInvalidAcquireCount(tool) {
+  return Array.isArray(tool?.acquire) ? tool.acquire.filter((item) => !isAcquireReady(item)).length : 0;
+}
+
+function isProcessInputValid(tool, process) {
+  const sourceTool = tool || getActiveTool();
+  const input = sourceTool?.acquire?.find((item) => item.id === process?.inputId) || null;
+  return isAcquireReady(input);
+}
+
 function getProcessCategoryOptions(process) {
   if (normalizeProcessMode(process?.mode) === "model-roi" && process?.modelId) {
     const modelCategories = getModelCategoriesById(process.modelId);
@@ -5212,16 +5437,22 @@ function getProcessCategoryOptions(process) {
   return Demo.normalizeModelCategories(process);
 }
 
-function isProcessReady(process) {
+function isProcessReady(process, tool = getActiveTool()) {
+  if (!isProcessInputValid(tool, process)) return false;
   const mode = normalizeProcessMode(process?.mode);
   if (mode === "model-roi") return Boolean(process?.modelId) && getProcessCategoryOptions(process).length > 0;
   if (mode === "manual-roi") return getProcessRegions(process).some((item) => item.type !== "ignore");
   return true;
 }
 
+function getToolInvalidProcessCount(tool) {
+  return Array.isArray(tool?.process) ? tool.process.filter((item) => !isProcessReady(item, tool)).length : 0;
+}
+
 function isDetectTargetValid(tool, target) {
   const process = tool?.process?.find((item) => item.id === target?.processId);
   if (!process) return false;
+  if (!isProcessReady(process, tool)) return false;
   const mode = normalizeProcessMode(process.mode);
   if (mode !== "model-roi") return true;
   return Boolean(target?.categoryKey) && getProcessCategoryOptions(process).includes(target.categoryKey);
@@ -5232,17 +5463,29 @@ function getDetectTargets(detect) {
   return Array.isArray(detect?.processIds) ? detect.processIds.filter(Boolean).map((processId) => ({ processId, categoryKey: "", categoryLabel: "" })) : [];
 }
 
+function isDetectReady(tool, detect) {
+  if (!detect?.modelId) return false;
+  const targets = getDetectTargets(detect);
+  if (!targets.length) return false;
+  return targets.every((target) => isDetectTargetValid(tool, target));
+}
+
+function getToolInvalidDetectConfigCount(tool) {
+  return Array.isArray(tool?.detect) ? tool.detect.filter((item) => !isDetectReady(tool, item)).length : 0;
+}
+
 function evaluateToolRunModeAvailability(tool, mode) {
   if (!tool) return false;
   if (mode === "acquire") {
-    return Array.isArray(tool.acquire) && tool.acquire.length > 0;
+    return Array.isArray(tool.acquire) && tool.acquire.some((item) => isAcquireReady(item));
   }
   if (mode === "process") {
-    return Array.isArray(tool.acquire) && tool.acquire.length > 0 && Array.isArray(tool.process) && tool.process.some((item) => isProcessReady(item));
+    return Array.isArray(tool.acquire) && tool.acquire.some((item) => isAcquireReady(item)) && Array.isArray(tool.process) && tool.process.some((item) => isProcessReady(item, tool));
   }
   if (mode === "detect") {
-    if (!Demo.evaluateToolCompletion(tool)) return false;
-    return tool.detect.some((detect) => getDetectTargets(detect).every((target) => isDetectTargetValid(tool, target)));
+    if (!Array.isArray(tool.acquire) || !tool.acquire.some((item) => isAcquireReady(item))) return false;
+    if (!Array.isArray(tool.process) || !tool.process.some((item) => isProcessReady(item, tool))) return false;
+    return tool.detect.some((detect) => isDetectReady(tool, detect));
   }
   return false;
 }
@@ -5339,7 +5582,7 @@ function canMoveNextFromStep(step) {
   if (!tool) return false;
   if (step === "acquire") return tool.acquire.length > 0;
   if (step === "process") return tool.process.length > 0;
-  if (step === "detect") return Demo.evaluateToolCompletion(tool);
+  if (step === "detect") return tool.detect.length > 0 && getToolInvalidAcquireCount(tool) === 0 && getToolInvalidProcessCount(tool) === 0 && getToolInvalidDetectConfigCount(tool) === 0;
   return false;
 }
 
@@ -5363,6 +5606,7 @@ function renderBuilderStepSection({ title, limitText, actionLabel, actionKey, it
 function renderAcquireItem(tool, item) {
   const editingLocked = isToolEditingLocked(tool);
   const camera = state.cameras.find((cameraItem) => cameraItem.id === item.cameraId);
+  const hasInvalidConfig = !isAcquireReady(item);
   const sourceText =
     item.type === "camera"
       ? `${Demo.getCameraLabel(camera)} / ${Demo.getParamGroupLabel(camera, item.paramGroupId)}`
@@ -5375,14 +5619,15 @@ function renderAcquireItem(tool, item) {
       <div class="builder-item-main">
         <div class="builder-item-title">
           <strong>${escapeHtml(item.name)}</strong>
-          <span class="chip">${item.type === "camera" ? "相机获取" : "接口获取"}</span>
+          <span class="chip">${item.type === "camera" ? "相机" : "接口"}</span>
         </div>
         <div class="builder-meta">
-          <span>来源：${escapeHtml(sourceText || "-")}</span>
-          <span>示例图片：${escapeHtml(getAcquireSampleName(item))}</span>
+          <span>输入来源：${escapeHtml(sourceText || "-")}</span>
+          <span>示例图像：${escapeHtml(getAcquireSampleName(item))}</span>
         </div>
       </div>
       <div class="builder-actions">
+        ${hasInvalidConfig ? `<span class="config-error-mark" title="配置失效" aria-label="配置失效">!</span>` : ""}
         <button class="table-btn table-btn-primary" data-action="edit-acquire" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
         <button class="table-btn table-btn-danger" data-action="delete-acquire" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
       </div>
@@ -5395,6 +5640,7 @@ function renderProcessItem(tool, item) {
   const source = tool.acquire.find((acquire) => acquire.id === item.inputId);
   const mode = normalizeProcessMode(item.mode);
   const categoryText = getProcessCategoryOptions(item).join(" / ");
+  const hasInvalidConfig = !isProcessReady(item, tool);
   return `
     <article class="builder-item">
       <div class="builder-item-main">
@@ -5403,17 +5649,18 @@ function renderProcessItem(tool, item) {
           <span class="chip">${escapeHtml(getProcessModeLabel(mode))}</span>
         </div>
         <div class="builder-meta">
-          <span>输入实例：${escapeHtml(source?.name || "-")}</span>
+          <span>关联图像：${escapeHtml(source?.name || "-")}</span>
           ${
             mode === "manual-roi"
               ? `<span>${escapeHtml(getProcessRoiSummary(item))}</span>`
               : mode === "model-roi"
-                ? `<span>ROI 模型：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span><span>类别：${escapeHtml(categoryText || "-")}</span>`
-                : `<span>输出整图结果，不裁切 ROI</span>`
+                ? `<span>模型：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span><span>识别类别：${escapeHtml(categoryText || "-")}</span>`
+                : `<span>直接使用整张图片，不额外分区</span>`
           }
         </div>
       </div>
       <div class="builder-actions">
+        ${hasInvalidConfig ? `<span class="config-error-mark" title="配置失效" aria-label="配置失效">!</span>` : ""}
         <button class="table-btn table-btn-primary" data-action="edit-process" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
         <button class="table-btn table-btn-danger" data-action="delete-process" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
       </div>
@@ -5424,17 +5671,17 @@ function renderProcessItem(tool, item) {
 function renderDetectItem(tool, item) {
   const editingLocked = isToolEditingLocked(tool);
   const targetLabels = getDetectTargets(item).map((target) => getDetectTargetLabel(tool, target)).filter(Boolean);
-  const hasInvalidTarget = getInvalidDetectTargetCount(tool, item) > 0;
+  const hasInvalidTarget = !isDetectReady(tool, item);
   return `
     <article class="builder-item">
       <div class="builder-item-main">
         <div class="builder-item-title">
           <strong>${escapeHtml(item.name)}</strong>
-          <span class="chip">本地模型</span>
+          <span class="chip">检测模型</span>
         </div>
         <div class="builder-meta">
-          <span>关联输入目标：${escapeHtml(targetLabels.join(" / ") || "-")}</span>
-          <span>使用模型：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span>
+          <span>关联处理结果图像：${escapeHtml(targetLabels.join(" / ") || "-")}</span>
+          <span>检测模型：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span>
         </div>
       </div>
       <div class="builder-actions">
@@ -5447,9 +5694,9 @@ function renderDetectItem(tool, item) {
 }
 
 function getProcessModeLabel(mode) {
-  if (mode === "manual-roi") return "手绘 ROI";
-  if (mode === "model-roi") return "模型 ROI";
-  return "全图处理";
+  if (mode === "manual-roi") return "手动划区";
+  if (mode === "model-roi") return "自动分区";
+  return "整图处理";
 }
 
 function getDetectTargetLabel(tool, target) {
@@ -5582,7 +5829,7 @@ function hasOnlyFullImageSubResults(imageResult) {
 
 function hasOnlyFullImageProcessOutputs(tool, acquireId) {
   if (!tool || !acquireId) return false;
-  const processList = Array.isArray(tool.process) ? tool.process.filter((process) => process.inputId === acquireId && isProcessReady(process)) : [];
+  const processList = Array.isArray(tool.process) ? tool.process.filter((process) => process.inputId === acquireId && isProcessReady(process, tool)) : [];
   if (!processList.length) return false;
   return processList.every((process) => normalizeProcessMode(process.mode) === "full-image");
 }
@@ -5609,7 +5856,7 @@ function buildSplitRegions(count) {
 function getProcessRoiSummary(process) {
   const roiRegions = getProcessRegions(process).filter((item) => item.type !== "ignore");
   const ignoreCount = getProcessIgnoreRegionCount(process);
-  return `ROI 区域：${roiRegions.length} 个${ignoreCount ? `，不检测区域：${ignoreCount} 个` : ""}`;
+  return `检测区域：${roiRegions.length} 个${ignoreCount ? `，排除区域：${ignoreCount} 个` : ""}`;
 }
 
 function buildClassifierPreviewRegion(index, total) {
@@ -5784,8 +6031,8 @@ function buildProcessOutputs(process) {
   const roiRegions = getProcessRegions(process).filter((item) => item.type !== "ignore");
   const effectiveRegions = roiRegions.length ? roiRegions : [{ id: `${process.id}_roi_1`, x: 0.18, y: 0.18, w: 0.32, h: 0.24 }];
   return effectiveRegions.map((region, index) => ({
-    name: `${process.name} ROI${index + 1}`,
-    source: `ROI${index + 1}`,
+    name: `${process.name} 检测区域${index + 1}`,
+    source: `检测区域${index + 1}`,
     modelId: process.modelId || "",
     imageLabel: process.name,
     outputType: "roi",
@@ -5819,7 +6066,7 @@ function buildDetectOutputs(tool, acquire) {
 
 function buildProcessSampleOutputs(tool, acquire) {
   return tool.process
-    .filter((process) => process.inputId === acquire.id && isProcessReady(process))
+    .filter((process) => process.inputId === acquire.id && isProcessReady(process, tool))
     .flatMap((process) => buildProcessOutputs(process));
 }
 
@@ -5864,7 +6111,7 @@ function buildDetectionRecord(tool, runMode = "detect") {
       const subResultBusinessResult = normalizedRunMode === "detect" ? getAggregatedBusinessResult(detectResults) : "-";
       return {
         id: Demo.makeId("sub"),
-        name: output.name || `子图 ${index + 1}`,
+        name: output.name || `分区结果 ${index + 1}`,
         source: output.source,
         modelId: output.modelId || "",
         modelSceneType: getModelSceneTypeById(output.modelId),
@@ -5999,7 +6246,7 @@ function getLocalModelReferenceCount(modelId) {
 
 function renderReferenceStatusHtml(referenceCount) {
   const referenced = Number(referenceCount) > 0;
-  return `<span class="reference-status ${referenced ? "is-referenced" : "is-idle"}">${referenced ? "已引用" : "未引用"}</span>`;
+  return `<span class="reference-status ${referenced ? "is-referenced" : "is-idle"}">${referenced ? "使用中" : "未使用"}</span>`;
 }
 
 function getBusinessBannerHtml(result) {

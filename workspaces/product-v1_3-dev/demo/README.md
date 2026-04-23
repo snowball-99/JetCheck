@@ -4,12 +4,10 @@
 
 ## 入口
 
-- `index.html`
-  - demo 总入口
 - `client.html`
-  - 客户端 demo 页面
+  - 客户端页面
 - `platform.html`
-  - 平台端 demo 页面
+  - 平台端页面
 
 ## 代码职责
 

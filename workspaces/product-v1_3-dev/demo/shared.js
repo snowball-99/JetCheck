@@ -100,7 +100,7 @@
         version: "20260320021",
         modelName: "卡扣安装有无检测",
         sceneType: "分类",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-20T10:12:10+08:00",
         categories: ["卡扣已安装", "卡扣缺失"],
       },
@@ -109,7 +109,7 @@
         version: "20260320031",
         modelName: "焊点焊接有无检测",
         sceneType: "分类",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-20T11:08:36+08:00",
         categories: ["焊点完整", "焊点缺失"],
       },
@@ -118,7 +118,7 @@
         version: "20260322041",
         modelName: "K11螺杆左模版",
         sceneType: "尺寸",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-22T10:18:06+08:00",
       },
       {
@@ -126,7 +126,7 @@
         version: "20260322042",
         modelName: "K11螺杆右模版",
         sceneType: "尺寸",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-22T10:24:18+08:00",
       },
       {
@@ -134,7 +134,7 @@
         version: "20260322061",
         modelName: "X光加热丝零件识别",
         sceneType: "分类",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-22T14:12:26+08:00",
         categories: ["加热丝主体", "连接端子", "定位夹片"],
       },
@@ -143,7 +143,7 @@
         version: "20260322071",
         modelName: "X光零件缺陷检测",
         sceneType: "缺陷检测",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-22T15:06:14+08:00",
       },
       {
@@ -151,7 +151,7 @@
         version: "20260322081",
         modelName: "纱布缺陷检测",
         sceneType: "缺陷检测",
-        source: "本地上传",
+        source: "导入本地模型",
         addedAt: "2026-03-22T16:28:44+08:00",
       },
     ],
@@ -862,7 +862,7 @@
 
   function normalizeModelSource(value) {
     const next = String(value || "").trim();
-    return next === "云端同步" ? "云端同步" : "本地上传";
+    return next === "云端同步" ? "云端同步" : "导入本地模型";
   }
 
   function normalizeBusinessResult(value) {

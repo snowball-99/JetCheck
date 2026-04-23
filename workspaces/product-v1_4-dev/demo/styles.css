@@ -1181,7 +1181,7 @@ thead th {
 
 .wizard-steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -1424,6 +1424,178 @@ thead th {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.judgment-builder-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(280px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 520px;
+}
+
+.judgment-tree-panel,
+.judgment-rule-list-panel,
+.judgment-editor-panel {
+  border: 1px solid #dde7f2;
+  border-radius: 20px;
+  background: #fbfdff;
+  padding: 16px;
+  min-height: 0;
+}
+
+.judgment-tree,
+.judgment-rule-list,
+.judgment-editor-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.judgment-editor-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.judgment-tree-node {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.judgment-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px dashed #d6e2f0;
+}
+
+.judgment-tree-node-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #dbe5f0;
+  border-radius: 16px;
+  background: #fff;
+  text-align: left;
+}
+
+.judgment-tree-node-main.is-active {
+  border-color: rgba(28, 99, 242, 0.3);
+  background: #edf4ff;
+  box-shadow: 0 10px 24px rgba(28, 99, 242, 0.08);
+}
+
+.judgment-tree-node-main.is-readonly {
+  background: #f8fafc;
+}
+
+.judgment-node-type,
+.judgment-node-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.judgment-rule-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dde7f2;
+  border-radius: 18px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.judgment-rule-card.is-active {
+  border-color: rgba(28, 99, 242, 0.3);
+  background: #edf4ff;
+  box-shadow: 0 10px 24px rgba(28, 99, 242, 0.08);
+}
+
+.judgment-rule-card-head,
+.judgment-rule-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.judgment-rule-card-summary {
+  color: #44556b;
+  line-height: 1.7;
+}
+
+.judgment-selection-card,
+.judgment-preview-card,
+.judgment-dimension-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dde7f2;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.judgment-preview-card strong {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.judgment-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.judgment-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e1e8f2;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.judgment-dimension-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.judgment-dimension-table th,
+.judgment-dimension-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #e7eef7;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.judgment-dimension-table th {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.judgment-dimension-table input,
+.judgment-dimension-table select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #fff;
+}
+
+.judgment-dimension-table input[type="checkbox"] {
+  width: 16px;
+  min-height: 16px;
 }
 
 .roi-editor-layout {
@@ -3809,7 +3981,9 @@ thead th {
   .summary-grid,
   .tool-card-grid,
   .runtime-grid,
-  .hero-info-grid {
+  .hero-info-grid,
+  .judgment-builder-shell,
+  .wizard-steps {
     grid-template-columns: 1fr;
   }
 

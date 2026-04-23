@@ -6,6 +6,8 @@ const ui = {
   activePage: "detect-tools",
   toolView: "overview",
   builderStep: "acquire",
+  builderRuleNodeId: "",
+  builderRuleId: "",
   settingsTab: "client",
   activeToolId: state.tools[0]?.id || null,
   activeRecordId: state.detectionRecords[0]?.id || null,
@@ -71,6 +73,8 @@ const TOOL_ITEM_LIMITS = {
   process: 20,
   detect: 20,
 };
+
+const BUILDER_STEPS = ["acquire", "process", "detect", "rule"];
 
 const RUN_MODE_OPTIONS = [
   { value: "acquire", label: "原图采样", hint: "仅采集原图样本。", requiredStep: "acquire" },
@@ -265,6 +269,7 @@ function bindStaticEvents() {
 
   els.toolCardGrid.addEventListener("click", handleToolCardClick);
   els.builderStepBody.addEventListener("click", handleBuilderBodyClick);
+  els.builderStepBody.addEventListener("change", handleBuilderBodyChange);
   els.toolRuntimePanel.addEventListener("click", handleToolRuntimeClick);
   els.toolRuntimePanel.addEventListener("keydown", handleToolRuntimeKeydown);
   els.runtimeImageResultList.addEventListener("click", handleRuntimeImageResultClick);
@@ -683,12 +688,16 @@ function renderToolBuilder() {
     });
   }
 
+  if (ui.builderStep === "rule") {
+    els.builderStepBody.innerHTML = renderJudgmentRuleBuilder(tool);
+  }
+
   const stepIndex = getBuilderStepIndex(ui.builderStep);
   const canNext = canMoveNextFromStep(ui.builderStep);
   els.prevBuilderStep.disabled = stepIndex === 0;
-  els.nextBuilderStep.disabled = stepIndex >= 2 || !canNext;
-  els.nextBuilderStep.hidden = stepIndex >= 2;
-  els.finishBuilderBtn.disabled = stepIndex < 2 || !Demo.evaluateToolCompletion(tool);
+  els.nextBuilderStep.disabled = stepIndex >= BUILDER_STEPS.length - 1 || !canNext;
+  els.nextBuilderStep.hidden = stepIndex >= BUILDER_STEPS.length - 1;
+  els.finishBuilderBtn.disabled = stepIndex < BUILDER_STEPS.length - 1 || !Demo.evaluateToolCompletion(tool);
 }
 
 function getBuilderLimitText(type, count) {
@@ -1946,9 +1955,8 @@ function setBuilderStep(step) {
 }
 
 function moveBuilderStep(direction) {
-  const steps = ["acquire", "process", "detect"];
-  const currentIndex = steps.indexOf(ui.builderStep);
-  const nextStep = steps[currentIndex + direction];
+  const currentIndex = BUILDER_STEPS.indexOf(ui.builderStep);
+  const nextStep = BUILDER_STEPS[currentIndex + direction];
   if (!nextStep) return;
   setBuilderStep(nextStep);
 }
@@ -2193,6 +2201,100 @@ function handleBuilderBodyClick(event) {
   if (action === "add-detect") return openDetectModal();
   if (action === "edit-detect") return openDetectModal(id);
   if (action === "delete-detect") return deleteDetect(id);
+  if (action === "select-rule-node") {
+    ui.builderRuleNodeId = actionEl.dataset.nodeId || "";
+    ui.builderRuleId = "";
+    return renderToolBuilder();
+  }
+  if (action === "select-node-rule") {
+    ui.builderRuleId = actionEl.dataset.ruleId || "";
+    return renderToolBuilder();
+  }
+  if (action === "add-node-rule") return addJudgmentRule();
+  if (action === "delete-node-rule") return deleteJudgmentRule(actionEl.dataset.ruleId || "");
+  if (action === "reset-default-rules") return resetJudgmentRules();
+}
+
+function handleBuilderBodyChange(event) {
+  if (ui.builderStep !== "rule") return;
+  const tool = getActiveTool();
+  if (!tool) return;
+  ensureJudgmentRuleState(tool);
+  const rule = getSelectedJudgmentRule(tool);
+  if (!rule) return;
+  const target = getEventTargetElement(event);
+  if (!target) return;
+
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+    const ruleField = target.dataset.ruleField;
+    if (ruleField) {
+      rule[ruleField] = target.type === "checkbox" ? target.checked : target.value;
+      if (ruleField === "template") {
+        const node = findJudgmentRuleNode(tool, ui.builderRuleNodeId);
+        applyJudgmentRuleTemplateDefaults(rule, node, tool);
+      }
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const dimensionIndex = Number(target.dataset.dimensionIndex);
+    const dimensionField = target.dataset.dimensionField;
+    if (Number.isInteger(dimensionIndex) && dimensionField && Array.isArray(rule.dimensions) && rule.dimensions[dimensionIndex]) {
+      rule.dimensions[dimensionIndex][dimensionField] = target.type === "checkbox" ? target.checked : target.value;
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const selectionNodeId = target.dataset.selectionNodeId;
+    if (selectionNodeId) {
+      const selected = new Set(Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : []);
+      if (target instanceof HTMLInputElement && target.checked) selected.add(selectionNodeId);
+      if (target instanceof HTMLInputElement && !target.checked) selected.delete(selectionNodeId);
+      rule.selectedNodeIds = Array.from(selected);
+      saveStateSilently();
+      renderToolBuilder();
+    }
+  }
+}
+
+function addJudgmentRule() {
+  const tool = getActiveTool();
+  if (!tool || !ui.builderRuleNodeId) return;
+  ensureJudgmentRuleState(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const node = nodes.find((item) => item.id === ui.builderRuleNodeId);
+  if (!node) return;
+  const nextRule = createDefaultJudgmentRule(tool, node, nodes);
+  tool.ruleConfig.rulesByNode[node.id].push(nextRule);
+  ui.builderRuleId = nextRule.id;
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function deleteJudgmentRule(ruleId) {
+  const tool = getActiveTool();
+  if (!tool || !ruleId) return;
+  const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  if (rules.length <= 1) {
+    showToast("当前节点至少保留 1 条规则");
+    return;
+  }
+  tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] = rules.filter((rule) => rule.id !== ruleId);
+  ui.builderRuleId = tool.ruleConfig.rulesByNode[ui.builderRuleNodeId][0]?.id || "";
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function resetJudgmentRules() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  ui.builderRuleNodeId = "";
+  ui.builderRuleId = "";
+  saveStateSilently();
+  renderToolBuilder();
 }
 
 function ensureToolItemCapacity(type, currentId = "") {
@@ -5444,7 +5546,7 @@ function getFilteredRecords() {
 }
 
 function getBuilderStepIndex(step) {
-  return ["acquire", "process", "detect"].indexOf(step);
+  return BUILDER_STEPS.indexOf(step);
 }
 
 function canEnterBuilderStepForTool(tool, step) {
@@ -5452,6 +5554,7 @@ function canEnterBuilderStepForTool(tool, step) {
   if (step === "acquire") return true;
   if (step === "process") return tool.acquire.length > 0;
   if (step === "detect") return tool.acquire.length > 0 && tool.process.length > 0;
+  if (step === "rule") return tool.acquire.length > 0 && tool.process.length > 0 && tool.detect.length > 0;
   return false;
 }
 
@@ -5468,7 +5571,7 @@ function getRecommendedBuilderStep(tool, preferredStep = "acquire") {
   if (!tool.detect.length) {
     return canEnterBuilderStepForTool(tool, preferredStep) ? preferredStep : "detect";
   }
-  return canEnterBuilderStepForTool(tool, preferredStep) ? preferredStep : "detect";
+  return canEnterBuilderStepForTool(tool, preferredStep) ? preferredStep : "rule";
 }
 
 function getRunModeMeta(mode) {
@@ -5614,7 +5717,8 @@ function canMoveNextFromStep(step) {
   if (!tool) return false;
   if (step === "acquire") return tool.acquire.length > 0;
   if (step === "process") return tool.process.length > 0;
-  if (step === "detect") return Demo.evaluateToolCompletion(tool);
+  if (step === "detect") return tool.detect.length > 0;
+  if (step === "rule") return Demo.evaluateToolCompletion(tool);
   return false;
 }
 
@@ -5631,6 +5735,587 @@ function renderBuilderStepSection({ title, limitText, actionLabel, actionKey, it
     </div>
     <div class="builder-list">
       ${items.length ? items.join("") : `<div class="builder-empty">${emptyText}</div>`}
+    </div>
+  `;
+}
+
+function saveStateSilently() {
+  try {
+    Demo.saveState(state);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function getJudgmentRoiLabel(process) {
+  const mode = normalizeProcessMode(process?.mode);
+  if (mode === "full-image") return "全图ROI";
+  return String(process?.name || "ROI节点").trim() || "ROI节点";
+}
+
+function getJudgmentRuleNodes(tool) {
+  if (!tool) return [];
+  const nodes = [
+    {
+      id: "cycle",
+      parentId: "",
+      label: "周期",
+      type: "cycle",
+      configurable: true,
+      depth: 0,
+    },
+  ];
+
+  tool.acquire.forEach((acquire) => {
+    const acquireNodeId = `acquire:${acquire.id}`;
+    nodes.push({
+      id: acquireNodeId,
+      parentId: "cycle",
+      label: acquire.name || "图片",
+      type: "acquire",
+      configurable: false,
+      depth: 1,
+      acquireId: acquire.id,
+    });
+
+    tool.process
+      .filter((process) => process.inputId === acquire.id)
+      .forEach((process) => {
+        const roiNodeId = `roi:${process.id}`;
+        nodes.push({
+          id: roiNodeId,
+          parentId: acquireNodeId,
+          label: getJudgmentRoiLabel(process),
+          type: "roi",
+          configurable: true,
+          depth: 2,
+          acquireId: acquire.id,
+          processId: process.id,
+          processName: process.name || "",
+        });
+
+        tool.detect
+          .filter((detect) => getDetectTargets(detect).some((target) => target.processId === process.id))
+          .forEach((detect) => {
+            nodes.push({
+              id: `detect:${detect.id}:${process.id}`,
+              parentId: roiNodeId,
+              label: detect.name || "检测项",
+              type: "detect",
+              configurable: true,
+              depth: 3,
+              processId: process.id,
+              detectId: detect.id,
+              sceneType: getDetectSceneType(detect),
+            });
+          });
+      });
+  });
+
+  return nodes;
+}
+
+function getNodeChildren(nodes, nodeId, type = "") {
+  return nodes.filter((node) => node.parentId === nodeId && (!type || node.type === type));
+}
+
+function findJudgmentRuleNode(tool, nodeId) {
+  return getJudgmentRuleNodes(tool).find((node) => node.id === nodeId) || null;
+}
+
+function getRuleNodeTypeLabel(node) {
+  if (!node) return "";
+  if (node.type === "cycle") return "周期层";
+  if (node.type === "roi") return "ROI层";
+  if (node.type === "detect") return "检测项层";
+  return "图片层";
+}
+
+function getDetectByNode(tool, node) {
+  if (!tool || !node?.detectId) return null;
+  return tool.detect.find((detect) => detect.id === node.detectId) || null;
+}
+
+function getDetectPositiveLabel(detect) {
+  const categories = getModelCategoriesById(detect?.modelId);
+  if (categories.length) return categories[0];
+  if (/头像/.test(detect?.name || "")) return "头像朝上";
+  if (/焊点/.test(detect?.name || "")) return "有焊点";
+  if (/卡扣/.test(detect?.name || "")) return "有卡扣";
+  return "目标";
+}
+
+function getDefaultDimensionRows(tool, node) {
+  if (tool?.id === "tool_001") {
+    return [
+      { label: "螺杆1", required: true, errorCode: "0", min: "9.0", max: "10.0" },
+      { label: "螺杆2", required: true, errorCode: "0", min: "6.0", max: "7.0" },
+    ];
+  }
+  return [
+    { label: "尺寸项1", required: true, errorCode: "0", min: "", max: "" },
+    { label: "尺寸项2", required: false, errorCode: "0", min: "", max: "" },
+  ];
+}
+
+function createDefaultJudgmentRule(tool, node, nodes) {
+  if (node.type === "cycle") {
+    return {
+      id: Demo.makeId("rule"),
+      name: "周期汇总",
+      template: "all-selected-ok",
+      selectedNodeIds: nodes.filter((item) => item.type === "roi").map((item) => item.id),
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+
+  if (node.type === "roi") {
+    const detectNodes = getNodeChildren(nodes, node.id, "detect");
+    const allDimension = detectNodes.length > 1 && detectNodes.every((item) => item.sceneType === "尺寸");
+    return {
+      id: Demo.makeId("rule"),
+      name: allDimension ? "互斥匹配判定" : "ROI结果汇总",
+      template: allDimension ? "exactly-one-ok" : "all-selected-ok",
+      selectedNodeIds: detectNodes.map((item) => item.id),
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  if (sceneType === "尺寸") {
+    return {
+      id: Demo.makeId("rule"),
+      name: `${node.label}判定`,
+      template: "dimension-all-pass",
+      dimensions: getDefaultDimensionRows(tool, node),
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+  if (sceneType === "分类") {
+    return {
+      id: Demo.makeId("rule"),
+      name: `${node.label}判定`,
+      template: "label-count-eq",
+      targetLabel: getDetectPositiveLabel(detect),
+      expectedCount: 1,
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+  return {
+    id: Demo.makeId("rule"),
+    name: `${node.label}判定`,
+    template: "defect-count-zero",
+    defectLabel: "缺陷",
+    expectedCount: 0,
+    resultOnHit: "OK",
+    failResult: "NG",
+    enabled: true,
+  };
+}
+
+function buildDefaultJudgmentRuleConfig(tool) {
+  const nodes = getJudgmentRuleNodes(tool);
+  const rulesByNode = {};
+  nodes
+    .filter((node) => node.configurable)
+    .forEach((node) => {
+      rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
+    });
+  return { rulesByNode };
+}
+
+function ensureJudgmentRuleState(tool) {
+  if (!tool) return;
+  if (!tool.ruleConfig || typeof tool.ruleConfig !== "object") {
+    tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  }
+  if (!tool.ruleConfig.rulesByNode || typeof tool.ruleConfig.rulesByNode !== "object") {
+    tool.ruleConfig.rulesByNode = {};
+  }
+  const nodes = getJudgmentRuleNodes(tool);
+  nodes
+    .filter((node) => node.configurable)
+    .forEach((node) => {
+      if (!Array.isArray(tool.ruleConfig.rulesByNode[node.id]) || !tool.ruleConfig.rulesByNode[node.id].length) {
+        tool.ruleConfig.rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
+      }
+    });
+}
+
+function syncJudgmentRuleSelection(tool) {
+  if (!tool) return;
+  ensureJudgmentRuleState(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const configurableNodes = nodes.filter((node) => node.configurable);
+  if (!configurableNodes.some((node) => node.id === ui.builderRuleNodeId)) {
+    ui.builderRuleNodeId = configurableNodes[0]?.id || "";
+  }
+  const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  if (!rules.some((rule) => rule.id === ui.builderRuleId)) {
+    ui.builderRuleId = rules[0]?.id || "";
+  }
+}
+
+function getSelectedJudgmentRule(tool) {
+  const rules = Array.isArray(tool?.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  return rules.find((rule) => rule.id === ui.builderRuleId) || null;
+}
+
+function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
+  if (!rule || !node) return;
+  const nodes = getJudgmentRuleNodes(tool);
+  if (node.type === "cycle") {
+    if (!Array.isArray(rule.selectedNodeIds)) {
+      rule.selectedNodeIds = nodes.filter((item) => item.type === "roi").map((item) => item.id);
+    }
+    return;
+  }
+  if (node.type === "roi") {
+    if (!Array.isArray(rule.selectedNodeIds) || !rule.selectedNodeIds.length) {
+      rule.selectedNodeIds = getNodeChildren(nodes, node.id, "detect").map((item) => item.id);
+    }
+    return;
+  }
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  if (sceneType === "尺寸") {
+    if (!Array.isArray(rule.dimensions) || !rule.dimensions.length) {
+      rule.dimensions = getDefaultDimensionRows(tool, node);
+    }
+    return;
+  }
+  if (sceneType === "分类") {
+    if (!rule.targetLabel) rule.targetLabel = getDetectPositiveLabel(detect);
+    if (!Number.isFinite(Number(rule.expectedCount))) rule.expectedCount = 1;
+    return;
+  }
+  if (!rule.defectLabel) rule.defectLabel = "缺陷";
+  if (!Number.isFinite(Number(rule.expectedCount))) rule.expectedCount = 0;
+}
+
+function getJudgmentRuleSummary(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    const nodes = getJudgmentRuleNodes(tool);
+    const labels = (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+      .map((id) => nodes.find((item) => item.id === id)?.label || "")
+      .filter(Boolean);
+    if (rule.template === "exactly-one-ok") return `${labels.join("、")} 中结果为 OK 的数量必须等于 1`;
+    if (rule.template === "any-selected-ok") return `${labels.join("、")} 中任一节点为 OK 即通过`;
+    return `${labels.join("、")} 全部为 OK 时通过`;
+  }
+  if (rule.template === "dimension-all-pass") {
+    return (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => `${item.label}${item.min || item.max ? ` ${item.min || "-"}~${item.max || "-"}` : ""}${item.errorCode === "0" ? " / 正常" : ""}`)
+      .join("；");
+  }
+  if (rule.template === "label-count-gte") return `标签“${rule.targetLabel || "目标"}”数量大于等于 ${rule.expectedCount || 0}`;
+  if (rule.template === "defect-count-zero") return "缺陷数量等于 0";
+  return `标签“${rule.targetLabel || "目标"}”数量等于 ${rule.expectedCount || 0}`;
+}
+
+function getJudgmentRuleExpression(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    if (rule.template === "exactly-one-ok") return "eq(countArray(eq(result,'OK')),1)";
+    if (rule.template === "any-selected-ok") return "gt(countArray(eq(result,'OK')),0)";
+    return "allArray(eq(result,'OK'))";
+  }
+  if (rule.template === "dimension-all-pass") {
+    return (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => `all(eq(label,'${item.label}'),eq(data.errorCode,'${item.errorCode || "0"}'),ge(data.value,'${item.min || ""}'),le(data.value,'${item.max || ""}'))`)
+      .join(", ");
+  }
+  if (rule.template === "label-count-gte") return `ge(countArray(eq(label,'${rule.targetLabel || ""}')),'${rule.expectedCount || 0}')`;
+  if (rule.template === "defect-count-zero") return "eq(countArray(true),0)";
+  return `eq(countArray(eq(label,'${rule.targetLabel || ""}')),'${rule.expectedCount || 0}')`;
+}
+
+function renderJudgmentRuleBuilder(tool) {
+  ensureJudgmentRuleState(tool);
+  syncJudgmentRuleSelection(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const activeNode = nodes.find((node) => node.id === ui.builderRuleNodeId) || null;
+  const nodeRules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  const activeRule = nodeRules.find((rule) => rule.id === ui.builderRuleId) || nodeRules[0] || null;
+  applyJudgmentRuleTemplateDefaults(activeRule, activeNode, tool);
+  return `
+    <div class="judgment-builder-shell">
+      <aside class="judgment-tree-panel">
+        <div class="section-head section-head-tight">
+          <div>
+            <h3>判定结构</h3>
+          </div>
+          <div class="section-head-actions">
+            <button class="secondary-btn" type="button" data-action="reset-default-rules">生成默认规则</button>
+          </div>
+        </div>
+        <div class="judgment-tree">
+          ${nodes.filter((node) => node.depth === 0).map((node) => renderJudgmentTreeNode(node, nodes, tool)).join("")}
+        </div>
+      </aside>
+      <section class="judgment-rule-list-panel">
+        <div class="section-head section-head-tight">
+          <div>
+            <h3>${escapeHtml(activeNode?.label || "规则列表")}</h3>
+            <p class="muted">${escapeHtml(getRuleNodeTypeLabel(activeNode))}</p>
+          </div>
+          <div class="section-head-actions">
+            ${activeNode?.configurable ? `<button class="primary-btn" type="button" data-action="add-node-rule">新增规则</button>` : ""}
+          </div>
+        </div>
+        <div class="judgment-rule-list">
+          ${
+            activeNode?.configurable
+              ? nodeRules
+                  .map((rule) => renderJudgmentRuleCard(rule, activeNode, tool))
+                  .join("")
+              : `<div class="builder-empty">当前节点仅用于展示层级，不承载独立规则。</div>`
+          }
+        </div>
+      </section>
+      <section class="judgment-editor-panel">
+        ${renderJudgmentRuleEditor(tool, activeNode, activeRule)}
+      </section>
+    </div>
+  `;
+}
+
+function renderJudgmentTreeNode(node, nodes, tool) {
+  const children = getNodeChildren(nodes, node.id);
+  const isActive = node.id === ui.builderRuleNodeId;
+  const rules = Array.isArray(tool?.ruleConfig?.rulesByNode?.[node.id]) ? tool.ruleConfig.rulesByNode[node.id] : [];
+  return `
+    <div class="judgment-tree-node depth-${node.depth}">
+      <button
+        class="judgment-tree-node-main ${isActive ? "is-active" : ""} ${node.configurable ? "" : "is-readonly"}"
+        type="button"
+        data-action="select-rule-node"
+        data-node-id="${escapeAttribute(node.id)}"
+      >
+        <span class="judgment-node-type">${escapeHtml(getRuleNodeTypeLabel(node))}</span>
+        <strong>${escapeHtml(node.label)}</strong>
+        ${node.configurable ? `<span class="judgment-node-count">${rules.length} 条</span>` : `<span class="judgment-node-count">仅查看</span>`}
+      </button>
+      ${children.length ? `<div class="judgment-tree-children">${children.map((child) => renderJudgmentTreeNode(child, nodes, tool)).join("")}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderJudgmentRuleCard(rule, node, tool) {
+  const isActive = rule.id === ui.builderRuleId;
+  return `
+    <article class="judgment-rule-card ${isActive ? "is-active" : ""}" data-action="select-node-rule" data-rule-id="${escapeAttribute(rule.id)}">
+      <div class="judgment-rule-card-head">
+        <strong>${escapeHtml(rule.name || "未命名规则")}</strong>
+        <span class="chip">${escapeHtml(rule.resultOnHit || "OK")}</span>
+      </div>
+      <p class="judgment-rule-card-summary">${escapeHtml(getJudgmentRuleSummary(rule, node, tool) || "暂无规则摘要")}</p>
+      <div class="judgment-rule-card-meta">
+        <span>${escapeHtml(rule.enabled ? "已启用" : "已停用")}</span>
+        <button class="table-btn table-btn-danger" type="button" data-action="delete-node-rule" data-rule-id="${escapeAttribute(rule.id)}">删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderJudgmentRuleEditor(tool, node, rule) {
+  if (!node?.configurable) {
+    return `<div class="builder-empty">请选择左侧可配置节点。</div>`;
+  }
+  if (!rule) {
+    return `<div class="builder-empty">当前节点还没有规则，请先新增一条规则。</div>`;
+  }
+  const nodes = getJudgmentRuleNodes(tool);
+  const availableChildren =
+    node.type === "cycle"
+      ? nodes.filter((item) => item.type === "roi")
+      : node.type === "roi"
+        ? getNodeChildren(nodes, node.id, "detect")
+        : [];
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  const categoryOptions = detect ? getModelCategoriesById(detect.modelId) : [];
+
+  return `
+    <div class="judgment-editor-scroll">
+      <div class="section-head section-head-tight">
+        <div>
+          <h3>规则编辑</h3>
+          <p class="muted">${escapeHtml(node.label)} / ${escapeHtml(getRuleNodeTypeLabel(node))}</p>
+        </div>
+      </div>
+
+      <div class="form-grid double-column">
+        <label class="field">
+          <span>规则名称</span>
+          <input type="text" value="${escapeAttribute(rule.name || "")}" data-rule-field="name" />
+        </label>
+        <label class="field">
+          <span>模板类型</span>
+          <select data-rule-field="template">
+            ${getJudgmentTemplateOptions(node, sceneType).map((item) => `<option value="${item.value}" ${item.value === rule.template ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>命中输出</span>
+          <select data-rule-field="resultOnHit">
+            ${["OK", "NG", "PENDING"].map((item) => `<option value="${item}" ${item === rule.resultOnHit ? "selected" : ""}>${item}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" data-rule-field="enabled" ${rule.enabled ? "checked" : ""} />
+          <span>启用这条规则</span>
+        </label>
+      </div>
+
+      ${renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions)}
+
+      <div class="judgment-preview-card">
+        <span>自然语言预览</span>
+        <strong>${escapeHtml(getJudgmentRuleSummary(rule, node, tool))}</strong>
+      </div>
+
+      <label class="field">
+        <span>表达式预览</span>
+        <textarea rows="4" readonly>${escapeHtml(getJudgmentRuleExpression(rule, node, tool))}</textarea>
+      </label>
+    </div>
+  `;
+}
+
+function getJudgmentTemplateOptions(node, sceneType = "") {
+  if (node?.type === "cycle") {
+    return [
+      { value: "all-selected-ok", label: "所有关键节点都 OK" },
+      { value: "any-selected-ok", label: "任一关键节点 OK 即通过" },
+    ];
+  }
+  if (node?.type === "roi") {
+    return [
+      { value: "all-selected-ok", label: "全部检测项都 OK" },
+      { value: "any-selected-ok", label: "任一检测项 OK 即通过" },
+      { value: "exactly-one-ok", label: "必须且仅允许一个检测项 OK" },
+    ];
+  }
+  if (sceneType === "尺寸") {
+    return [{ value: "dimension-all-pass", label: "关键尺寸项全部合格" }];
+  }
+  if (sceneType === "分类") {
+    return [
+      { value: "label-count-eq", label: "指定标签数量等于 N" },
+      { value: "label-count-gte", label: "指定标签数量大于等于 N" },
+    ];
+  }
+  return [
+    { value: "defect-count-zero", label: "总缺陷数量等于 0" },
+    { value: "defect-label-count-lte", label: "指定缺陷数量小于等于 N" },
+  ];
+}
+
+function renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions) {
+  if (node.type === "cycle" || node.type === "roi") {
+    return `
+      <div class="judgment-selection-card">
+        <span>生效节点</span>
+        <div class="judgment-checkbox-list">
+          ${availableChildren
+            .map(
+              (item) => `
+                <label class="judgment-checkbox-item">
+                  <input type="checkbox" data-selection-node-id="${escapeAttribute(item.id)}" ${(rule.selectedNodeIds || []).includes(item.id) ? "checked" : ""} />
+                  <span>${escapeHtml(item.label)}</span>
+                </label>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  if (rule.template === "dimension-all-pass") {
+    return `
+      <div class="judgment-dimension-card">
+        <div class="section-head section-head-tight">
+          <div>
+            <h4>尺寸条件</h4>
+          </div>
+        </div>
+        <table class="judgment-dimension-table">
+          <thead>
+            <tr>
+              <th>尺寸项</th>
+              <th>必须存在</th>
+              <th>errorCode</th>
+              <th>下限</th>
+              <th>上限</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(rule.dimensions || [])
+              .map(
+                (item, index) => `
+                  <tr>
+                    <td><input type="text" value="${escapeAttribute(item.label || "")}" data-dimension-index="${index}" data-dimension-field="label" /></td>
+                    <td><input type="checkbox" data-dimension-index="${index}" data-dimension-field="required" ${item.required ? "checked" : ""} /></td>
+                    <td>
+                      <select data-dimension-index="${index}" data-dimension-field="errorCode">
+                        <option value="0" ${item.errorCode === "0" ? "selected" : ""}>正常</option>
+                        <option value="1" ${item.errorCode === "1" ? "selected" : ""}>模板不匹配</option>
+                        <option value="2" ${item.errorCode === "2" ? "selected" : ""}>检测异常</option>
+                      </select>
+                    </td>
+                    <td><input type="text" value="${escapeAttribute(item.min || "")}" data-dimension-index="${index}" data-dimension-field="min" /></td>
+                    <td><input type="text" value="${escapeAttribute(item.max || "")}" data-dimension-index="${index}" data-dimension-field="max" /></td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  if (rule.template === "defect-count-zero" || rule.template === "defect-label-count-lte") {
+    return `
+      <div class="form-grid double-column">
+        <label class="field">
+          <span>缺陷名称</span>
+          <input type="text" value="${escapeAttribute(rule.defectLabel || "缺陷")}" data-rule-field="defectLabel" ${rule.template === "defect-count-zero" ? "disabled" : ""} />
+        </label>
+        <label class="field">
+          <span>数量要求</span>
+          <input type="number" min="0" value="${escapeAttribute(String(rule.expectedCount ?? 0))}" data-rule-field="expectedCount" />
+        </label>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="form-grid double-column">
+      <label class="field">
+        <span>标签名称</span>
+        <select data-rule-field="targetLabel">
+          ${Array.from(new Set((categoryOptions.length ? categoryOptions : [rule.targetLabel || "目标"]).filter(Boolean)))
+            .map((item) => `<option value="${escapeAttribute(item)}" ${item === rule.targetLabel ? "selected" : ""}>${escapeHtml(item)}</option>`)
+            .join("")}
+        </select>
+      </label>
+      <label class="field">
+        <span>数量要求</span>
+        <input type="number" min="0" value="${escapeAttribute(String(rule.expectedCount ?? 1))}" data-rule-field="expectedCount" />
+      </label>
     </div>
   `;
 }

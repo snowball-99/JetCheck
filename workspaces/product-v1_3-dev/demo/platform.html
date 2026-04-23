@@ -24,8 +24,8 @@
         </nav>
         <div class="topbar-actions">
           <button class="secondary-btn" id="openAccountCenterBtn">账号中心</button>
-          <button class="demo-btn" id="refreshPlatformBtn">Demo: 刷新状态</button>
-          <button class="demo-btn" id="resetPlatformDemo">Demo: 重置数据</button>
+          <button class="demo-btn" id="refreshPlatformBtn" hidden>Demo: 刷新状态</button>
+          <button class="demo-btn" id="resetPlatformDemo" hidden>Demo: 重置数据</button>
         </div>
       </header>
 
@@ -33,7 +33,7 @@
         <section class="page-header">
           <div class="page-title-inline">
             <h1>客户端管理</h1>
-            <span class="inline-metric" id="platformQuotaText">客户端配额：0/0</span>
+            <span class="inline-metric" id="platformQuotaText">已绑定设备：0/0</span>
           </div>
         </section>
 
@@ -46,7 +46,7 @@
               <option value="在线">在线</option>
               <option value="离线">离线</option>
             </select>
-            <input id="platformKeywordInput" type="text" placeholder="搜索客户端名称或硬件识别码" />
+            <input id="platformKeywordInput" type="text" placeholder="搜索设备名称或设备编号" />
           </div>
           <div class="toolbar-right">
             <button class="secondary-btn" id="resetPlatformFilters">重置</button>
@@ -59,7 +59,7 @@
             <thead>
               <tr>
                 <th>客户端名称</th>
-                <th>硬件识别码</th>
+                <th>设备编号</th>
                 <th>绑定时间</th>
                 <th>在线状态</th>
                 <th>最近离线时间</th>
@@ -67,7 +67,7 @@
             </thead>
             <tbody id="platformClientTableBody"></tbody>
           </table>
-          <div class="empty-state" id="platformClientEmpty" hidden>没有符合当前筛选条件的客户端记录</div>
+          <div class="empty-state" id="platformClientEmpty" hidden>暂无数据</div>
           <div class="table-footer">
             <span class="muted" id="platformPaginationText">共 0 条</span>
           </div>

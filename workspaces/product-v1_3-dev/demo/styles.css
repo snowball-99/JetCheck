@@ -598,6 +598,13 @@ thead th {
   font-weight: 700;
 }
 
+.field.is-error input,
+.field.is-error select,
+.field.is-error textarea {
+  border-color: rgba(208, 70, 53, 0.48);
+  box-shadow: 0 0 0 3px rgba(208, 70, 53, 0.12);
+}
+
 .form-grid {
   display: grid;
   gap: 16px 18px;
@@ -614,6 +621,11 @@ thead th {
 .error-text {
   color: var(--danger);
   line-height: 1.6;
+}
+
+.field-error {
+  margin: -2px 0 0;
+  font-size: 13px;
 }
 
 .divider {
@@ -1697,10 +1709,11 @@ thead th {
 }
 
 .runtime-result-value {
-  margin: 22px 0 18px;
-  font-size: 64px;
+  margin: 14px 0 12px;
+  font-size: 40px;
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .runtime-cycle-line {
@@ -1719,6 +1732,20 @@ thead th {
 .runtime-cycle-line strong {
   white-space: nowrap;
   font-size: 20px;
+}
+
+.runtime-primary-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.runtime-primary-actions .primary-btn,
+.runtime-primary-actions .secondary-btn,
+.runtime-primary-actions .danger-btn {
+  flex: 1 1 0;
+  width: auto;
 }
 
 .runtime-camera-info {
@@ -3816,7 +3843,7 @@ thead th {
   }
 
   .runtime-result-value {
-    font-size: 48px;
+    font-size: 32px;
   }
 
   .modal,

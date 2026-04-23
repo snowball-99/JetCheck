@@ -721,18 +721,19 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
         max-width: 760px;
       }}
 
+      .hero-title-row {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 12px;
+      }}
+
       .hero-copy p {{
         margin: 0;
         color: var(--muted);
         line-height: 1.75;
         font-size: 16px;
-      }}
-
-      .hero-actions {{
-        margin-top: 16px;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
       }}
 
       .hero-link {{
@@ -1005,11 +1006,11 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
     <main>
       <section class="hero">
         <div class="hero-copy">
-          <h1>{escape_html(str(site_title))}</h1>
-          <p>{escape_html(str(site_intro))}</p>
-          <div class="hero-actions">
-            <a class="hero-link" href="admin/" target="_blank" rel="noreferrer">管理台原型</a>
+          <div class="hero-title-row">
+            <h1>{escape_html(str(site_title))}</h1>
+            <a class="hero-link" data-local-admin hidden href="admin/" target="_blank" rel="noreferrer">管理台</a>
           </div>
+          <p>{escape_html(str(site_intro))}</p>
         </div>
         <div class="tabs" role="tablist" aria-label="版本分组">
           {''.join(render_tab_button(section, initial_tab) for section in sections)}
@@ -1022,6 +1023,11 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
       const sectionPanels = Array.from(document.querySelectorAll('[data-section-panel]'));
       const sectionTabs = Array.from(document.querySelectorAll('[data-tab-target]'));
       const storageKey = 'jetcheck-demo-site-seen-updates';
+      const localAdminLinks = Array.from(document.querySelectorAll('[data-local-admin]'));
+
+      function shouldShowLocalAdmin() {{
+        return ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+      }}
 
       function activateTab(key) {{
         sectionTabs.forEach((button) => {{
@@ -1040,6 +1046,10 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
       }});
 
       activateTab('{escape_js(initial_tab)}');
+
+      localAdminLinks.forEach((node) => {{
+        node.hidden = !shouldShowLocalAdmin();
+      }});
 
       function loadSeenMap() {{
         try {{
@@ -1358,7 +1368,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>JetCheck 发布站管理台原型</title>
+    <title>JetCheck 管理台</title>
     <style>
       :root {{
         color-scheme: light;
@@ -1393,20 +1403,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .page {{
         width: min(1360px, calc(100vw - 28px));
         margin: 0 auto;
-        padding: 24px 0 40px;
-      }}
-
-      .topbar {{
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 18px;
-      }}
-
-      .topbar a {{
-        color: var(--accent);
-        text-decoration: none;
+        padding: 24px 0;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 18px;
       }}
 
       .hero {{
@@ -1415,7 +1416,14 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
-        margin-bottom: 18px;
+      }}
+
+      .hero-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 8px;
       }}
 
       .hero h1 {{
@@ -1429,28 +1437,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         line-height: 1.75;
       }}
 
-      .hero-meta {{
-        margin-top: 16px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }}
-
-      .meta-pill {{
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.78);
-        border: 1px solid var(--line);
-        font-size: 13px;
-      }}
-
       .layout {{
         display: grid;
         grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
         gap: 18px;
+        min-height: 0;
       }}
 
       .panel {{
@@ -1459,6 +1450,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }}
 
       .panel h2, .panel h3 {{
@@ -1480,6 +1475,16 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.56);
         margin: 14px 0 16px;
+        width: fit-content;
+        flex-wrap: wrap;
+      }}
+
+      .panel-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
       }}
 
       .tab {{
@@ -1501,32 +1506,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .workspace-list {{
         display: grid;
         gap: 12px;
-      }}
-
-      .global-block {{
-        margin-top: 18px;
-        padding-top: 18px;
-        border-top: 1px solid rgba(24, 36, 51, 0.08);
-      }}
-
-      .global-head {{
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-      }}
-
-      .global-summary {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 12px;
-      }}
-
-      .global-details {{
-        display: grid;
-        gap: 10px;
-        margin-top: 14px;
+        overflow: auto;
+        padding-right: 4px;
       }}
 
       .global-settings {{
@@ -1544,14 +1525,15 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .overview-entry {{
-        width: 100%;
-        padding: 16px;
-        border-radius: 18px;
+        appearance: none;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.72);
-        text-align: left;
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 9px 14px;
+        font: inherit;
         cursor: pointer;
-        margin: 16px 0 18px;
+        white-space: nowrap;
       }}
 
       .overview-entry.is-active {{
@@ -1559,37 +1541,27 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
       }}
 
-      .overview-entry h3 {{
-        margin: 0 0 8px;
-        font-size: 20px;
-      }}
-
-      .overview-entry p {{
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.65;
-        font-size: 14px;
-      }}
-
-      .overview-entry-meta {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-      }}
-
       .detail-view[hidden] {{
         display: none !important;
       }}
 
+      .detail-body {{
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 4px;
+      }}
+
       .workspace-card {{
         width: 100%;
-        padding: 16px;
+        padding: 14px 16px;
         border-radius: 18px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.72);
         text-align: left;
         cursor: pointer;
+        display: grid;
+        gap: 10px;
       }}
 
       .workspace-card.is-active {{
@@ -1598,22 +1570,14 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .workspace-card h3 {{
-        margin: 0 0 8px;
-        font-size: 20px;
-      }}
-
-      .workspace-card p {{
         margin: 0;
-        color: var(--muted);
-        line-height: 1.65;
-        font-size: 14px;
+        font-size: 18px;
       }}
 
       .workspace-meta {{
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 10px;
       }}
 
       .badge {{
@@ -1906,6 +1870,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         color: var(--muted);
         font-size: 13px;
         line-height: 1.6;
+        min-height: 20px;
       }}
 
       .empty {{
@@ -1956,35 +1921,21 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
   </head>
   <body>
     <main class="page">
-      <div class="topbar">
-        <a href="../index.html">返回发布站首页</a>
-        <span class="hint">当前是本地管理台第一版：已支持保存当前工作区，发布能力会只推送当前工作区相关改动。</span>
-      </div>
-
       <section class="hero">
-        <h1>JetCheck 发布站管理台</h1>
-        <p>这一版先聚焦“看工作区、看改动、改文案结构”的体验，不先接入复杂的在线权限和后台系统。</p>
-        <div class="hero-meta" id="hero-meta"></div>
+        <div class="hero-head">
+          <h1>JetCheck 管理台</h1>
+          <a class="hero-link" href="../index.html" target="_blank" rel="noreferrer">发布站</a>
+        </div>
       </section>
 
       <div class="layout">
         <section class="panel">
-          <h2>工作区总览</h2>
-          <p class="hint">左侧先选“全局配置”或某个工作区，右侧会切换到对应的详情和操作。</p>
-          <button class="overview-entry" id="global-entry-button" type="button"></button>
+          <div class="panel-head">
+            <h2>工作区总览</h2>
+            <button class="overview-entry" id="global-entry-button" type="button">全局配置</button>
+          </div>
           <div class="tabs" id="workspace-tabs"></div>
           <div class="workspace-list" id="workspace-list"></div>
-          <div class="global-block">
-            <div class="global-head">
-              <div>
-                <h3 class="section-title">全局改动</h3>
-                <p class="hint">这里放不属于某个单独工作区的改动，例如脚本、说明文档、参考资料迁移和站点级配置。</p>
-              </div>
-              <button class="mini-button" id="global-toggle" type="button">展开查看</button>
-            </div>
-            <div class="global-summary" id="global-summary"></div>
-            <div class="global-details" id="global-details" hidden></div>
-          </div>
         </section>
 
         <section class="panel">
@@ -1998,16 +1949,17 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
                 <span class="badge" id="detail-status">未选择</span>
               </div>
               <div class="actions detail-actions">
-                <button class="action-button secondary" id="reload-button" type="button">重新读取数据</button>
-                <button class="action-button secondary" id="save-button" type="button" disabled>保存当前工作区</button>
-                <button class="action-button" id="publish-button" type="button" disabled>发布当前工作区</button>
-                <button class="action-button secondary" id="global-save-button" type="button" disabled hidden>保存全局设置</button>
-                <button class="action-button" id="global-publish-button" type="button" disabled hidden>发布全局改动</button>
+                <button class="action-button secondary" id="reload-button" type="button">刷新</button>
+                <button class="action-button secondary" id="save-button" type="button" disabled>保存</button>
+                <button class="action-button" id="publish-button" type="button" disabled>发布</button>
+                <button class="action-button secondary" id="global-save-button" type="button" disabled hidden>保存</button>
+                <button class="action-button" id="global-publish-button" type="button" disabled hidden>发布</button>
               </div>
-              <p class="head-status-note" id="save-status">保存当前工作区后，会自动重新生成本地发布站；发布时也会自动执行这一步。</p>
+              <p class="head-status-note" id="save-status"></p>
             </div>
           </div>
 
+          <div class="detail-body">
           <div class="detail-view" id="global-detail-view" hidden>
             <div class="section">
               <h3 class="section-title">基础信息</h3>
@@ -2021,7 +1973,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
                   <textarea id="global-site-intro"></textarea>
                 </div>
               </div>
-              <p class="hint">这里对应的真实文件是 `publish-site/site.json`，主要影响发布站标题、介绍和分组文案。</p>
             </div>
 
             <div class="section">
@@ -2030,20 +1981,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
             </div>
 
             <div class="section">
-              <h3 class="section-title">发布范围</h3>
-              <div class="changes">
-                <div class="change-item">
-                  <p>点击“发布全局改动”时，会保存当前全局设置，并发布 `README / scripts / site / docs` 这些全局路径。</p>
-                </div>
-                <div class="change-item">
-                  <p>`reference / archive` 这类更容易混入资料和备份的目录，不会被这个按钮自动带上。</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="section">
-              <h3 class="section-title">当前状态</h3>
-              <p class="hint global-settings-note" id="global-status">当前全局设置还没有连接保存能力。</p>
+              <h3 class="section-title">全局改动</h3>
+              <div class="changes" id="global-details"></div>
             </div>
           </div>
 
@@ -2060,19 +1999,18 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
                   <input id="field-group" />
                 </div>
                 <div class="field">
-                  <label for="field-status-label">状态文案</label>
-                  <input id="field-status-label" />
-                </div>
-                <div class="field">
-                  <label for="field-status-tone">状态色调</label>
-                  <input id="field-status-tone" />
+                  <label for="field-status-select">状态</label>
+                  <select id="field-status-select">
+                    <option value="design">设计中</option>
+                    <option value="active">开发中</option>
+                    <option value="archived">存档</option>
+                  </select>
                 </div>
                 <div class="field wide">
                   <label for="field-summary">工作区说明</label>
                   <textarea id="field-summary"></textarea>
                 </div>
               </div>
-              <p class="hint">这一组对应的真实文件主要是 `workspaces/&lt;workspace&gt;/site.json`。</p>
             </div>
 
             <div class="section">
@@ -2090,6 +2028,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
               <div class="changes" id="changes-list"></div>
             </div>
           </div>
+          </div>
         </section>
       </div>
     </main>
@@ -2103,11 +2042,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       const tabsRoot = document.getElementById('workspace-tabs');
       const listRoot = document.getElementById('workspace-list');
-      const heroMeta = document.getElementById('hero-meta');
       const globalEntryButton = document.getElementById('global-entry-button');
-      const globalSummary = document.getElementById('global-summary');
       const globalDetails = document.getElementById('global-details');
-      const globalToggle = document.getElementById('global-toggle');
       const globalDetailView = document.getElementById('global-detail-view');
       const workspaceDetailView = document.getElementById('workspace-detail-view');
       const globalSiteTitle = document.getElementById('global-site-title');
@@ -2115,15 +2051,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       const globalSectionsTable = document.getElementById('global-sections-table');
       const globalSaveButton = document.getElementById('global-save-button');
       const globalPublishButton = document.getElementById('global-publish-button');
-      const globalStatus = document.getElementById('global-status');
 
       const detailTitle = document.getElementById('detail-title');
       const detailSubtitle = document.getElementById('detail-subtitle');
       const detailStatus = document.getElementById('detail-status');
       const fieldTitle = document.getElementById('field-title');
       const fieldGroup = document.getElementById('field-group');
-      const fieldStatusLabel = document.getElementById('field-status-label');
-      const fieldStatusTone = document.getElementById('field-status-tone');
+      const fieldStatusSelect = document.getElementById('field-status-select');
       const fieldSummary = document.getElementById('field-summary');
       const buttonsTable = document.getElementById('buttons-table');
       const updatesTable = document.getElementById('updates-table');
@@ -2142,9 +2076,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         isPublishing: false,
         isGlobalSaving: false,
         isGlobalPublishing: false,
-        globalExpanded: false,
-        workspaceMessage: '保存当前工作区后，会自动重新生成本地发布站；发布时也会自动执行这一步。',
-        globalMessage: '当前全局设置还没有连接保存能力。',
+        workspaceMessage: '',
+        globalMessage: '',
       }};
 
       function normalizeCollections() {{
@@ -2183,24 +2116,12 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           }}
           adminData = await response.json();
           state.liveMode = true;
-          state.workspaceMessage = '已连接本地管理服务。现在可以直接保存当前工作区；发布时也会自动先保存并重建。';
-          state.globalMessage = '已连接本地管理服务。现在可以直接保存全局设置，也可以发布全局改动。';
+          state.workspaceMessage = '';
+          state.globalMessage = '';
         }} catch (error) {{
-          state.workspaceMessage = '还没有连接本地管理服务。当前可以先看结构；真正保存和发布需要通过本地服务打开。';
-          state.globalMessage = '还没有连接本地管理服务。当前只能查看全局设置，真正保存和发布需要通过本地服务打开。';
+          state.workspaceMessage = '当前未连接本地服务。';
+          state.globalMessage = '当前未连接本地服务。';
         }}
-      }}
-
-      function renderHeroMeta() {{
-        const totalChanges = workspaces.reduce((sum, item) => sum + (item.local_changes || []).length, 0);
-        const globalChanges = (adminData.global_changes || []).length;
-        heroMeta.innerHTML = `
-          <span class="meta-pill">工作区 ${{workspaces.length}} 个</span>
-          <span class="meta-pill">本地工作区改动 ${{totalChanges}} 项</span>
-          <span class="meta-pill">全局改动 ${{globalChanges}} 项</span>
-          <span class="meta-pill">当前站点标题：${{escapeHtml((adminData.site || {{}}).title || '')}}</span>
-          <span class="meta-pill">${{state.liveMode ? '保存模式已连接' : '当前是原型预览'}}</span>
-        `;
       }}
 
       function renderTabs() {{
@@ -2219,39 +2140,20 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       function renderGlobalEntry() {{
-        const site = adminData.site || {{}};
-        const globalChanges = (adminData.global_changes || []).length;
         globalEntryButton.classList.toggle('is-active', state.activeScope === 'global');
-        globalEntryButton.innerHTML = `
-          <h3>全局配置</h3>
-          <p>${{escapeHtml(site.intro || '这里集中管理发布站标题、介绍和分组文案，不用在左侧一大块表单里来回找。')}}</p>
-          <div class="overview-entry-meta">
-            <span class="badge">${{escapeHtml(site.config_path || 'publish-site/site.json')}}</span>
-            <span class="badge">分组 ${{escapeHtml(String((site.sections || []).length))}} 个</span>
-            <span class="badge">${{globalChanges ? `全局改动 ${{globalChanges}} 项` : '当前没有全局改动'}}</span>
-          </div>
-        `;
       }}
 
       function renderWorkspaceList() {{
         const items = grouped.get(state.activeTab) || [];
         listRoot.innerHTML = items.map((item) => {{
           const active = state.activeScope === 'workspace' && item.workspace === state.activeWorkspace;
-          const updates = item.updates || [];
-          const latest = updates[0] ? `${{updates[0].date}} · ${{updates[0].text}}` : '还没有更新记录';
           const changeCount = (item.local_changes || []).length;
           return `
             <button class="workspace-card${{active ? ' is-active' : ''}}" type="button" data-workspace="${{escapeHtml(item.workspace)}}">
               <h3>${{escapeHtml(item.title)}}</h3>
-              <p>${{escapeHtml(item.summary || '当前还没有工作区说明。')}}</p>
               <div class="workspace-meta">
                 <span class="badge" data-tone="${{escapeHtml((item.status || {{}}).tone || 'neutral')}}">${{escapeHtml((item.status || {{}}).label || '未标注')}}</span>
-                <span class="badge">按钮 ${{escapeHtml(String((item.buttons || []).length))}} 个</span>
-                <span class="badge">更新 ${{escapeHtml(String(updates.length))}} 条</span>
-                <span class="badge">${{changeCount ? `本地改动 ${{changeCount}} 项` : '当前无本地改动'}}</span>
-              </div>
-              <div class="workspace-meta">
-                <span class="hint">${{escapeHtml(latest)}}</span>
+                <span class="badge">${{changeCount ? `改动 ${{changeCount}}` : '无改动'}}</span>
               </div>
             </button>
           `;
@@ -2268,23 +2170,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       function renderGlobalChanges() {{
         const changes = adminData.global_changes || [];
-        const counts = new Map();
-        changes.forEach((change) => {{
-          const label = change.category_label || '其他';
-          counts.set(label, (counts.get(label) || 0) + 1);
-        }});
-
         if (!changes.length) {{
-          globalSummary.innerHTML = '<span class="badge">当前没有全局改动</span>';
           globalDetails.innerHTML = '<p class="empty">当前没有需要单独关注的全局改动。</p>';
-          globalDetails.hidden = !state.globalExpanded;
-          globalToggle.textContent = state.globalExpanded ? '收起' : '展开查看';
           return;
         }}
-
-        globalSummary.innerHTML = Array.from(counts.entries()).map(([label, count]) => `
-          <span class="badge">${{escapeHtml(label)}} ${{escapeHtml(String(count))}} 项</span>
-        `).join('');
 
         globalDetails.innerHTML = changes.map((change) => `
           <div class="change-item">
@@ -2295,9 +2184,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
             <p>${{escapeHtml(change.path || '')}}</p>
           </div>
         `).join('');
-
-        globalDetails.hidden = !state.globalExpanded;
-        globalToggle.textContent = state.globalExpanded ? '收起' : `展开查看（${{changes.length}}）`;
       }}
 
       function renderGlobalSettings() {{
@@ -2339,9 +2225,9 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         globalPublishButton.hidden = false;
         workspaceDetailView.hidden = true;
         globalDetailView.hidden = false;
-        saveStatus.textContent = '保存全局设置时会自动重新生成本地发布站；发布全局改动时会一并提交 README / scripts / site / docs。';
+        saveStatus.textContent = state.globalMessage;
         renderGlobalSettings();
-        globalStatus.textContent = state.globalMessage;
+        renderGlobalChanges();
       }}
 
       function renderWorkspaceDetail() {{
@@ -2363,8 +2249,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           detailStatus.dataset.tone = 'neutral';
           fieldTitle.value = '';
           fieldGroup.value = '';
-          fieldStatusLabel.value = '';
-          fieldStatusTone.value = '';
+          fieldStatusSelect.value = 'design';
           fieldSummary.value = '';
           buttonsTable.innerHTML = '<p class="empty">当前没有可展示内容。</p>';
           updatesTable.innerHTML = '<p class="empty">当前没有可展示内容。</p>';
@@ -2379,8 +2264,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         fieldTitle.value = workspace.title || '';
         fieldGroup.value = workspace.group || '';
-        fieldStatusLabel.value = (workspace.status || {{}}).label || '';
-        fieldStatusTone.value = (workspace.status || {{}}).tone || '';
+        fieldStatusSelect.value = (workspace.status || {{}}).tone || 'design';
         fieldSummary.value = workspace.summary || '';
 
         buttonsTable.innerHTML = renderButtonRows(workspace.buttons || []);
@@ -2500,6 +2384,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           return null;
         }}
 
+        const statusMap = {{
+          design: {{ label: '设计中', tone: 'design' }},
+          active: {{ label: '开发中', tone: 'active' }},
+          archived: {{ label: '存档', tone: 'archived' }},
+        }};
+        const selectedStatus = statusMap[fieldStatusSelect.value] || statusMap.design;
+
         const buttons = Array.from(buttonsTable.querySelectorAll('[data-button-row]')).map((row) => {{
           const label = row.querySelector('[data-role="button-label"]')?.value.trim() || '';
           const url = row.querySelector('[data-role="button-url"]')?.value.trim() || '';
@@ -2516,10 +2407,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           title: fieldTitle.value.trim(),
           summary: fieldSummary.value.trim(),
           group: fieldGroup.value.trim() || workspace.group,
-          status: {{
-            label: fieldStatusLabel.value.trim(),
-            tone: fieldStatusTone.value.trim() || 'neutral',
-          }},
+          status: selectedStatus,
           buttons,
           updates,
         }};
@@ -2591,6 +2479,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         const workspace = getCurrentWorkspace();
         const payload = collectWorkspacePayload();
         if (!workspace || !payload) {{
+          return;
+        }}
+
+        if (!window.confirm(`确认发布“${{workspace.title}}”吗？`)) {{
           return;
         }}
 
@@ -2674,6 +2566,9 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }}
 
         const payload = collectGlobalPayload();
+        if (!window.confirm('确认发布全局改动吗？')) {{
+          return;
+        }}
         state.isGlobalPublishing = true;
         globalSaveButton.disabled = true;
         globalPublishButton.disabled = true;
@@ -2722,11 +2617,9 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       function renderAll() {{
-        renderHeroMeta();
         renderGlobalEntry();
         renderTabs();
         renderWorkspaceList();
-        renderGlobalChanges();
         if (state.activeScope === 'global') {{
           renderGlobalDetail();
         }} else {{
@@ -2737,11 +2630,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       globalEntryButton.addEventListener('click', () => {{
         state.activeScope = 'global';
         renderAll();
-      }});
-
-      globalToggle.addEventListener('click', () => {{
-        state.globalExpanded = !state.globalExpanded;
-        renderGlobalChanges();
       }});
 
       reloadButton.addEventListener('click', async () => {{

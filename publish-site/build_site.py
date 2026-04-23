@@ -1411,7 +1411,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .hero {{
-        padding: 24px;
+        padding: 20px 24px;
         border-radius: 24px;
         background: var(--panel);
         border: 1px solid var(--line);
@@ -1423,18 +1423,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 8px;
       }}
 
       .hero h1 {{
-        margin: 0 0 10px;
-        font-size: clamp(28px, 4vw, 44px);
-      }}
-
-      .hero p {{
         margin: 0;
-        color: var(--muted);
-        line-height: 1.75;
+        font-size: clamp(28px, 4vw, 40px);
       }}
 
       .layout {{
@@ -1484,7 +1477,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 14px;
+        margin-bottom: 10px;
       }}
 
       .tab {{
@@ -1555,13 +1548,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .workspace-card {{
         width: 100%;
         padding: 14px 16px;
-        border-radius: 18px;
+        border-radius: 16px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.72);
         text-align: left;
         cursor: pointer;
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }}
 
       .workspace-card.is-active {{
@@ -1610,7 +1603,9 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         justify-content: space-between;
         gap: 14px;
         align-items: flex-start;
-        margin-bottom: 18px;
+        margin-bottom: 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(24, 36, 51, 0.08);
       }}
 
       .detail-head-main {{
@@ -1630,14 +1625,15 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .detail-subtitle {{
-        margin: 8px 0 0;
+        margin: 6px 0 0;
         color: var(--muted);
-        line-height: 1.7;
+        line-height: 1.6;
+        font-size: 14px;
       }}
 
       .field-grid {{
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(240px, 1.2fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr);
         gap: 14px;
       }}
 
@@ -1648,6 +1644,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .field.wide {{
         grid-column: 1 / -1;
+      }}
+
+      .field.tight label {{
+        margin-bottom: -2px;
       }}
 
       .field label {{
@@ -1686,12 +1686,24 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .section-title {{
         margin: 0 0 10px;
-        font-size: 18px;
+        font-size: 17px;
       }}
 
       .table {{
         display: grid;
         gap: 10px;
+      }}
+
+      .section-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }}
+
+      .section-head .section-title {{
+        margin-bottom: 0;
       }}
 
       .row {{
@@ -1701,12 +1713,16 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         align-items: start;
         padding: 12px;
         border: 1px solid rgba(24, 36, 51, 0.08);
-        border-radius: 16px;
+        border-radius: 14px;
         background: rgba(255, 255, 255, 0.72);
       }}
 
       .row.updates {{
         grid-template-columns: 150px minmax(0, 1fr);
+      }}
+
+      .row.compact {{
+        grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.5fr) auto;
       }}
 
       .row h4 {{
@@ -1745,7 +1761,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         display: grid;
         gap: 6px;
         padding: 12px;
-        border-radius: 16px;
+        border-radius: 14px;
         background: rgba(255, 255, 255, 0.72);
         border: 1px solid rgba(24, 36, 51, 0.08);
       }}
@@ -1803,6 +1819,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         box-shadow: none;
       }}
 
+      .action-button.ghost {{
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid rgba(24, 36, 51, 0.08);
+        box-shadow: none;
+      }}
+
       .action-button[disabled] {{
         cursor: not-allowed;
         opacity: 0.55;
@@ -1830,6 +1853,18 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         font: inherit;
         background: var(--panel-strong);
         color: var(--text);
+      }}
+
+      .row-fields textarea {{
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 9px 10px;
+        font: inherit;
+        background: var(--panel-strong);
+        color: var(--text);
+        min-height: 72px;
+        resize: vertical;
       }}
 
       .row-tools {{
@@ -1876,6 +1911,85 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .empty {{
         color: var(--muted);
         font-size: 14px;
+      }}
+
+      .publish-modal[hidden] {{
+        display: none !important;
+      }}
+
+      .publish-modal {{
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background: rgba(15, 23, 42, 0.26);
+        backdrop-filter: blur(10px);
+      }}
+
+      .publish-dialog {{
+        width: min(620px, calc(100vw - 24px));
+        border-radius: 24px;
+        border: 1px solid rgba(24, 36, 51, 0.08);
+        background: rgba(255, 252, 247, 0.98);
+        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
+        padding: 22px;
+        display: grid;
+        gap: 16px;
+      }}
+
+      .publish-dialog-head {{
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }}
+
+      .publish-dialog-head h3 {{
+        margin: 0 0 6px;
+        font-size: 24px;
+      }}
+
+      .publish-dialog-head p {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.65;
+        font-size: 14px;
+      }}
+
+      .publish-scope {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.08);
+        color: var(--accent);
+        font-size: 12px;
+      }}
+
+      .publish-preview {{
+        display: grid;
+        gap: 8px;
+        max-height: 220px;
+        overflow: auto;
+        padding-right: 4px;
+      }}
+
+      .publish-item {{
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(24, 36, 51, 0.08);
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 14px;
+        color: var(--text);
+      }}
+
+      .publish-actions {{
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
       }}
 
       @media (max-width: 1080px) {{
@@ -1990,15 +2104,15 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
             <div class="section">
               <h3 class="section-title">基础信息</h3>
               <div class="field-grid">
-                <div class="field">
+                <div class="field tight">
                   <label for="field-title">工作区标题</label>
                   <input id="field-title" />
                 </div>
-                <div class="field">
+                <div class="field tight">
                   <label for="field-group">所属分组</label>
-                  <input id="field-group" />
+                  <select id="field-group"></select>
                 </div>
-                <div class="field">
+                <div class="field tight">
                   <label for="field-status-select">状态</label>
                   <select id="field-status-select">
                     <option value="design">设计中</option>
@@ -2014,12 +2128,18 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
             </div>
 
             <div class="section">
-              <h3 class="section-title">入口按钮</h3>
+              <div class="section-head">
+                <h3 class="section-title">入口按钮</h3>
+                <button class="mini-button" id="add-button-row" type="button">新增按钮</button>
+              </div>
               <div class="table" id="buttons-table"></div>
             </div>
 
             <div class="section">
-              <h3 class="section-title">版本更新记录</h3>
+              <div class="section-head">
+                <h3 class="section-title">版本更新记录</h3>
+                <button class="mini-button" id="add-update-row" type="button">新增更新</button>
+              </div>
               <div class="table" id="updates-table"></div>
             </div>
 
@@ -2032,6 +2152,33 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         </section>
       </div>
     </main>
+
+    <div class="publish-modal" id="publish-modal" hidden>
+      <div class="publish-dialog" role="dialog" aria-modal="true" aria-labelledby="publish-dialog-title">
+        <div class="publish-dialog-head">
+          <div>
+            <h3 id="publish-dialog-title">确认发布</h3>
+            <p id="publish-dialog-subtitle">请确认发布范围，并填写本次发布说明。</p>
+          </div>
+          <span class="publish-scope" id="publish-dialog-scope">工作区</span>
+        </div>
+
+        <div class="field">
+          <label for="publish-message-input">发布说明</label>
+          <input id="publish-message-input" />
+        </div>
+
+        <div class="field">
+          <label>本次将发布的改动</label>
+          <div class="publish-preview" id="publish-preview-list"></div>
+        </div>
+
+        <div class="publish-actions">
+          <button class="action-button ghost" id="publish-cancel-button" type="button">取消</button>
+          <button class="action-button" id="publish-confirm-button" type="button">确认发布</button>
+        </div>
+      </div>
+    </div>
 
     <script>
       const apiBase = '../api';
@@ -2066,6 +2213,14 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       const publishButton = document.getElementById('publish-button');
       const reloadButton = document.getElementById('reload-button');
       const saveStatus = document.getElementById('save-status');
+      const publishModal = document.getElementById('publish-modal');
+      const publishDialogScope = document.getElementById('publish-dialog-scope');
+      const publishDialogTitle = document.getElementById('publish-dialog-title');
+      const publishDialogSubtitle = document.getElementById('publish-dialog-subtitle');
+      const publishMessageInput = document.getElementById('publish-message-input');
+      const publishPreviewList = document.getElementById('publish-preview-list');
+      const publishCancelButton = document.getElementById('publish-cancel-button');
+      const publishConfirmButton = document.getElementById('publish-confirm-button');
 
       const state = {{
         activeTab: 'main',
@@ -2078,6 +2233,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         isGlobalPublishing: false,
         workspaceMessage: '',
         globalMessage: '',
+        publishDraft: null,
       }};
 
       function normalizeCollections() {{
@@ -2216,7 +2372,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       function renderGlobalDetail() {{
         const site = adminData.site || {{}};
         detailTitle.textContent = '全局配置';
-        detailSubtitle.textContent = `${{site.config_path || 'publish-site/site.json'}} · 这里管理发布站标题、介绍和主线/定制分组文案。`;
+        detailSubtitle.textContent = '管理发布站标题、介绍和分组文案。';
         detailStatus.textContent = '全局';
         detailStatus.dataset.tone = 'active';
         saveButton.hidden = true;
@@ -2244,11 +2400,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         if (!workspace) {{
           detailTitle.textContent = '当前分组没有工作区';
-          detailSubtitle.textContent = '可以先切换到另一个分组，或者后面在这里补“新建工作区”的入口。';
+          detailSubtitle.textContent = '可以先切换到另一个分组。';
           detailStatus.textContent = '未选择';
           detailStatus.dataset.tone = 'neutral';
           fieldTitle.value = '';
-          fieldGroup.value = '';
+          fieldGroup.innerHTML = '';
           fieldStatusSelect.value = 'design';
           fieldSummary.value = '';
           buttonsTable.innerHTML = '<p class="empty">当前没有可展示内容。</p>';
@@ -2258,12 +2414,16 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }}
 
         detailTitle.textContent = workspace.title;
-        detailSubtitle.textContent = `${{workspace.workspace}} · 配置文件：${{workspace.config_path}} · 更新文件：${{workspace.updates_path}}`;
+        detailSubtitle.textContent = workspace.workspace;
         detailStatus.textContent = (workspace.status || {{}}).label || '未标注';
         detailStatus.dataset.tone = (workspace.status || {{}}).tone || 'neutral';
 
         fieldTitle.value = workspace.title || '';
-        fieldGroup.value = workspace.group || '';
+        const availableGroups = sections.length ? sections : [{{ key: workspace.group || 'main', title: workspace.group_title || workspace.group || '主线版本' }}];
+        fieldGroup.innerHTML = availableGroups.map((section) => `
+          <option value="${{escapeAttr(section.key)}}">${{escapeHtml(section.title)}}</option>
+        `).join('');
+        fieldGroup.value = workspace.group || availableGroups[0]?.key || 'main';
         fieldStatusSelect.value = (workspace.status || {{}}).tone || 'design';
         fieldSummary.value = workspace.summary || '';
 
@@ -2275,13 +2435,12 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       function renderButtonRows(buttons) {{
-        const rows = buttons.length ? buttons.map((button) => renderSingleButtonRow(button)).join('') : '<p class="empty">当前没有配置入口按钮，可以直接新增。</p>';
-        return `${{rows}}<div class="section-actions"><button class="mini-button" id="add-button-row" type="button">新增按钮</button></div>`;
+        return buttons.length ? buttons.map((button) => renderSingleButtonRow(button)).join('') : '<p class="empty">当前没有配置入口按钮，可以直接新增。</p>';
       }}
 
       function renderSingleButtonRow(button) {{
         return `
-          <div class="row" data-button-row>
+          <div class="row compact" data-button-row>
             <div class="row-fields">
               <label>按钮名称</label>
               <input data-role="button-label" value="${{escapeAttr(button.label || '')}}" />
@@ -2298,8 +2457,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       function renderUpdateRows(updates) {{
-        const rows = updates.length ? updates.map((update) => renderSingleUpdateRow(update)).join('') : '<p class="empty">当前没有更新记录，可以直接新增。</p>';
-        return `${{rows}}<div class="section-actions"><button class="mini-button" id="add-update-row" type="button">新增更新</button></div>`;
+        return updates.length ? updates.map((update) => renderSingleUpdateRow(update)).join('') : '<p class="empty">当前没有更新记录，可以直接新增。</p>';
       }}
 
       function bindEditableRows() {{
@@ -2318,41 +2476,33 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         const addButton = document.getElementById('add-button-row');
         if (addButton) {{
           addButton.onclick = () => {{
-            const actionRow = buttonsTable.querySelector('.section-actions');
-            if (actionRow) {{
-              actionRow.insertAdjacentHTML('beforebegin', renderSingleButtonRow({{ label: '', direct_path: '' }}));
-              bindEditableRows();
-            }}
+            buttonsTable.insertAdjacentHTML('beforeend', renderSingleButtonRow({{ label: '', direct_path: '' }}));
+            bindEditableRows();
           }};
         }}
 
         const addUpdate = document.getElementById('add-update-row');
         if (addUpdate) {{
           addUpdate.onclick = () => {{
-            const actionRow = updatesTable.querySelector('.section-actions');
-            if (actionRow) {{
-              actionRow.insertAdjacentHTML('beforebegin', renderSingleUpdateRow({{ date: '', text: '' }}));
-              bindEditableRows();
-            }}
+            updatesTable.insertAdjacentHTML('beforeend', renderSingleUpdateRow({{ date: '', text: '' }}));
+            bindEditableRows();
           }};
         }}
       }}
 
       function renderSingleUpdateRow(update) {{
         return `
-          <div class="row updates" data-update-row>
+          <div class="row compact updates" data-update-row>
             <div class="row-fields">
               <label>日期</label>
               <input data-role="update-date" value="${{escapeAttr(update.date || '')}}" placeholder="2026-04-23" />
             </div>
             <div class="row-fields">
               <label>一句描述</label>
-              <div style="display:grid; gap:8px;">
-                <input data-role="update-text" value="${{escapeAttr(update.text || '')}}" />
-                <div class="row-tools" style="justify-content:flex-start;">
-                  <button class="mini-button danger" type="button" data-remove-update>删除</button>
-                </div>
-              </div>
+              <textarea data-role="update-text">${{escapeHtml(update.text || '')}}</textarea>
+            </div>
+            <div class="row-tools">
+              <button class="mini-button danger" type="button" data-remove-update>删除</button>
             </div>
           </div>
         `;
@@ -2428,6 +2578,34 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }};
       }}
 
+      function defaultWorkspacePublishMessage(workspace) {{
+        return `更新${{workspace.title}}工作区`;
+      }}
+
+      function defaultGlobalPublishMessage() {{
+        const site = adminData.site || {{}};
+        return `更新${{site.title || '发布站'}}全局配置`;
+      }}
+
+      function openPublishDialog(config) {{
+        state.publishDraft = config;
+        publishDialogTitle.textContent = config.title;
+        publishDialogSubtitle.textContent = config.subtitle;
+        publishDialogScope.textContent = config.scopeLabel;
+        publishMessageInput.value = config.defaultMessage;
+        publishPreviewList.innerHTML = config.items.length
+          ? config.items.map((item) => `<div class="publish-item">${{escapeHtml(item)}}</div>`).join('')
+          : '<div class="publish-item">当前没有检测到待发布改动。</div>';
+        publishModal.hidden = false;
+        publishMessageInput.focus();
+        publishMessageInput.select();
+      }}
+
+      function closePublishDialog() {{
+        state.publishDraft = null;
+        publishModal.hidden = true;
+      }}
+
       async function saveCurrentWorkspace() {{
         if (!state.liveMode || state.isSaving || state.isPublishing) {{
           return;
@@ -2482,10 +2660,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           return;
         }}
 
-        if (!window.confirm(`确认发布“${{workspace.title}}”吗？`)) {{
-          return;
-        }}
-
         state.isPublishing = true;
         saveButton.disabled = true;
         publishButton.disabled = true;
@@ -2493,6 +2667,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         renderAll();
 
         try {{
+          payload.commit_message = publishMessageInput.value.trim() || defaultWorkspacePublishMessage(workspace);
           const response = await fetch(`${{apiBase}}/workspaces/${{encodeURIComponent(workspace.workspace)}}/publish`, {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
@@ -2510,6 +2685,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
           const publish = result.publish || {{}};
           state.workspaceMessage = publish.message || `已完成 ${{workspace.title}} 的发布。`;
+          closePublishDialog();
           renderAll();
         }} catch (error) {{
           state.workspaceMessage = `发布失败：${{error.message || '未知错误'}}`;
@@ -2566,9 +2742,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }}
 
         const payload = collectGlobalPayload();
-        if (!window.confirm('确认发布全局改动吗？')) {{
-          return;
-        }}
         state.isGlobalPublishing = true;
         globalSaveButton.disabled = true;
         globalPublishButton.disabled = true;
@@ -2576,6 +2749,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         renderAll();
 
         try {{
+          payload.commit_message = publishMessageInput.value.trim() || defaultGlobalPublishMessage();
           const response = await fetch(`${{apiBase}}/global/publish`, {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
@@ -2592,6 +2766,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           normalizeCollections();
           const publish = result.publish || {{}};
           state.globalMessage = publish.message || '已完成全局改动发布。';
+          closePublishDialog();
           renderAll();
         }} catch (error) {{
           state.globalMessage = `发布全局改动失败：${{error.message || '未知错误'}}`;
@@ -2670,9 +2845,46 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }});
 
       saveButton.addEventListener('click', saveCurrentWorkspace);
-      publishButton.addEventListener('click', publishCurrentWorkspace);
+      publishButton.addEventListener('click', () => {{
+        const workspace = getCurrentWorkspace();
+        if (!workspace) {{
+          return;
+        }}
+
+        const items = (workspace.local_changes || []).map((change) => change.path || '').filter(Boolean);
+        openPublishDialog({{
+          title: `确认发布“${{workspace.title}}”`,
+          subtitle: '发布后会自动保存当前内容、重新构建本地站点，并推送到正式站。',
+          scopeLabel: '当前工作区',
+          defaultMessage: defaultWorkspacePublishMessage(workspace),
+          items,
+          onConfirm: publishCurrentWorkspace,
+        }});
+      }});
       globalSaveButton.addEventListener('click', saveGlobalSettings);
-      globalPublishButton.addEventListener('click', publishGlobalSettings);
+      globalPublishButton.addEventListener('click', () => {{
+        const items = (adminData.global_changes || []).map((change) => change.path || '').filter(Boolean);
+        openPublishDialog({{
+          title: '确认发布全局改动',
+          subtitle: '发布后会自动保存全局设置、重新构建本地站点，并推送到正式站。',
+          scopeLabel: '全局改动',
+          defaultMessage: defaultGlobalPublishMessage(),
+          items,
+          onConfirm: publishGlobalSettings,
+        }});
+      }});
+      publishCancelButton.addEventListener('click', closePublishDialog);
+      publishConfirmButton.addEventListener('click', () => {{
+        const action = state.publishDraft?.onConfirm;
+        if (typeof action === 'function') {{
+          action();
+        }}
+      }});
+      publishModal.addEventListener('click', (event) => {{
+        if (event.target === publishModal) {{
+          closePublishDialog();
+        }}
+      }});
 
       (async function init() {{
         await loadLiveData();

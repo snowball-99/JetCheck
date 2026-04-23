@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+from datetime import date
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,7 +23,13 @@ from build_site import (
 )
 
 
-GLOBAL_PUBLISH_PATHS = ["README.md", "publish-site"]
+GLOBAL_PUBLISH_PATHS = [
+    "README.md",
+    "publish-site",
+    "archive",
+    "mac打开发布站.command",
+    "win打开发布站.bat",
+]
 
 
 def load_admin_payload() -> dict[str, object]:
@@ -117,6 +124,22 @@ def save_workspace_payload(workspace_name: str, payload: dict[str, object]) -> N
     updates_path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
 
 
+def append_publish_update(payload: dict[str, object]) -> dict[str, object]:
+    next_payload = dict(payload)
+    updates_raw = next_payload.get("updates", [])
+    updates = list(updates_raw) if isinstance(updates_raw, list) else []
+    message = str(next_payload.get("commit_message", "")).strip()
+    if not message:
+        return next_payload
+
+    today = date.today().isoformat()
+    if not any(isinstance(item, dict) and str(item.get("date", "")).strip() == today and str(item.get("text", "")).strip() == message for item in updates):
+        updates.insert(0, {"date": today, "text": message})
+
+    next_payload["updates"] = updates
+    return next_payload
+
+
 def save_global_payload(payload: dict[str, object]) -> None:
     current_root = read_json_file(SITE_CONFIG_PATH)
     current_site = current_root.get("site", {}) if isinstance(current_root.get("site", {}), dict) else {}
@@ -163,7 +186,8 @@ def capture(command: list[str]) -> str:
 
 
 def publish_workspace(workspace_name: str, payload: dict[str, object]) -> dict[str, object]:
-    save_workspace_payload(workspace_name, payload)
+    payload_with_update = append_publish_update(payload)
+    save_workspace_payload(workspace_name, payload_with_update)
     build_site_main()
 
     workspace_rel = f"workspaces/{workspace_name}"
@@ -176,8 +200,8 @@ def publish_workspace(workspace_name: str, payload: dict[str, object]) -> dict[s
             "message": f"{workspace_name} 当前没有新的可发布改动。",
         }
 
-    title = str(payload.get("title", "")).strip() or workspace_name
-    commit_message = f"Publish {title}"
+    title = str(payload_with_update.get("title", "")).strip() or workspace_name
+    commit_message = str(payload_with_update.get("commit_message", "")).strip() or f"Publish {title}"
     run(["git", "commit", "-m", commit_message])
     run(["git", "push", "origin", "main"])
 
@@ -202,7 +226,7 @@ def publish_global_payload(payload: dict[str, object]) -> dict[str, object]:
         }
 
     site_title = str(payload.get("title", "")).strip() or "site"
-    commit_message = f"Publish global updates for {site_title}"
+    commit_message = str(payload.get("commit_message", "")).strip() or f"Publish global updates for {site_title}"
     run(["git", "commit", "-m", commit_message])
     run(["git", "push", "origin", "main"])
 

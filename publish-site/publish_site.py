@@ -8,7 +8,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = REPO_ROOT / "publish-site" / "build_site.py"
-PUBLISH_PATHS = ["README.md", ".gitignore", "publish-site", "workspaces", "reference", "scripts", "site"]
+PUBLISH_PATHS = [
+    "README.md",
+    ".gitignore",
+    "publish-site",
+    "workspaces",
+    "archive",
+    "mac打开发布站.command",
+    "win打开发布站.bat",
+]
 
 
 def run(command: list[str]) -> None:

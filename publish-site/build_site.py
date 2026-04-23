@@ -1403,16 +1403,16 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .page {{
         width: min(1360px, calc(100vw - 28px));
         margin: 0 auto;
-        padding: 24px 0;
+        padding: 18px 0;
         height: 100vh;
         display: grid;
         grid-template-rows: auto 1fr;
-        gap: 18px;
+        gap: 14px;
       }}
 
       .hero {{
-        padding: 20px 24px;
-        border-radius: 24px;
+        padding: 16px 22px;
+        border-radius: 20px;
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
@@ -1427,19 +1427,19 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .hero h1 {{
         margin: 0;
-        font-size: clamp(28px, 4vw, 40px);
+        font-size: clamp(24px, 3.2vw, 34px);
       }}
 
       .layout {{
         display: grid;
         grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-        gap: 18px;
+        gap: 14px;
         min-height: 0;
       }}
 
       .panel {{
-        padding: 20px;
-        border-radius: 24px;
+        padding: 18px;
+        border-radius: 20px;
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
@@ -1462,12 +1462,12 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .tabs {{
         display: inline-flex;
-        gap: 10px;
-        padding: 6px;
+        gap: 8px;
+        padding: 5px;
         border-radius: 999px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.56);
-        margin: 14px 0 16px;
+        margin: 10px 0 14px;
         width: fit-content;
         flex-wrap: wrap;
       }}
@@ -1523,7 +1523,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         background: rgba(255, 255, 255, 0.82);
         color: var(--text);
         border-radius: 999px;
-        padding: 9px 14px;
+        padding: 8px 13px;
         font: inherit;
         cursor: pointer;
         white-space: nowrap;
@@ -1547,14 +1547,14 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .workspace-card {{
         width: 100%;
-        padding: 14px 16px;
-        border-radius: 16px;
+        padding: 12px 14px;
+        border-radius: 14px;
         border: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.72);
         text-align: left;
         cursor: pointer;
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }}
 
       .workspace-card.is-active {{
@@ -1564,7 +1564,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .workspace-card h3 {{
         margin: 0;
-        font-size: 18px;
+        font-size: 17px;
       }}
 
       .workspace-meta {{
@@ -1601,10 +1601,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .detail-head {{
         display: flex;
         justify-content: space-between;
-        gap: 14px;
+        gap: 12px;
         align-items: flex-start;
-        margin-bottom: 14px;
-        padding-bottom: 14px;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
         border-bottom: 1px solid rgba(24, 36, 51, 0.08);
       }}
 
@@ -1615,20 +1615,20 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .detail-head-side {{
         display: grid;
         justify-items: end;
-        gap: 10px;
-        min-width: 280px;
+        gap: 8px;
+        min-width: 260px;
       }}
 
       .detail-title {{
         margin: 0;
-        font-size: clamp(24px, 4vw, 34px);
+        font-size: clamp(22px, 3vw, 30px);
       }}
 
       .detail-subtitle {{
-        margin: 6px 0 0;
+        margin: 4px 0 0;
         color: var(--muted);
-        line-height: 1.6;
-        font-size: 14px;
+        line-height: 1.5;
+        font-size: 13px;
       }}
 
       .field-grid {{
@@ -1660,21 +1660,21 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .field select {{
         width: 100%;
         border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 11px 12px;
+        border-radius: 12px;
+        padding: 10px 12px;
         font: inherit;
         background: var(--panel-strong);
         color: var(--text);
       }}
 
       .field textarea {{
-        min-height: 108px;
+        min-height: 96px;
         resize: vertical;
       }}
 
       .section {{
-        margin-top: 22px;
-        padding-top: 22px;
+        margin-top: 18px;
+        padding-top: 18px;
         border-top: 1px solid rgba(24, 36, 51, 0.08);
       }}
 
@@ -1686,7 +1686,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .section-title {{
         margin: 0 0 10px;
-        font-size: 17px;
+        font-size: 16px;
       }}
 
       .table {{
@@ -1709,11 +1709,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .row {{
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto;
-        gap: 10px;
+        gap: 8px;
         align-items: start;
-        padding: 12px;
-        border: 1px solid rgba(24, 36, 51, 0.08);
-        border-radius: 14px;
+        padding: 10px;
+        border: 1px solid rgba(24, 36, 51, 0.06);
+        border-radius: 12px;
         background: rgba(255, 255, 255, 0.72);
       }}
 
@@ -1760,8 +1760,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .change-item {{
         display: grid;
         gap: 6px;
-        padding: 12px;
-        border-radius: 14px;
+        padding: 10px 12px;
+        border-radius: 12px;
         background: rgba(255, 255, 255, 0.72);
         border: 1px solid rgba(24, 36, 51, 0.08);
       }}
@@ -1804,7 +1804,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         appearance: none;
         border: 0;
         border-radius: 999px;
-        padding: 10px 14px;
+        padding: 9px 14px;
         font: inherit;
         cursor: pointer;
         color: white;
@@ -1879,7 +1879,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         background: white;
         color: var(--text);
         border-radius: 999px;
-        padding: 8px 12px;
+        padding: 7px 12px;
         font: inherit;
         font-size: 12px;
         cursor: pointer;
@@ -1930,13 +1930,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .publish-dialog {{
         width: min(620px, calc(100vw - 24px));
-        border-radius: 24px;
+        border-radius: 20px;
         border: 1px solid rgba(24, 36, 51, 0.08);
         background: rgba(255, 252, 247, 0.98);
         box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
-        padding: 22px;
+        padding: 20px;
         display: grid;
-        gap: 16px;
+        gap: 14px;
       }}
 
       .publish-dialog-head {{
@@ -1978,8 +1978,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .publish-item {{
-        padding: 10px 12px;
-        border-radius: 12px;
+        padding: 9px 12px;
+        border-radius: 10px;
         border: 1px solid rgba(24, 36, 51, 0.08);
         background: rgba(255, 255, 255, 0.72);
         font-size: 14px;
@@ -2122,7 +2122,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
                 </div>
                 <div class="field wide">
                   <label for="field-summary">工作区说明</label>
-                  <textarea id="field-summary"></textarea>
+                  <input id="field-summary" />
                 </div>
               </div>
             </div>
@@ -2400,7 +2400,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         if (!workspace) {{
           detailTitle.textContent = '当前分组没有工作区';
-          detailSubtitle.textContent = '可以先切换到另一个分组。';
+          detailSubtitle.textContent = '当前分组下还没有工作区。';
           detailStatus.textContent = '未选择';
           detailStatus.dataset.tone = 'neutral';
           fieldTitle.value = '';
@@ -2414,7 +2414,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }}
 
         detailTitle.textContent = workspace.title;
-        detailSubtitle.textContent = workspace.workspace;
+        detailSubtitle.textContent = workspace.summary || '管理当前工作区的展示信息、入口按钮和更新记录。';
         detailStatus.textContent = (workspace.status || {{}}).label || '未标注';
         detailStatus.dataset.tone = (workspace.status || {{}}).tone || 'neutral';
 

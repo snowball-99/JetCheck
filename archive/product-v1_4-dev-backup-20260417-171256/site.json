@@ -1,0 +1,27 @@
+{
+  "group": "main",
+  "status": {
+    "label": "设计中",
+    "tone": "design"
+  },
+  "title": "捷检 1.4",
+  "summary": "新增支持尺寸测量场景，包含尺寸检测工具、客户端面向检测模版适配的方案。",
+  "buttons": [
+    {
+      "label": "尺寸工具",
+      "url": "demo/dimension-tool.html"
+    },
+    {
+      "label": "客户端",
+      "url": "demo/client.html"
+    },
+    {
+      "label": "方案文档·AI",
+      "url": "docs/1.4尺寸工具与客户端整合方案-v0.1.md"
+    },
+    {
+      "label": "尺寸工具方案文档·飞书",
+      "url": "https://yimuzn2018.feishu.cn/wiki/Ynxiwe3bqicDSekwt4Gc083AnWh"
+    }
+  ]
+}

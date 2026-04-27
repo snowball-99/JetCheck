@@ -71,7 +71,7 @@ function refreshStatus() {
   Demo.syncOfflineAt(state);
   Demo.saveState(state);
   render();
-  showToast("客户端状态已刷新");
+  showToast("设备状态已更新");
 }
 
 function resetFilters() {
@@ -97,14 +97,14 @@ function render() {
 
 function renderSummary() {
   const quotaUsage = Demo.getQuotaUsage(state);
-  els.platformQuotaText.textContent = `客户端配额：${quotaUsage}/${state.enterprise.quota}`;
+  els.platformQuotaText.textContent = `已绑定设备：${quotaUsage}/${state.enterprise.quota}`;
 }
 
 function renderBanner() {
   const quotaUsage = Demo.getQuotaUsage(state);
   const remaining = state.enterprise.quota - quotaUsage;
   if (remaining <= 0) {
-    els.platformStatusBanner.innerHTML = `<p class="banner banner-warning">当前账号下的客户端额度已满，新设备暂无法登录。</p>`;
+    els.platformStatusBanner.innerHTML = `<p class="banner banner-warning">当前账号可用设备数已满，新设备暂时无法登录。</p>`;
     return;
   }
   els.platformStatusBanner.innerHTML = "";

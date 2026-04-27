@@ -52,6 +52,10 @@ const ui = {
   pendingDetectionStartedAt: 0,
   runtimePlaybackRecordId: null,
   runtimeInitialToolId: null,
+  judgmentScroll: {
+    tree: 0,
+    editor: 0,
+  },
 };
 
 const timers = {
@@ -77,16 +81,22 @@ const TOOL_ITEM_LIMITS = {
 const BUILDER_STEPS = ["acquire", "process", "detect", "rule"];
 
 const RUN_MODE_OPTIONS = [
-  { value: "acquire", label: "原图采样", hint: "仅采集原图样本。", requiredStep: "acquire" },
-  { value: "process", label: "处理结果采样", hint: "执行图像获取与图像处理。", requiredStep: "process" },
-  { value: "detect", label: "完整检测", hint: "执行完整检测链路。", requiredStep: "detect" },
+  { value: "acquire", label: "采图模式", hint: "仅采集原始图像。", requiredStep: "acquire" },
+  { value: "process", label: "图像处理模式", hint: "采集图像并输出处理结果。", requiredStep: "process" },
+  { value: "detect", label: "检测模式", hint: "完成检测并给出最终结果。", requiredStep: "detect" },
 ];
 
 const els = {
   loginShell: document.getElementById("loginShell"),
+  loginClientNameField: document.getElementById("loginClientNameField"),
   loginClientName: document.getElementById("loginClientName"),
+  loginClientNameError: document.getElementById("loginClientNameError"),
+  loginAccountField: document.getElementById("loginAccountField"),
   loginAccount: document.getElementById("loginAccount"),
+  loginAccountError: document.getElementById("loginAccountError"),
+  loginPasswordField: document.getElementById("loginPasswordField"),
   loginPassword: document.getElementById("loginPassword"),
+  loginPasswordError: document.getElementById("loginPasswordError"),
   loginHint: document.getElementById("loginHint"),
   loginError: document.getElementById("loginError"),
   loginSubmit: document.getElementById("loginSubmit"),
@@ -269,6 +279,7 @@ function bindStaticEvents() {
 
   els.toolCardGrid.addEventListener("click", handleToolCardClick);
   els.builderStepBody.addEventListener("click", handleBuilderBodyClick);
+  els.builderStepBody.addEventListener("input", handleBuilderBodyInput);
   els.builderStepBody.addEventListener("change", handleBuilderBodyChange);
   els.toolRuntimePanel.addEventListener("click", handleToolRuntimeClick);
   els.toolRuntimePanel.addEventListener("keydown", handleToolRuntimeKeydown);
@@ -497,9 +508,43 @@ function renderLoginScreen() {
   renderLoginScenarioButtons();
   els.loginHint.className = "login-text-hint";
   els.loginHint.textContent = getLoginScenarioHint(activeScenario);
-  els.loginError.hidden = true;
+  clearLoginErrors();
   els.loginSubmit.disabled = false;
   els.loginSubmit.textContent = "登录";
+}
+
+function clearLoginErrors() {
+  [
+    [els.loginClientNameField, els.loginClientNameError],
+    [els.loginAccountField, els.loginAccountError],
+    [els.loginPasswordField, els.loginPasswordError],
+  ].forEach(([field, errorEl]) => {
+    field?.classList.remove("is-error");
+    if (errorEl) {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+  });
+  els.loginError.hidden = true;
+  els.loginError.textContent = "";
+}
+
+function showLoginFieldErrors(errors = {}) {
+  clearLoginErrors();
+  const fieldMap = {
+    clientName: [els.loginClientNameField, els.loginClientNameError],
+    account: [els.loginAccountField, els.loginAccountError],
+    password: [els.loginPasswordField, els.loginPasswordError],
+  };
+  Object.entries(errors).forEach(([key, message]) => {
+    if (!message || !fieldMap[key]) return;
+    const [field, errorEl] = fieldMap[key];
+    field?.classList.add("is-error");
+    if (errorEl) {
+      errorEl.hidden = false;
+      errorEl.textContent = message;
+    }
+  });
 }
 
 function renderLoginScenarioButtons() {
@@ -524,12 +569,12 @@ function getActiveLoginDemoMode() {
 
 function getLoginScenarioHint(type) {
   if (type === "quota-full") {
-    return "当前演示场景为额度已满，新设备登录会提示当前账号下的客户端额度已满。";
+    return "当前账号可用设备数已满，新设备暂时无法登录。";
   }
   if (type === "offline") {
-    return "当前演示场景为离线，登录会提示无法连接云端服务。";
+    return "当前网络异常，暂时无法登录，请检查网络后重试。";
   }
-  return "首次登录将自动绑定当前设备并保存客户端名称。";
+  return "首次登录后，系统会自动绑定当前设备。";
 }
 
 function applyLoginDemoScenario(type) {
@@ -584,13 +629,13 @@ function renderGlobalAlerts() {
 
   const alerts = [];
   if (Demo.isStorageBlocked(state)) {
-    alerts.push(renderTopbarAlert("danger", `剩余空间 ${Demo.formatGb(state.storage.remainingGb)}，低于阻断阈值 ${Demo.formatGb(state.storage.blockGb)}`, "去清理", "open-storage-cleanup"));
+    alerts.push(renderTopbarAlert("danger", "剩余空间过低，新的检测任务已暂停，请先清理数据。", "去清理", "open-storage-cleanup"));
   } else if (Demo.isStorageWarning(state)) {
-    alerts.push(renderTopbarAlert("warning", `剩余空间 ${Demo.formatGb(state.storage.remainingGb)}，低于提醒阈值 ${Demo.formatGb(state.storage.warningGb)}`, "去清理", "open-storage-cleanup"));
+    alerts.push(renderTopbarAlert("warning", "剩余空间不足，可能影响检测，请尽快清理数据。", "去清理", "open-storage-cleanup"));
   }
 
   if (!state.runtimeDevice.networkOnline) {
-    alerts.push(renderTopbarAlert("neutral", "离线模式"));
+    alerts.push(renderTopbarAlert("neutral", "当前离线"));
   }
 
   els.globalAlerts.innerHTML = alerts.join("");
@@ -635,17 +680,28 @@ function renderToolCardGrid() {
 function renderToolBuilder() {
   const tool = getActiveTool();
   if (!tool) return;
+  captureJudgmentScrollState();
   const editingLocked = isToolEditingLocked(tool);
   const detectInvalidTargetCount = getToolInvalidDetectTargetCount(tool);
   els.builderToolTitle.textContent = tool.name;
   els.builderSteps.forEach((button) => {
     const isDetectStep = button.dataset.builderStep === "detect";
+    const isRuleStep = button.dataset.builderStep === "rule";
     const hasInvalidDetectConfig = isDetectStep && detectInvalidTargetCount > 0;
+    const hasInvalidRuleConfig = isRuleStep && !isJudgmentRuleConfigValid(tool);
+    const hasStaleRuleConfig = isRuleStep && isJudgmentRuleStructureStale(tool);
     button.classList.toggle("is-active", button.dataset.builderStep === ui.builderStep);
     button.classList.toggle("is-invalid", hasInvalidDetectConfig);
+    button.classList.toggle("is-invalid", hasInvalidRuleConfig || hasInvalidDetectConfig);
     if (hasInvalidDetectConfig) {
       button.title = "配置失效";
+    } else if (hasStaleRuleConfig) {
+      button.title = "OK判定条件已失效";
+    } else if (hasInvalidRuleConfig) {
+      button.title = "表达式存在错误";
     } else if (isDetectStep) {
+      button.removeAttribute("title");
+    } else if (isRuleStep) {
       button.removeAttribute("title");
     }
   });
@@ -654,36 +710,36 @@ function renderToolBuilder() {
 
   if (ui.builderStep === "acquire") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像获取实例",
+      title: "图像来源",
       limitText: getBuilderLimitText("acquire", tool.acquire.length),
-      actionLabel: "新增图像获取实例",
+      actionLabel: "添加图像来源",
       actionKey: "add-acquire",
       items: tool.acquire.map((item) => renderAcquireItem(tool, item)),
-      emptyText: "当前还没有图像获取实例。至少创建 1 个实例后才能进入下一步。",
+      emptyText: "当前还没有图像来源。",
       disabled: editingLocked || tool.acquire.length >= TOOL_ITEM_LIMITS.acquire,
     });
   }
 
   if (ui.builderStep === "process") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像处理实例",
+      title: "图像处理步骤",
       limitText: getBuilderLimitText("process", tool.process.length),
-      actionLabel: "新增图像处理实例",
+      actionLabel: "添加处理步骤",
       actionKey: "add-process",
       items: tool.process.map((item) => renderProcessItem(tool, item)),
-      emptyText: tool.acquire.length ? "当前还没有图像处理实例。" : "请先完成图像获取实例配置，才能新增图像处理实例。",
+      emptyText: tool.acquire.length ? "当前还没有处理步骤。" : "当前没有可选图像，请前往上一步创建图像来源。",
       disabled: editingLocked || !tool.acquire.length || tool.process.length >= TOOL_ITEM_LIMITS.process,
     });
   }
 
   if (ui.builderStep === "detect") {
     els.builderStepBody.innerHTML = renderBuilderStepSection({
-      title: "图像检测实例",
+      title: "检测判断步骤",
       limitText: getBuilderLimitText("detect", tool.detect.length),
-      actionLabel: "新增图像检测实例",
+      actionLabel: "添加检测步骤",
       actionKey: "add-detect",
       items: tool.detect.map((item) => renderDetectItem(tool, item)),
-      emptyText: tool.process.length ? "当前还没有图像检测实例。" : "请先完成图像处理实例配置，才能新增图像检测实例。",
+      emptyText: tool.process.length ? "当前还没有检测步骤。" : "当前没有可选图像，请前往上一步创建处理步骤。",
       disabled: editingLocked || !tool.process.length || tool.detect.length >= TOOL_ITEM_LIMITS.detect,
     });
   }
@@ -697,11 +753,63 @@ function renderToolBuilder() {
   els.prevBuilderStep.disabled = stepIndex === 0;
   els.nextBuilderStep.disabled = stepIndex >= BUILDER_STEPS.length - 1 || !canNext;
   els.nextBuilderStep.hidden = stepIndex >= BUILDER_STEPS.length - 1;
-  els.finishBuilderBtn.disabled = stepIndex < BUILDER_STEPS.length - 1 || !Demo.evaluateToolCompletion(tool);
+  els.finishBuilderBtn.disabled = stepIndex < BUILDER_STEPS.length - 1 || !Demo.evaluateToolCompletion(tool) || !isJudgmentRuleConfigValid(tool);
+  restoreJudgmentScrollState();
 }
 
 function getBuilderLimitText(type, count) {
   return `${count}/${TOOL_ITEM_LIMITS[type]}`;
+}
+
+function captureJudgmentScrollState() {
+  const tree = els.builderStepBody.querySelector(".judgment-tree");
+  const editor = els.builderStepBody.querySelector(".judgment-editor-scroll");
+  if (tree) ui.judgmentScroll.tree = tree.scrollTop;
+  if (editor) ui.judgmentScroll.editor = editor.scrollTop;
+}
+
+function restoreJudgmentScrollState() {
+  if (ui.builderStep !== "rule") return;
+  const tree = els.builderStepBody.querySelector(".judgment-tree");
+  const editor = els.builderStepBody.querySelector(".judgment-editor-scroll");
+  if (tree) tree.scrollTop = ui.judgmentScroll.tree || 0;
+  if (editor) editor.scrollTop = ui.judgmentScroll.editor || 0;
+}
+
+function updateRuleStepValidationIndicator(tool = getActiveTool()) {
+  if (!tool) return;
+  const detectInvalidTargetCount = getToolInvalidDetectTargetCount(tool);
+  els.builderSteps.forEach((button) => {
+    const isDetectStep = button.dataset.builderStep === "detect";
+    const isRuleStep = button.dataset.builderStep === "rule";
+    const hasInvalidDetectConfig = isDetectStep && detectInvalidTargetCount > 0;
+    const hasInvalidRuleConfig = isRuleStep && !isJudgmentRuleConfigValid(tool);
+    const hasStaleRuleConfig = isRuleStep && isJudgmentRuleStructureStale(tool);
+    button.classList.toggle("is-invalid", hasInvalidDetectConfig || hasInvalidRuleConfig);
+    if (hasInvalidDetectConfig) {
+      button.title = "配置失效";
+    } else if (hasStaleRuleConfig) {
+      button.title = "OK判定条件已失效";
+    } else if (hasInvalidRuleConfig) {
+      button.title = "表达式存在错误";
+    } else if (isDetectStep || isRuleStep) {
+      button.removeAttribute("title");
+    }
+  });
+}
+
+function updateJudgmentExpressionValidationUi(tool = getActiveTool()) {
+  if (!tool || !isJudgmentExpressionMode(tool)) return;
+  const status = els.builderStepBody.querySelector(".judgment-expression-status");
+  const textarea = els.builderStepBody.querySelector("textarea[data-rule-config-field='expressionDraft']");
+  const errors = tool.ruleConfig.expressionErrors || [];
+  if (status) {
+    status.className = `judgment-expression-status ${errors.length ? "is-error" : "is-ok"}`;
+    status.textContent = errors.length ? "语法检查不通过" : "语法检查通过";
+  }
+  if (textarea) {
+    textarea.classList.toggle("has-error", Boolean(errors.length));
+  }
 }
 
 function isRuntimeInitialState(tool = getActiveTool()) {
@@ -732,7 +840,7 @@ function getRuntimeInitialImageResults(tool) {
     return {
       id: `preview_${acquire.id || index}`,
       acquireId: acquire.id,
-      acquireName: acquire.name || `图像获取实例 ${index + 1}`,
+      acquireName: acquire.name || `图像来源 ${index + 1}`,
       imageLabel: getAcquireSampleName(acquire),
       sourceImageUrl: "",
       sourceImageName: "",
@@ -774,10 +882,13 @@ function renderToolRuntime() {
   const runningBusy = pendingCurrentTool || playing;
   const visibleTags = getRuntimeVisibleTags(tool, latestRecord);
   const tagsEditable = canEditRuntimeTags(latestRecord, tool) && !playing;
+  const sessionMode = tool.runtime?.sessionMode || getHighestAvailableRunMode(tool);
+  const runActionLabel = getRunActionLabel(sessionMode);
+  const waitingLabel = getRunWaitingLabel(sessionMode);
   if (activeImageResult) ui.activeRuntimeImageId = activeImageResult.id;
 
   els.runtimeToolTitle.textContent = tool.name;
-  els.runtimeModeSummary.textContent = getRunModeLabel(tool.runtime?.sessionMode || getHighestAvailableRunMode(tool));
+  els.runtimeModeSummary.textContent = getRunModeLabel(sessionMode);
   els.runtimeConfigAlert.hidden = true;
   els.runtimeConfigAlert.innerHTML = "";
   els.runtimePrimaryResult.textContent = !sessionActive
@@ -785,14 +896,14 @@ function renderToolRuntime() {
     : pendingCurrentTool
       ? "执行中"
       : playing
-        ? "执行中"
-        : latestRecord
-          ? latestRecord.totalResult || latestRecord.businessResult || tool.runtime.primaryResult || "-"
-          : "等待信号";
+      ? "执行中"
+      : latestRecord
+          ? (activeRunMode === "detect" ? latestRecord.totalResult || latestRecord.businessResult || tool.runtime.primaryResult || "暂无结果" : "已完成")
+          : waitingLabel;
   els.runtimeCycleTime.textContent = waitingForCurrentRun ? "-" : tool.runtime.cycleTime || "-";
   els.startToolRun.disabled = !sessionActive || Demo.isStorageBlocked(state) || !!ui.pendingDetectionToolId || playing;
-  els.startToolRun.textContent = pendingCurrentTool ? "Demo: 信号处理中..." : playing ? "Demo: 结果回显中..." : "Demo: 模拟信号";
-  els.resetCurrentRunBtn.disabled = !sessionActive;
+  els.startToolRun.textContent = pendingCurrentTool ? `${runActionLabel}中...` : playing ? `${runActionLabel}中...` : runActionLabel;
+  els.resetCurrentRunBtn.disabled = !sessionActive || (!pendingCurrentTool && !latestRecord);
   els.stopToolRunBtn.disabled = !sessionActive;
   const runtimeImageResultText = getDisplayResultText(activeImageResult?.result || "-");
   els.runtimeCurrentImageResult.hidden =
@@ -803,19 +914,19 @@ function renderToolRuntime() {
   els.runtimeTagCount.textContent = `已添加 ${visibleTags.length}/3`;
   els.runtimeTagInfo.innerHTML = renderRuntimeTagInfo(visibleTags, {
     editable: tagsEditable,
-    hint: runningBusy ? "运行执行中，暂不可编辑标签" : "当前可添加标签",
+    hint: runningBusy ? `${runActionLabel}进行中，暂不能编辑标签` : "当前可添加标签",
   });
   els.runtimeCameraInfo.innerHTML = renderRuntimeCameraInfo(activeImageResult);
 
   if (!imageResults.length) {
-    els.runtimeImageResultList.innerHTML = `<div class="builder-empty">${initialState ? "当前暂无图像获取实例" : "暂无运行记录"}</div>`;
-    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${initialState ? "当前工具正在等待触发信号" : "暂无图像结果"}</div></div>`;
-    els.runtimeImageCaption.textContent = initialState ? "等待触发信号" : "暂无运行结果图像";
+    els.runtimeImageResultList.innerHTML = `<div class="builder-empty">${initialState ? "当前暂无图像来源" : "暂无运行记录"}</div>`;
+    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${initialState ? waitingLabel : "暂无图像结果"}</div></div>`;
+    els.runtimeImageCaption.textContent = initialState ? "等待开始" : "暂无图像结果";
     els.runtimeCurrentImageResult.hidden = true;
     els.runtimeTagCount.textContent = `已添加 ${visibleTags.length}/3`;
     els.runtimeTagInfo.innerHTML = renderRuntimeTagInfo(visibleTags, {
       editable: tagsEditable,
-      hint: runningBusy ? "运行执行中，暂不可编辑标签" : "当前可添加标签",
+      hint: runningBusy ? `${runActionLabel}进行中，暂不能编辑标签` : "当前可添加标签",
     });
     els.runtimeCameraInfo.innerHTML = `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
     stopRuntimeCarousel();
@@ -832,8 +943,8 @@ function renderToolRuntime() {
     )
     .join("");
   if (waitingForCurrentRun) {
-    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">等待触发信号</div></div>`;
-    els.runtimeImageCaption.textContent = "等待触发信号";
+    els.runtimeImageStage.innerHTML = `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">${waitingLabel}</div></div>`;
+    els.runtimeImageCaption.textContent = "等待开始";
     stopRuntimeCarousel();
     return;
   }
@@ -841,7 +952,7 @@ function renderToolRuntime() {
   els.runtimeImageCaption.textContent = activeImageResult
     ? activeImageResult.acquireName || activeImageResult.imageLabel || "当前图像"
     : initialState
-      ? "等待触发信号"
+      ? "等待开始"
       : activeRunMode === "detect"
         ? "等待检测结果"
         : "等待运行结果";
@@ -858,13 +969,13 @@ function renderRuntimeImageResultItem(item, index, active, options = {}) {
     <div class="runtime-image-result-item ${active ? "is-active" : ""}">
       <button class="runtime-image-result-main" data-action="select-runtime-image" data-id="${item.id}" type="button">
         <div class="runtime-image-result-copy">
-          <strong>${escapeHtml(item.acquireName || `图像获取实例 ${index + 1}`)}</strong>
+          <strong>${escapeHtml(item.acquireName || `图像来源 ${index + 1}`)}</strong>
         </div>
         ${badgeMarkup}
       </button>
       ${
         shouldRenderSubResultButton
-          ? `<button class="table-btn" data-action="open-runtime-image-detail" data-id="${item.id}" type="button" ${buttonDisabled ? "disabled" : ""}>查看子图（${subResultCount}）</button>`
+          ? `<button class="table-btn" data-action="open-runtime-image-detail" data-id="${item.id}" type="button" ${buttonDisabled ? "disabled" : ""}>查看分区结果（${subResultCount}）</button>`
           : ""
       }
     </div>
@@ -894,7 +1005,7 @@ function renderRuntimeCameraInfo(imageResult) {
     return `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
   }
   if (context.acquire.type !== "camera" || !context.camera) {
-    return `<div class="runtime-camera-empty">当前图像来源为接口输入，不显示相机信息</div>`;
+    return `<div class="runtime-camera-empty">当前图像来自接口，不显示相机信息。</div>`;
   }
   const cameraStatusText = getRuntimeCameraStatusText(context.camera);
   const showRecalibration = Boolean(tool && isAcquireUsedByDimensionDetect(tool, context.acquire.id));
@@ -1439,7 +1550,7 @@ function renderSubResultViewerStage(item, index) {
 function getRuntimeSubResultDisplayName(item, index, tool = getActiveTool()) {
   const rawName = String(item?.name || "").trim();
   if (/ROI\s*\d+$/i.test(rawName)) return rawName;
-  const processName = tool?.process?.find((process) => process.id === item?.processId)?.name || rawName || `图像处理实例 ${index + 1}`;
+  const processName = tool?.process?.find((process) => process.id === item?.processId)?.name || rawName || `处理步骤 ${index + 1}`;
   const roiMatch = String(item?.source || "").match(/ROI\s*#?\s*(\d+)/i);
   const roiIndex = roiMatch?.[1] || index + 1;
   return `${processName} ROI${roiIndex}`;
@@ -1622,12 +1733,12 @@ function renderClientInfo() {
   const client = Demo.getRuntimeClient(state);
   const clientStatus = client ? Demo.getClientStatus(client, state.meta.now) : "未绑定";
   els.clientInfoMeta.innerHTML = [
-    ["客户端名称", client?.name || state.runtimeDevice.name],
-    ["客户端版本", "JetCheck Client Demo v1.3"],
-    ["硬件识别码", state.runtimeDevice.hardwareCode],
+    ["设备名称", client?.name || state.runtimeDevice.name],
+    ["客户端版本", "JetCheck Client v1.3"],
+    ["设备编号", state.runtimeDevice.hardwareCode],
     ["绑定时间", Demo.formatDateTime(client?.boundAt)],
     ["登录手机号", state.enterprise.account],
-    ["客户端状态", clientStatus],
+    ["设备状态", clientStatus],
   ]
     .map(([label, value]) => `<span>${label}</span><span>${escapeHtml(String(value))}</span>`)
     .join("");
@@ -1639,24 +1750,24 @@ function editClientName() {
   const client = Demo.getRuntimeClient(state);
   const currentName = client?.name || state.runtimeDevice.name || "";
   openSharedModal({
-    title: "编辑客户端名称",
+    title: "编辑设备名称",
     body: `
       <label class="field">
-        <span>客户端名称</span>
-        <input id="clientNameInput" type="text" maxlength="24" value="${escapeAttribute(currentName)}" placeholder="请输入客户端名称" />
+        <span>设备名称</span>
+        <input id="clientNameInput" type="text" maxlength="24" value="${escapeAttribute(currentName)}" placeholder="请输入设备名称" />
       </label>
     `,
     confirmText: "保存",
     onConfirm() {
       const nextName = document.getElementById("clientNameInput").value.trim();
       if (!nextName) {
-        showToast("请输入客户端名称");
+        showToast("请输入设备名称");
         return false;
       }
       state.runtimeDevice.name = nextName;
       if (client) client.name = nextName;
       closeSharedModal();
-      persistState("客户端名称已更新");
+      persistState("设备名称已更新");
       return true;
     },
   });
@@ -1723,7 +1834,7 @@ function renderParamModal() {
   if (!camera) {
     els.paramGroupList.innerHTML = `<div class="builder-empty">暂无可管理的相机参数组。</div>`;
     els.paramFormFields.innerHTML = "";
-    els.paramPreviewCaption.textContent = "预览调试区";
+    els.paramPreviewCaption.textContent = "相机画面";
     els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
     return;
   }
@@ -1732,7 +1843,7 @@ function renderParamModal() {
   els.paramGroupList.innerHTML = renderParamGroupList(camera, referencedParamIds);
   if (!group) {
     els.paramFormFields.innerHTML = "";
-    els.paramPreviewCaption.textContent = "预览调试区";
+    els.paramPreviewCaption.textContent = "相机画面";
     els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
     return;
   }
@@ -1777,7 +1888,7 @@ function renderModelDrawer() {
   els.modelSelectPanel.hidden = ui.modelDrawerMode !== "select-local";
   els.cloudModelPanel.hidden = ui.modelDrawerMode !== "cloud-add";
   els.modelDrawer.querySelector(".drawer-header h3").textContent =
-    ui.modelDrawerMode === "select-local" ? ui.modelTarget?.title || "选择本地模型" : "从云端添加模型";
+    ui.modelDrawerMode === "select-local" ? ui.modelTarget?.title || "选择检测模型" : "从云端下载模型";
   if (ui.modelDrawerMode === "select-local") {
     renderSelectorModels();
     return;
@@ -1803,7 +1914,7 @@ function renderLocalModels() {
   const rows = getFilteredLocalModels();
   const hasModels = rows.length > 0;
   els.localModelEmpty.hidden = hasModels;
-  els.localModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "当前本地暂无模型";
+  els.localModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "暂无数据";
   els.localModelTableBody.innerHTML = hasModels
     ? rows
         .map((model) => {
@@ -1856,7 +1967,7 @@ function renderSelectorModels() {
   const hasModels = rows.length > 0;
   els.confirmModelSelectBtn.disabled = !hasModels;
   els.selectorModelEmpty.hidden = hasModels;
-  els.selectorModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "当前本地暂无模型";
+  els.selectorModelEmpty.textContent = state.localModels.length ? "没有符合条件的本地模型" : "暂无数据";
   els.selectorModelTableBody.innerHTML = hasModels
     ? rows
         .map((model) => {
@@ -2127,7 +2238,7 @@ function openLaunchToolModal(toolId) {
     return;
   }
   openSharedModal({
-    title: `启动检测工具 · ${tool.name}`,
+    title: `开始检测 · ${tool.name}`,
     panelClass: "modal-launch",
     bodyClass: "modal-body-launch",
     hideConfirm: true,
@@ -2213,6 +2324,9 @@ function handleBuilderBodyClick(event) {
   if (action === "add-node-rule") return addJudgmentRule();
   if (action === "delete-node-rule") return deleteJudgmentRule(actionEl.dataset.ruleId || "");
   if (action === "reset-default-rules") return resetJudgmentRules();
+  if (action === "prompt-switch-rule-mode") return confirmSwitchJudgmentRuleMode(actionEl.dataset.mode || "visual");
+  if (action === "add-classify-condition") return addClassifyCondition();
+  if (action === "remove-classify-condition") return removeClassifyCondition(Number(actionEl.dataset.conditionIndex));
 }
 
 function handleBuilderBodyChange(event) {
@@ -2220,12 +2334,23 @@ function handleBuilderBodyChange(event) {
   const tool = getActiveTool();
   if (!tool) return;
   ensureJudgmentRuleState(tool);
-  const rule = getSelectedJudgmentRule(tool);
-  if (!rule) return;
   const target = getEventTargetElement(event);
   if (!target) return;
 
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+    const configField = target.dataset.ruleConfigField;
+    if (configField) {
+      tool.ruleConfig[configField] = target.type === "checkbox" ? target.checked : target.value;
+      if (configField === "expressionDraft") {
+        tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+      }
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const rule = getSelectedJudgmentRule(tool);
+    if (!rule) return;
     const ruleField = target.dataset.ruleField;
     if (ruleField) {
       rule[ruleField] = target.type === "checkbox" ? target.checked : target.value;
@@ -2247,6 +2372,15 @@ function handleBuilderBodyChange(event) {
       return;
     }
 
+    const conditionIndex = Number(target.dataset.conditionIndex);
+    const conditionField = target.dataset.conditionField;
+    if (Number.isInteger(conditionIndex) && conditionField && Array.isArray(rule.conditions) && rule.conditions[conditionIndex]) {
+      rule.conditions[conditionIndex][conditionField] = target.type === "checkbox" ? target.checked : target.value;
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
     const selectionNodeId = target.dataset.selectionNodeId;
     if (selectionNodeId) {
       const selected = new Set(Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : []);
@@ -2257,6 +2391,22 @@ function handleBuilderBodyChange(event) {
       renderToolBuilder();
     }
   }
+}
+
+function handleBuilderBodyInput(event) {
+  if (ui.builderStep !== "rule") return;
+  const tool = getActiveTool();
+  if (!tool) return;
+  const target = getEventTargetElement(event);
+  if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) return;
+  const configField = target.dataset.ruleConfigField;
+  if (configField !== "expressionDraft") return;
+  ensureJudgmentRuleState(tool);
+  tool.ruleConfig.expressionDraft = target.value;
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+  saveStateSilently();
+  updateJudgmentExpressionValidationUi(tool);
+  updateRuleStepValidationIndicator(tool);
 }
 
 function addJudgmentRule() {
@@ -2278,7 +2428,7 @@ function deleteJudgmentRule(ruleId) {
   if (!tool || !ruleId) return;
   const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
   if (rules.length <= 1) {
-    showToast("当前节点至少保留 1 条规则");
+    showToast("当前项至少保留 1 条规则");
     return;
   }
   tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] = rules.filter((rule) => rule.id !== ruleId);
@@ -2287,14 +2437,83 @@ function deleteJudgmentRule(ruleId) {
   renderToolBuilder();
 }
 
+function addClassifyCondition() {
+  const tool = getActiveTool();
+  const rule = getSelectedJudgmentRule(tool);
+  if (!rule) return;
+  if (!Array.isArray(rule.conditions)) rule.conditions = [];
+  const sceneType = getDetectSceneType(getDetectByNode(tool, findJudgmentRuleNode(tool, ui.builderRuleNodeId)));
+  if (sceneType === "缺陷" || rule.template === "defect-conditions") {
+    rule.conditions.push({
+      label: "缺陷",
+      operator: "eq",
+      expectedCount: 0,
+    });
+  } else {
+    rule.conditions.push({
+      label: rule.conditions[0]?.label || "目标",
+      operator: "eq",
+      expectedCount: 1,
+    });
+  }
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function removeClassifyCondition(index) {
+  const tool = getActiveTool();
+  const rule = getSelectedJudgmentRule(tool);
+  if (!rule || !Array.isArray(rule.conditions) || rule.conditions.length <= 1) return;
+  rule.conditions = rule.conditions.filter((_, currentIndex) => currentIndex !== index);
+  saveStateSilently();
+  renderToolBuilder();
+}
+
 function resetJudgmentRules() {
   const tool = getActiveTool();
   if (!tool) return;
+  const mode = tool.ruleConfig?.mode || "visual";
   tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  tool.ruleConfig.mode = mode;
+  tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
   ui.builderRuleNodeId = "";
   ui.builderRuleId = "";
   saveStateSilently();
   renderToolBuilder();
+}
+
+function confirmSwitchJudgmentRuleMode(mode) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const nextMode = mode === "expression" ? "expression" : "visual";
+  if (tool.ruleConfig?.mode === nextMode) return;
+  openSharedModal({
+    title: "切换配置方式",
+    body: `<p>切换到${escapeHtml(nextMode === "expression" ? "表达式编辑" : "可视化配置")}后，会清空当前配置并恢复为默认规则，是否继续？</p>`,
+    confirmText: "继续切换",
+    onConfirm() {
+      switchJudgmentRuleMode(nextMode);
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function switchJudgmentRuleMode(mode) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const nextMode = mode === "expression" ? "expression" : "visual";
+  if (tool.ruleConfig?.mode === nextMode) return;
+  tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  tool.ruleConfig.mode = nextMode;
+  tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+  ui.builderRuleNodeId = "";
+  ui.builderRuleId = "";
+  saveStateSilently();
+  renderToolBuilder();
+  showToast(nextMode === "expression" ? "已切换到表达式编辑" : "已切换到可视化配置");
 }
 
 function ensureToolItemCapacity(type, currentId = "") {
@@ -2306,9 +2525,9 @@ function ensureToolItemCapacity(type, currentId = "") {
 }
 
 function getToolItemLabel(type) {
-  if (type === "acquire") return "图像获取实例";
-  if (type === "process") return "图像处理实例";
-  return "图像检测实例";
+  if (type === "acquire") return "图像来源";
+  if (type === "process") return "处理步骤";
+  return "检测步骤";
 }
 
 function openAcquireModal(acquireId) {
@@ -2330,7 +2549,7 @@ function openAcquireModal(acquireId) {
     "";
 
   openSharedModal({
-    title: existing ? "编辑图像获取实例" : "新增图像获取实例",
+    title: existing ? "编辑图像来源" : "添加图像来源",
     panelClass: "modal-param",
     body: `
       <div class="form-grid double-column">
@@ -2373,7 +2592,7 @@ function openAcquireModal(acquireId) {
           <div>
             <h4>示例图片</h4>
           </div>
-          <button class="secondary-btn" type="button" id="acquireSampleUploadBtn">本地上传</button>
+          <button class="secondary-btn" type="button" id="acquireSampleUploadBtn">上传示例图像</button>
         </div>
         <input id="acquireSampleFileInput" type="file" accept="image/*" hidden />
         <div class="builder-sample-preview" id="acquireSamplePreview"></div>
@@ -2483,7 +2702,7 @@ function openAcquireModal(acquireId) {
         upsertToolItem("acquire", next);
       }
       closeSharedModal();
-      persistState(existing ? "图像获取实例已更新" : "图像获取实例已创建");
+      persistState(existing ? "图像来源已更新" : "图像来源已添加");
       return true;
     },
   });
@@ -2493,7 +2712,7 @@ function openProcessModal(processId) {
   if (!ensureToolItemCapacity("process", processId)) return;
   const tool = getActiveTool();
   if (!tool.acquire.length) {
-    showToast("请先创建图像获取实例");
+    showToast("请先添加图像来源");
     return;
   }
   const existing = tool.process.find((item) => item.id === processId);
@@ -2505,7 +2724,7 @@ function openProcessModal(processId) {
   let activeDrawType = draftRegions.find((item) => item.type === "ignore") ? "ignore" : "roi";
   let liveDraftRegion = null;
   openSharedModal({
-    title: existing ? "编辑图像处理实例" : "新增图像处理实例",
+    title: existing ? "编辑处理步骤" : "新增处理步骤",
     panelClass: "modal-param",
     body: `
       <div class="form-grid double-column">
@@ -2514,7 +2733,7 @@ function openProcessModal(processId) {
           <input id="processNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入实例名称" />
         </label>
         <label class="field">
-          <span>关联图像获取实例</span>
+          <span>关联图像</span>
           <select id="processInputSelect">
             ${tool.acquire.map((item) => `<option value="${item.id}" ${item.id === draftInputId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
           </select>
@@ -2672,7 +2891,7 @@ function openProcessModal(processId) {
         const sampleUrl = getAcquireSampleUrl(sourceAcquire);
         processRoiStage.innerHTML = `
           <div class="roi-stage-surface ${sampleUrl ? "" : "is-placeholder"}" id="processRoiSurface">
-            ${sampleUrl ? `<img src="${escapeAttribute(sampleUrl)}" alt="${escapeAttribute(getAcquireSampleName(sourceAcquire))}" />` : `<div class="sample-preview-frame is-placeholder"><div class="sample-preview-grid"></div><span>请先为当前图像获取实例上传示例图片</span></div>`}
+            ${sampleUrl ? `<img src="${escapeAttribute(sampleUrl)}" alt="${escapeAttribute(getAcquireSampleName(sourceAcquire))}" />` : `<div class="sample-preview-frame is-placeholder"><div class="sample-preview-grid"></div><span>请先为当前图像来源上传示例图像</span></div>`}
             <div class="roi-overlay-layer">
               ${draftRegions.map((region) => renderRegionBox(region)).join("")}
               ${liveDraftRegion ? renderRegionBox(liveDraftRegion, true) : ""}
@@ -2838,7 +3057,7 @@ function openProcessModal(processId) {
         return false;
       }
       if (!inputId) {
-        showToast("请选择图像获取实例");
+        showToast("请选择关联图像");
         return false;
       }
       const selectedModelId = String(processModelValue?.value || draftModelId || "").trim() || null;
@@ -2872,7 +3091,7 @@ function openProcessModal(processId) {
       delete next.details;
       upsertToolItem("process", next);
       closeSharedModal();
-      persistState(existing ? "图像处理实例已更新" : "图像处理实例已创建");
+      persistState(existing ? "处理步骤已更新" : "处理步骤已添加");
       return true;
     },
   });
@@ -2882,17 +3101,17 @@ function openDetectModal(detectId) {
   if (!ensureToolItemCapacity("detect", detectId)) return;
   const tool = getActiveTool();
   if (!tool.process.length) {
-    showToast("请先创建图像处理实例");
+    showToast("请先添加处理步骤");
     return;
   }
   const existing = tool.detect.find((item) => item.id === detectId);
   openSharedModal({
-    title: existing ? "编辑图像检测实例" : "新增图像检测实例",
+    title: existing ? "编辑检测步骤" : "新建检测步骤",
     panelClass: "modal-param",
     body: `
       <label class="field">
-        <span>检测实例名称</span>
-        <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测实例名称" />
+        <span>检测项名称</span>
+        <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测项名称" />
       </label>
       <div class="field">
         <span>关联输入目标</span>
@@ -2979,7 +3198,7 @@ function openDetectModal(detectId) {
                             .join("")}
                         </div>
                       `
-                      : `<div class="builder-empty builder-empty-compact">当前图像获取实例下暂无图像处理实例</div>`
+                      : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
                   }
                 </div>
               `;
@@ -2991,7 +3210,7 @@ function openDetectModal(detectId) {
         <span>引用对象</span>
         <div class="model-picker-row">
           <div class="model-picker-value" id="detectModelSummary">${escapeHtml(Demo.getModelLabel(state, existing?.modelId) || "未选择模型")}</div>
-          <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择对象</button>
+          <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择模型</button>
         </div>
         <input id="detectModelValue" type="hidden" value="${escapeAttribute(existing?.modelId || "")}" />
       </div>
@@ -3026,7 +3245,7 @@ function openDetectModal(detectId) {
         categoryLabel: input.dataset.categoryLabel || "",
       }));
       if (!name) {
-        showToast("请输入检测实例名称");
+        showToast("请输入检测项名称");
         return false;
       }
       if (!targets.length) {
@@ -3034,7 +3253,7 @@ function openDetectModal(detectId) {
         return false;
       }
       if (!modelId) {
-        showToast("请选择引用对象");
+        showToast("请选择检测模型");
         return false;
       }
       const next = existing || { id: Demo.makeId("det") };
@@ -3056,7 +3275,7 @@ function openDetectModal(detectId) {
       }
       upsertToolItem("detect", next);
       closeSharedModal();
-      persistState(existing ? "图像检测实例已更新" : "图像检测实例已创建");
+      persistState(existing ? "检测步骤已更新" : "检测步骤已添加");
       return true;
     },
   });
@@ -3066,31 +3285,31 @@ function deleteAcquire(id) {
   const tool = getActiveTool();
   const referenced = tool.process.some((item) => item.inputId === id);
   if (referenced) {
-    showToast("当前图像获取实例已被图像处理实例引用，无法删除");
+    showToast("当前图像已被引用，无法删除");
     return;
   }
   tool.acquire = tool.acquire.filter((item) => item.id !== id);
   syncToolCompletionState(tool);
-  persistState("图像获取实例已删除");
+  persistState("图像来源已删除");
 }
 
 function deleteProcess(id) {
   const tool = getActiveTool();
   const referenced = tool.detect.some((item) => item.processIds.includes(id));
   if (referenced) {
-    showToast("当前图像处理实例已被检测实例引用，无法删除");
+    showToast("当前处理结果图像已被引用，无法删除");
     return;
   }
   tool.process = tool.process.filter((item) => item.id !== id);
   syncToolCompletionState(tool);
-  persistState("图像处理实例已删除");
+  persistState("处理步骤已删除");
 }
 
 function deleteDetect(id) {
   const tool = getActiveTool();
   tool.detect = tool.detect.filter((item) => item.id !== id);
   syncToolCompletionState(tool);
-  persistState("图像检测实例已删除");
+  persistState("检测步骤已删除");
 }
 
 function upsertToolItem(type, nextItem) {
@@ -3108,11 +3327,11 @@ function upsertToolItem(type, nextItem) {
 function startDetectionRun() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) {
-    showToast("请先开始运行当前工具");
+    showToast("请先进入检测状态。");
     return;
   }
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法发起新的运行任务");
+    showToast("剩余空间不足，暂时不能开始新的检测，请先清理数据。");
     return;
   }
   if (ui.pendingDetectionToolId) return;
@@ -3145,7 +3364,7 @@ function startDetectionRun() {
     const runtimeTool = state.tools.find((item) => item.id === runToolId);
     try {
       if (Demo.isStorageBlocked(state)) {
-        abortDetectionRun("剩余空间低于阻断阈值，当前运行任务已中断", { toolId: runToolId });
+        abortDetectionRun("剩余空间不足，当前任务已中断。", { toolId: runToolId });
         return;
       }
 
@@ -3171,7 +3390,7 @@ function startDetectionRun() {
       ui.runtimePlaybackRecordId = latestRecord.id;
       ui.pendingDetectionToolId = null;
       ui.pendingDetectionStartedAt = 0;
-      persistState("运行完成，已生成记录");
+      persistState(runtimeTool.runtime.sessionMode === "detect" ? "检测完成。" : "采图完成。");
     } catch (error) {
       console.error("[JetCheck Demo] detection run failed", error);
       ui.pendingDetectionToolId = null;
@@ -3180,7 +3399,7 @@ function startDetectionRun() {
         runtimeTool.runtime.status = "等待信号";
         runtimeTool.runtime.activeTags = [];
       }
-      persistState("运行异常，已回到等待信号");
+      persistState("运行异常，已返回待检测状态。");
     }
   }, 1800);
 }
@@ -3411,18 +3630,18 @@ function resetCurrentRunTask() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) return;
   openSharedModal({
-    title: "重置当前任务",
-    body: `<p class="banner banner-warning">重置后会清空当前任务展示并回到等待信号状态，不会删除历史记录，也不会释放当前相机或接口资源。</p>`,
+    title: "重置",
+    body: `<p class="banner banner-warning">将会清空本条${getRunActionLabel(tool.runtime?.sessionMode || "detect")}结果，确认重置？</p>`,
     confirmText: "确认重置",
     onConfirm() {
       closeSharedModal();
       if (ui.pendingDetectionToolId === tool.id) {
-        abortDetectionRun("当前任务已重置，继续等待触发信号");
+        abortDetectionRun("当前结果已重置，等待重新开始。");
         return true;
       }
       tool.runtime.status = "等待信号";
       activateRuntimeInitialState(tool.id);
-      persistState("当前任务已重置，继续等待触发信号");
+      persistState("当前结果已重置，等待重新开始。");
       return true;
     },
   });
@@ -3432,18 +3651,18 @@ function stopToolRunSession() {
   const tool = getActiveTool();
   if (!tool || !isToolSessionRunning(tool)) return;
   openSharedModal({
-    title: "结束运行",
-    body: `<p class="banner banner-danger">结束运行后，当前工具会退出运行态并释放对应相机或接口资源。历史记录会保留。</p>`,
-    confirmText: "确认结束",
+    title: "退出工具",
+    body: `<p class="banner banner-danger">确认结束运行并退出当前工具？</p>`,
+    confirmText: "确认退出",
     confirmClass: "danger-btn",
     onConfirm() {
       closeSharedModal();
       if (ui.pendingDetectionToolId === tool.id) {
-        abortDetectionRun("当前工具已结束运行", { keepSession: false });
+        abortDetectionRun("当前工具已退出。", { keepSession: false });
       } else {
         endToolRunSessionState(tool);
         ui.toolView = "overview";
-        persistState("当前工具已结束运行");
+        persistState("当前工具已退出。");
       }
       return true;
     },
@@ -3807,7 +4026,7 @@ function startModelDownload(modelId, versionId) {
     return;
   }
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法下载云端模型");
+    showToast("剩余空间不足，暂时无法下载模型。");
     return;
   }
   if (ui.pendingDownload) return;
@@ -3861,7 +4080,7 @@ function abortModelDownload(message) {
 
 function openImportModelModal() {
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法上传本地模型");
+    showToast("剩余空间不足，暂时无法导入模型。");
     return;
   }
   els.importModelFileInput.value = "";
@@ -3872,7 +4091,7 @@ function handleImportModelFileChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   if (Demo.isStorageBlocked(state)) {
-    showToast("当前剩余空间低于阻断阈值，无法上传本地模型");
+    showToast("剩余空间不足，暂时无法导入模型。");
     event.target.value = "";
     return;
   }
@@ -3893,12 +4112,12 @@ function handleImportModelFileChange(event) {
     modelName: meta.modelName,
     sceneType: meta.sceneType,
     categories: meta.sceneType === "分类" ? Demo.normalizeModelCategories(meta) : [],
-    source: "本地上传",
+    source: "导入本地模型",
     addedAt: state.meta.now,
   });
   ui.selectedModelId = id;
   event.target.value = "";
-  persistState(`本地模型已上传：${file.name}`);
+  persistState(`模型已导入：${file.name}`);
 }
 
 function inferImportedModelMeta(fileName) {
@@ -4273,7 +4492,7 @@ function renderRecordDetailImageItem(record, imageResult, index, active) {
         type="button"
       >
         <div class="record-detail-image-copy">
-          <strong>${escapeHtml(imageResult.acquireName || `图像获取实例 ${index + 1}`)}</strong>
+          <strong>${escapeHtml(imageResult.acquireName || `图像来源 ${index + 1}`)}</strong>
         </div>
         ${resultBadge}
       </button>
@@ -4851,11 +5070,11 @@ function confirmUnbindClient() {
     return;
   }
   if (!state.runtimeDevice.networkOnline) {
-    showToast("请联网后再解绑当前客户端");
+    showToast("请联网后再解绑当前设备");
     return;
   }
   openSharedModal({
-    title: "解绑当前客户端",
+    title: "解绑当前设备",
     body: `<p class="banner banner-danger">解绑后当前设备将退出可用状态，需重新登录并重新绑定后才能继续使用。是否确认解绑？</p>`,
     confirmText: "确认解绑",
     confirmClass: "danger-btn",
@@ -4867,7 +5086,7 @@ function confirmUnbindClient() {
       state.session.account = "";
       state.session.lastMessage = "";
       closeSharedModal();
-      persistState("解绑成功，当前设备已回到首次绑定状态");
+      persistState("解绑成功");
       return true;
     },
   });
@@ -5336,17 +5555,25 @@ function submitLogin() {
   const clientName = els.loginClientName.value.trim();
   const account = els.loginAccount.value.trim();
   const password = els.loginPassword.value.trim();
-  if (!clientName || !account || !password) {
-    return showLoginError("请输入客户端名称、手机号和密码。");
+  const errors = {};
+  if (!clientName) errors.clientName = "请输入设备名称";
+  if (!account) {
+    errors.account = "请输入正确的手机号码";
+  } else if (!/^1\d{10}$/.test(account)) {
+    errors.account = "请输入正确的手机号码";
   }
-  if (!/^1\d{10}$/.test(account)) {
-    return showLoginError("请输入 11 位手机号。");
+  if (!password) errors.password = "登录密码不能为空";
+  if (Object.keys(errors).length) {
+    showLoginFieldErrors(errors);
+    return;
   }
+  clearLoginErrors();
   if (!state.runtimeDevice.networkOnline) {
-    return showLoginError("无法连接云端服务，请检查网络。");
+    return showLoginError("当前网络异常，暂时无法登录，请检查网络后重试。");
   }
   if (account !== state.enterprise.account || password !== state.enterprise.password) {
-    return showLoginError("手机号或密码错误。");
+    showLoginFieldErrors({ password: "密码错误" });
+    return;
   }
 
   Demo.advanceDemoClock(state, 1);
@@ -5355,10 +5582,10 @@ function submitLogin() {
 
   const quotaFull = Demo.getQuotaUsage(state) >= state.enterprise.quota;
   if (!client && quotaFull) {
-    state.session.lastMessage = "当前账号下的客户端额度已满，新设备暂无法登录。";
+    state.session.lastMessage = "当前账号可用设备数已满，请联系销售。";
     Demo.saveState(state);
     renderAll();
-    return showLoginError("当前账号下的客户端额度已满，新设备暂无法登录。");
+    return showLoginError("当前账号可用设备数已满，请联系销售。");
   }
 
   if (!client) {
@@ -5389,11 +5616,12 @@ function submitLogin() {
   state.session.loggedIn = true;
   state.session.clientId = client.id;
   state.session.account = account;
-  state.session.lastMessage = "当前设备已完成绑定，可直接进入系统。";
-  persistState("登录成功，当前设备已自动绑定");
+  state.session.lastMessage = "登录成功，当前设备已绑定。";
+  persistState("登录成功，当前设备已绑定。");
 }
 
 function showLoginError(message) {
+  clearLoginErrors();
   els.loginError.hidden = false;
   els.loginError.textContent = message;
 }
@@ -5582,6 +5810,14 @@ function getRunModeLabel(mode) {
   return getRunModeMeta(mode).label;
 }
 
+function getRunActionLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "检测" : "采图";
+}
+
+function getRunWaitingLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "等待开始检测" : "等待开始采图";
+}
+
 function getProcessCategoryOptions(process) {
   if (normalizeProcessMode(process?.mode) === "model-roi" && process?.modelId) {
     const modelCategories = getModelCategoriesById(process.modelId);
@@ -5748,9 +5984,37 @@ function saveStateSilently() {
 }
 
 function getJudgmentRoiLabel(process) {
-  const mode = normalizeProcessMode(process?.mode);
-  if (mode === "full-image") return "全图ROI";
-  return String(process?.name || "ROI节点").trim() || "ROI节点";
+  return String(process?.name || "图像处理").trim() || "图像处理";
+}
+
+function getJudgmentRuleStructureSignature(tool) {
+  if (!tool) return "";
+  return JSON.stringify({
+    acquire: (tool.acquire || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+    })),
+    process: (tool.process || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      inputId: item.inputId,
+      mode: item.mode,
+    })),
+    detect: (tool.detect || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      modelId: item.modelId,
+      sceneType: getDetectSceneType(item),
+      targets: getDetectTargets(item).map((target) => ({
+        processId: target.processId,
+      })),
+    })),
+  });
+}
+
+function isJudgmentRuleStructureStale(tool) {
+  if (!tool?.ruleConfig) return false;
+  return String(tool.ruleConfig.structureSignature || "") !== getJudgmentRuleStructureSignature(tool);
 }
 
 function getJudgmentRuleNodes(tool) {
@@ -5759,9 +6023,10 @@ function getJudgmentRuleNodes(tool) {
     {
       id: "cycle",
       parentId: "",
-      label: "周期",
+      label: "总结果",
       type: "cycle",
-      configurable: true,
+      configurable: false,
+      selectable: true,
       depth: 0,
     },
   ];
@@ -5774,6 +6039,7 @@ function getJudgmentRuleNodes(tool) {
       label: acquire.name || "图片",
       type: "acquire",
       configurable: false,
+      selectable: true,
       depth: 1,
       acquireId: acquire.id,
     });
@@ -5788,6 +6054,7 @@ function getJudgmentRuleNodes(tool) {
           label: getJudgmentRoiLabel(process),
           type: "roi",
           configurable: true,
+          selectable: true,
           depth: 2,
           acquireId: acquire.id,
           processId: process.id,
@@ -5803,6 +6070,7 @@ function getJudgmentRuleNodes(tool) {
               label: detect.name || "检测项",
               type: "detect",
               configurable: true,
+              selectable: true,
               depth: 3,
               processId: process.id,
               detectId: detect.id,
@@ -5825,10 +6093,10 @@ function findJudgmentRuleNode(tool, nodeId) {
 
 function getRuleNodeTypeLabel(node) {
   if (!node) return "";
-  if (node.type === "cycle") return "周期层";
-  if (node.type === "roi") return "ROI层";
-  if (node.type === "detect") return "检测项层";
-  return "图片层";
+  if (node.type === "cycle") return "总结果";
+  if (node.type === "roi") return "图像处理";
+  if (node.type === "detect") return "检测项";
+  return "图像";
 }
 
 function getDetectByNode(tool, node) {
@@ -5846,15 +6114,24 @@ function getDetectPositiveLabel(detect) {
 }
 
 function getDefaultDimensionRows(tool, node) {
+  const detect = getDetectByNode(tool, node);
+  const categories = getModelCategoriesById(detect?.modelId);
+  const presetRanges = tool?.id === "tool_001" ? { 螺杆1: { min: "9.0", max: "10.0" }, 螺杆2: { min: "6.0", max: "7.0" } } : {};
+  if (categories.length) {
+    return categories.map((label) => ({
+      label,
+      min: presetRanges[label]?.min ?? "",
+      max: presetRanges[label]?.max ?? "",
+    }));
+  }
   if (tool?.id === "tool_001") {
     return [
-      { label: "螺杆1", required: true, errorCode: "0", min: "9.0", max: "10.0" },
-      { label: "螺杆2", required: true, errorCode: "0", min: "6.0", max: "7.0" },
+      { label: "螺杆1", min: "9.0", max: "10.0" },
+      { label: "螺杆2", min: "6.0", max: "7.0" },
     ];
   }
   return [
-    { label: "尺寸项1", required: true, errorCode: "0", min: "", max: "" },
-    { label: "尺寸项2", required: false, errorCode: "0", min: "", max: "" },
+    { label: "尺寸项1", min: "", max: "" },
   ];
 }
 
@@ -5862,7 +6139,7 @@ function createDefaultJudgmentRule(tool, node, nodes) {
   if (node.type === "cycle") {
     return {
       id: Demo.makeId("rule"),
-      name: "周期汇总",
+      name: "最终结果判定",
       template: "all-selected-ok",
       selectedNodeIds: nodes.filter((item) => item.type === "roi").map((item) => item.id),
       resultOnHit: "OK",
@@ -5876,9 +6153,10 @@ function createDefaultJudgmentRule(tool, node, nodes) {
     const allDimension = detectNodes.length > 1 && detectNodes.every((item) => item.sceneType === "尺寸");
     return {
       id: Demo.makeId("rule"),
-      name: allDimension ? "互斥匹配判定" : "ROI结果汇总",
+      name: allDimension ? "互斥匹配判定" : "区域结果汇总",
       template: allDimension ? "exactly-one-ok" : "all-selected-ok",
       selectedNodeIds: detectNodes.map((item) => item.id),
+      relation: allDimension ? "exactly-one-ok" : "all-selected-ok",
       resultOnHit: "OK",
       failResult: "NG",
       enabled: true,
@@ -5891,7 +6169,8 @@ function createDefaultJudgmentRule(tool, node, nodes) {
     return {
       id: Demo.makeId("rule"),
       name: `${node.label}判定`,
-      template: "dimension-all-pass",
+      template: "dimension-conditions",
+      conditionRelation: "all",
       dimensions: getDefaultDimensionRows(tool, node),
       resultOnHit: "OK",
       failResult: "NG",
@@ -5902,9 +6181,15 @@ function createDefaultJudgmentRule(tool, node, nodes) {
     return {
       id: Demo.makeId("rule"),
       name: `${node.label}判定`,
-      template: "label-count-eq",
-      targetLabel: getDetectPositiveLabel(detect),
-      expectedCount: 1,
+      template: "classify-conditions",
+      conditionRelation: "all",
+      conditions: [
+        {
+          label: getDetectPositiveLabel(detect),
+          operator: "eq",
+          expectedCount: 1,
+        },
+      ],
       resultOnHit: "OK",
       failResult: "NG",
       enabled: true,
@@ -5913,9 +6198,15 @@ function createDefaultJudgmentRule(tool, node, nodes) {
   return {
     id: Demo.makeId("rule"),
     name: `${node.label}判定`,
-    template: "defect-count-zero",
-    defectLabel: "缺陷",
-    expectedCount: 0,
+    template: "defect-conditions",
+    conditionRelation: "all",
+    conditions: [
+      {
+        label: "缺陷",
+        operator: "eq",
+        expectedCount: 0,
+      },
+    ],
     resultOnHit: "OK",
     failResult: "NG",
     enabled: true,
@@ -5926,11 +6217,17 @@ function buildDefaultJudgmentRuleConfig(tool) {
   const nodes = getJudgmentRuleNodes(tool);
   const rulesByNode = {};
   nodes
-    .filter((node) => node.configurable)
+    .filter((node) => node.configurable || node.type === "cycle")
     .forEach((node) => {
       rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
     });
-  return { rulesByNode };
+  return {
+    mode: "visual",
+    expressionDraft: "",
+    expressionErrors: [],
+    structureSignature: getJudgmentRuleStructureSignature(tool),
+    rulesByNode,
+  };
 }
 
 function ensureJudgmentRuleState(tool) {
@@ -5941,23 +6238,36 @@ function ensureJudgmentRuleState(tool) {
   if (!tool.ruleConfig.rulesByNode || typeof tool.ruleConfig.rulesByNode !== "object") {
     tool.ruleConfig.rulesByNode = {};
   }
+  if (!["visual", "expression"].includes(tool.ruleConfig.mode)) tool.ruleConfig.mode = "visual";
+  if (typeof tool.ruleConfig.expressionDraft !== "string") tool.ruleConfig.expressionDraft = "";
+  if (!Array.isArray(tool.ruleConfig.expressionErrors)) tool.ruleConfig.expressionErrors = [];
+  if (typeof tool.ruleConfig.structureSignature !== "string") {
+    tool.ruleConfig.structureSignature = getJudgmentRuleStructureSignature(tool);
+  }
   const nodes = getJudgmentRuleNodes(tool);
   nodes
-    .filter((node) => node.configurable)
+    .filter((node) => node.configurable || node.type === "cycle")
     .forEach((node) => {
       if (!Array.isArray(tool.ruleConfig.rulesByNode[node.id]) || !tool.ruleConfig.rulesByNode[node.id].length) {
         tool.ruleConfig.rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
       }
+      tool.ruleConfig.rulesByNode[node.id].forEach((rule) => {
+        applyJudgmentRuleTemplateDefaults(rule, node, tool);
+      });
     });
+  if (!tool.ruleConfig.expressionDraft.trim()) {
+    tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  }
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
 }
 
 function syncJudgmentRuleSelection(tool) {
   if (!tool) return;
   ensureJudgmentRuleState(tool);
   const nodes = getJudgmentRuleNodes(tool);
-  const configurableNodes = nodes.filter((node) => node.configurable);
-  if (!configurableNodes.some((node) => node.id === ui.builderRuleNodeId)) {
-    ui.builderRuleNodeId = configurableNodes[0]?.id || "";
+  const selectableNodes = nodes.filter((node) => node.selectable !== false);
+  if (!selectableNodes.some((node) => node.id === ui.builderRuleNodeId)) {
+    ui.builderRuleNodeId = selectableNodes[0]?.id || "";
   }
   const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
   if (!rules.some((rule) => rule.id === ui.builderRuleId)) {
@@ -5983,109 +6293,399 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
     if (!Array.isArray(rule.selectedNodeIds) || !rule.selectedNodeIds.length) {
       rule.selectedNodeIds = getNodeChildren(nodes, node.id, "detect").map((item) => item.id);
     }
+    if (!rule.relation) rule.relation = rule.template || "all-selected-ok";
     return;
   }
   const detect = getDetectByNode(tool, node);
   const sceneType = node.sceneType || getDetectSceneType(detect);
   if (sceneType === "尺寸") {
+    if (rule.template !== "dimension-conditions") {
+      const legacyRows = Array.isArray(rule.dimensions) ? rule.dimensions : [];
+      rule.template = "dimension-conditions";
+      rule.dimensions = legacyRows.flatMap((item) => {
+        if (item.min !== undefined || item.max !== undefined) {
+          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "" }];
+        }
+        return [];
+      });
+    }
+    if (!Array.isArray(rule.dimensions) || !rule.dimensions.length) {
+      const legacyConditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+      if (legacyConditions.length) {
+        const grouped = {};
+        legacyConditions.forEach((item) => {
+          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "" };
+          if (item.operator === "ge" || item.operator === "gt") grouped[item.label].min = item.value ?? "";
+          if (item.operator === "le" || item.operator === "lt") grouped[item.label].max = item.value ?? "";
+        });
+        rule.dimensions = Object.values(grouped);
+      }
+    }
     if (!Array.isArray(rule.dimensions) || !rule.dimensions.length) {
       rule.dimensions = getDefaultDimensionRows(tool, node);
     }
+    const templateRows = getDefaultDimensionRows(tool, node);
+    if (templateRows.length) {
+      const previousMap = new Map((Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => [item.label, item]));
+      rule.dimensions = templateRows.map((item) => {
+        const previous = previousMap.get(item.label);
+        return {
+          label: item.label,
+          min: previous?.min ?? item.min ?? "",
+          max: previous?.max ?? item.max ?? "",
+        };
+      });
+    }
+    if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
     return;
   }
   if (sceneType === "分类") {
-    if (!rule.targetLabel) rule.targetLabel = getDetectPositiveLabel(detect);
-    if (!Number.isFinite(Number(rule.expectedCount))) rule.expectedCount = 1;
+    if (rule.template !== "classify-conditions") {
+      const previousTemplate = rule.template;
+      rule.template = "classify-conditions";
+      rule.conditions = [
+        {
+          label: rule.targetLabel || getDetectPositiveLabel(detect),
+          operator: previousTemplate === "label-count-gte" ? "gte" : "eq",
+          expectedCount: Number(rule.expectedCount ?? 1),
+        },
+      ];
+    }
+    if (!Array.isArray(rule.conditions) || !rule.conditions.length) {
+      rule.conditions = [
+        {
+          label: getDetectPositiveLabel(detect),
+          operator: "eq",
+          expectedCount: 1,
+        },
+      ];
+    }
+    if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
     return;
   }
-  if (!rule.defectLabel) rule.defectLabel = "缺陷";
-  if (!Number.isFinite(Number(rule.expectedCount))) rule.expectedCount = 0;
+  if (rule.template !== "defect-conditions") {
+    const previousTemplate = rule.template;
+    rule.template = "defect-conditions";
+    rule.conditions = [
+      {
+        label: "缺陷",
+        operator: previousTemplate === "defect-label-count-lte" ? "le" : "eq",
+        expectedCount: Number(rule.expectedCount ?? 0),
+      },
+    ];
+  }
+  if (!Array.isArray(rule.conditions) || !rule.conditions.length) {
+    rule.conditions = [{ label: "缺陷", operator: "eq", expectedCount: 0 }];
+  }
+  if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
 }
 
 function getJudgmentRuleSummary(rule, node, tool) {
   if (!rule || !node) return "";
   if (node.type === "cycle" || node.type === "roi") {
     const nodes = getJudgmentRuleNodes(tool);
-    const labels = (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+    const children = (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
       .map((id) => nodes.find((item) => item.id === id)?.label || "")
       .filter(Boolean);
-    if (rule.template === "exactly-one-ok") return `${labels.join("、")} 中结果为 OK 的数量必须等于 1`;
-    if (rule.template === "any-selected-ok") return `${labels.join("、")} 中任一节点为 OK 即通过`;
-    return `${labels.join("、")} 全部为 OK 时通过`;
+    const relation = node.type === "roi" ? rule.relation || rule.template : rule.template;
+    const relationText =
+      relation === "exactly-one-ok" ? "仅一满足" : relation === "any-selected-ok" ? "任一满足" : "全部满足";
+    return `${relationText}：${children.join("、")} 的判定结果都按 OK 参与`;
   }
-  if (rule.template === "dimension-all-pass") {
-    return (Array.isArray(rule.dimensions) ? rule.dimensions : [])
-      .map((item) => `${item.label}${item.min || item.max ? ` ${item.min || "-"}~${item.max || "-"}` : ""}${item.errorCode === "0" ? " / 正常" : ""}`)
+  if (rule.template === "dimension-conditions") {
+    const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
+    const conditions = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => `${item.label || "尺寸项"} ${item.min || "-"} ~ ${item.max || "-"}`)
       .join("；");
+    return `${relationText}：${conditions}`;
   }
-  if (rule.template === "label-count-gte") return `标签“${rule.targetLabel || "目标"}”数量大于等于 ${rule.expectedCount || 0}`;
-  if (rule.template === "defect-count-zero") return "缺陷数量等于 0";
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
+    const conditions = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `${item.label || "目标"} ${getConditionOperatorLabel(item.operator)} ${item.value ?? item.expectedCount ?? ""}`)
+      .join("；");
+    return `${relationText}：${conditions}`;
+  }
   return `标签“${rule.targetLabel || "目标"}”数量等于 ${rule.expectedCount || 0}`;
 }
 
 function getJudgmentRuleExpression(rule, node, tool) {
   if (!rule || !node) return "";
   if (node.type === "cycle" || node.type === "roi") {
-    if (rule.template === "exactly-one-ok") return "eq(countArray(eq(result,'OK')),1)";
-    if (rule.template === "any-selected-ok") return "gt(countArray(eq(result,'OK')),0)";
+    const relation = node.type === "roi" ? rule.relation || rule.template : rule.template;
+    if (relation === "exactly-one-ok") return "eq(countArray(eq(result,'OK')),1)";
+    if (relation === "any-selected-ok") return "gt(countArray(eq(result,'OK')),0)";
     return "allArray(eq(result,'OK'))";
   }
-  if (rule.template === "dimension-all-pass") {
-    return (Array.isArray(rule.dimensions) ? rule.dimensions : [])
-      .map((item) => `all(eq(label,'${item.label}'),eq(data.errorCode,'${item.errorCode || "0"}'),ge(data.value,'${item.min || ""}'),le(data.value,'${item.max || ""}'))`)
-      .join(", ");
+  if (rule.template === "dimension-conditions") {
+    const relationFn = rule.conditionRelation === "any" ? "any" : "all";
+    const items = (Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => {
+      const checks = [`eq(label,'${item.label || ""}')`];
+      if (item.min !== "" && item.min !== undefined) checks.push(`ge(data.value,'${item.min}')`);
+      if (item.max !== "" && item.max !== undefined) checks.push(`le(data.value,'${item.max}')`);
+      return `all(${checks.join(",")})`;
+    });
+    return `${relationFn}(${items.join(",")})`;
   }
-  if (rule.template === "label-count-gte") return `ge(countArray(eq(label,'${rule.targetLabel || ""}')),'${rule.expectedCount || 0}')`;
-  if (rule.template === "defect-count-zero") return "eq(countArray(true),0)";
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const relationFn = rule.conditionRelation === "any" ? "any" : "all";
+    const items = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `${item.operator || "eq"}(countArray(eq(label,'${item.label || ""}')),'${item.value ?? item.expectedCount ?? 0}')`);
+    return `${relationFn}(${items.join(",")})`;
+  }
   return `eq(countArray(eq(label,'${rule.targetLabel || ""}')),'${rule.expectedCount || 0}')`;
+}
+
+function getJudgmentNodePathLabel(node, nodes) {
+  if (!node) return "";
+  const labels = [];
+  let current = node;
+  while (current) {
+    labels.unshift(current.label);
+    current = nodes.find((item) => item.id === current.parentId) || null;
+  }
+  return labels.join("##");
+}
+
+function composeJudgmentConfigExpression(tool) {
+  if (!tool) return "";
+  const nodes = getJudgmentRuleNodes(tool);
+  return nodes
+    .filter((node) => node.configurable || node.type === "cycle")
+    .flatMap((node) => {
+      const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[node.id]) ? tool.ruleConfig.rulesByNode[node.id] : [];
+      const nodePath = getJudgmentNodePathLabel(node, nodes);
+      return rules.map((rule) => `${nodePath}:${getJudgmentRuleExpression(rule, node, tool)}`);
+    })
+    .join("\n");
+}
+
+function getJudgmentConfigExpression(tool) {
+  if (!tool) return "";
+  ensureJudgmentRuleState(tool);
+  return composeJudgmentConfigExpression(tool);
+}
+
+function validateJudgmentExpression(expression) {
+  const text = String(expression || "");
+  const errors = [];
+  if (!text.trim()) {
+    return ["表达式不能为空"];
+  }
+
+  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray"];
+  const lines = text.split("\n");
+  const stack = [];
+  let quoteOpen = null;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const colonIndex = line.indexOf(":");
+    if (colonIndex <= 0 || colonIndex === line.length - 1) {
+      errors.push(`第 ${lineIndex + 1} 行缺少“路径:表达式”格式`);
+      continue;
+    }
+
+    const expr = line.slice(colonIndex + 1).trim();
+    if (!expr) {
+      errors.push(`第 ${lineIndex + 1} 行冒号后缺少表达式`);
+      continue;
+    }
+    if (/[,({:]$/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行表达式结尾不完整`);
+    }
+    if (/\(\s*\)|\{\s*\}/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行存在空参数`);
+    }
+    if (/[,(]\s*,/.test(expr) || /,\s*[)}]/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行存在空参数位置`);
+    }
+
+    FUNCTION_NAMES.forEach((name) => {
+      const missingBracket = new RegExp(`\\b${name}\\b(?!\\s*[({])`);
+      if (missingBracket.test(expr)) {
+        errors.push(`第 ${lineIndex + 1} 行函数 ${name} 缺少括号`);
+      }
+    });
+
+    for (let charIndex = 0; charIndex < rawLine.length; charIndex += 1) {
+      const char = rawLine[charIndex];
+      const previous = rawLine[charIndex - 1];
+      if (char === "'" && previous !== "\\") {
+        quoteOpen = quoteOpen ? null : { line: lineIndex + 1, column: charIndex + 1 };
+        continue;
+      }
+      if (quoteOpen) continue;
+      if (char === "(" || char === "{") {
+        stack.push({ char, line: lineIndex + 1, column: charIndex + 1 });
+      } else if (char === ")" || char === "}") {
+        const last = stack.pop();
+        const expected = char === ")" ? "(" : "{";
+        if (!last || last.char !== expected) {
+          errors.push(`第 ${lineIndex + 1} 行第 ${charIndex + 1} 列括号不匹配`);
+        }
+      }
+    }
+  }
+
+  if (quoteOpen) {
+    errors.push(`第 ${quoteOpen.line} 行第 ${quoteOpen.column} 列开始的单引号未闭合`);
+  }
+  stack.forEach((item) => {
+    errors.push(`第 ${item.line} 行第 ${item.column} 列开始的括号未闭合`);
+  });
+
+  return Array.from(new Set(errors));
+}
+
+function isJudgmentExpressionMode(tool) {
+  return tool?.ruleConfig?.mode === "expression";
+}
+
+function getConditionOperatorLabel(operator) {
+  if (operator === "le") return "数量≦";
+  if (operator === "lt") return "数量<";
+  if (operator === "ge") return "数量≧";
+  if (operator === "gt") return "数量>";
+  if (operator === "ne") return "数量≠";
+  return "数量=";
+}
+
+function getConditionOperatorText(operator) {
+  if (operator === "le") return "数量小于等于";
+  if (operator === "lt") return "数量小于";
+  if (operator === "ge") return "数量大于等于";
+  if (operator === "gt") return "数量大于";
+  if (operator === "ne") return "数量不等于";
+  return "数量等于";
+}
+
+function renderJudgmentNameOkHtml(name) {
+  return `<span class="judgment-copy-name">${escapeHtml(name || "项目")}</span><span class="judgment-copy-ok">OK</span>`;
+}
+
+function getJudgmentNaturalRelationText(relation) {
+  return relation === "any" || relation === "any-selected-ok" ? "或者" : "并且";
+}
+
+function renderJudgmentAggregateSummaryHtml(names = [], relation = "all-selected-ok") {
+  if (!names.length) return "";
+  if (relation === "exactly-one-ok") {
+    return `满足且仅满足其中一项：<span class="judgment-copy-name">${escapeHtml(names.join("、"))}</span> 中的一项为 <span class="judgment-copy-ok">OK</span>`;
+  }
+  const joinText = ` ${getJudgmentNaturalRelationText(relation)} `;
+  return names.map((name) => `满足 ${renderJudgmentNameOkHtml(name)}`).join(joinText);
+}
+
+function getJudgmentDetailSummaryHtml(rule) {
+  if (rule.template === "dimension-conditions") {
+    const items = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span> 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`)
+      .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
+    return items;
+  }
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const items = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "目标")}</span> ${escapeHtml(getConditionOperatorText(item.operator))} <span class="judgment-copy-value">${escapeHtml(String(item.expectedCount ?? ""))}</span>`)
+      .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
+    return items;
+  }
+  return "";
+}
+
+function renderJudgmentRuleSummaryHtml(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    const nodes = getJudgmentRuleNodes(tool);
+    const labels =
+      node.type === "cycle"
+        ? Array.from(
+            new Set(
+              (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+                .map((id) => nodes.find((item) => item.id === id) || null)
+                .map((item) => nodes.find((candidate) => candidate.id === item?.parentId) || null)
+                .map((item) => item?.label || "")
+                .filter(Boolean),
+            ),
+          )
+        : (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+            .map((id) => nodes.find((item) => item.id === id)?.label || "")
+            .filter(Boolean);
+    return renderJudgmentAggregateSummaryHtml(labels, rule?.relation || rule?.template || "all-selected-ok");
+  }
+  if (rule.template === "dimension-conditions" || rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    return getJudgmentDetailSummaryHtml(rule);
+  }
+  return escapeHtml(getJudgmentRuleSummary(rule, node, tool));
+}
+
+function isJudgmentRuleConfigValid(tool) {
+  if (!tool) return false;
+  ensureJudgmentRuleState(tool);
+  if (isJudgmentRuleStructureStale(tool)) return false;
+  if (isJudgmentExpressionMode(tool)) {
+    return !tool.ruleConfig.expressionErrors.length;
+  }
+  return true;
 }
 
 function renderJudgmentRuleBuilder(tool) {
   ensureJudgmentRuleState(tool);
   syncJudgmentRuleSelection(tool);
+  const isStale = isJudgmentRuleStructureStale(tool);
   const nodes = getJudgmentRuleNodes(tool);
   const activeNode = nodes.find((node) => node.id === ui.builderRuleNodeId) || null;
   const nodeRules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
-  const activeRule = nodeRules.find((rule) => rule.id === ui.builderRuleId) || nodeRules[0] || null;
+  const activeRule = nodeRules[0] || null;
   applyJudgmentRuleTemplateDefaults(activeRule, activeNode, tool);
   return `
-    <div class="judgment-builder-shell">
-      <aside class="judgment-tree-panel">
-        <div class="section-head section-head-tight">
-          <div>
-            <h3>判定结构</h3>
-          </div>
-          <div class="section-head-actions">
-            <button class="secondary-btn" type="button" data-action="reset-default-rules">生成默认规则</button>
-          </div>
+    <div class="judgment-builder-page">
+      <div class="judgment-builder-toolbar">
+        <div>
+          <h3>判定规则</h3>
         </div>
-        <div class="judgment-tree">
-          ${nodes.filter((node) => node.depth === 0).map((node) => renderJudgmentTreeNode(node, nodes, tool)).join("")}
+        <div class="judgment-toolbar-actions">
+          <button
+            class="secondary-btn judgment-switch-btn"
+            type="button"
+            data-action="prompt-switch-rule-mode"
+            data-mode="${tool.ruleConfig.mode === "visual" ? "expression" : "visual"}"
+          >
+            <span aria-hidden="true">⇄</span>
+            <span>${tool.ruleConfig.mode === "visual" ? "切换表达式编辑" : "切换可视化配置"}</span>
+          </button>
+          <button class="secondary-btn" type="button" data-action="reset-default-rules">恢复默认</button>
         </div>
-      </aside>
-      <section class="judgment-rule-list-panel">
-        <div class="section-head section-head-tight">
-          <div>
-            <h3>${escapeHtml(activeNode?.label || "规则列表")}</h3>
-            <p class="muted">${escapeHtml(getRuleNodeTypeLabel(activeNode))}</p>
-          </div>
-          <div class="section-head-actions">
-            ${activeNode?.configurable ? `<button class="primary-btn" type="button" data-action="add-node-rule">新增规则</button>` : ""}
-          </div>
-        </div>
-        <div class="judgment-rule-list">
-          ${
-            activeNode?.configurable
-              ? nodeRules
-                  .map((rule) => renderJudgmentRuleCard(rule, activeNode, tool))
-                  .join("")
-              : `<div class="builder-empty">当前节点仅用于展示层级，不承载独立规则。</div>`
-          }
-        </div>
-      </section>
-      <section class="judgment-editor-panel">
-        ${renderJudgmentRuleEditor(tool, activeNode, activeRule)}
-      </section>
+      </div>
+      ${
+        isStale
+          ? `<div class="judgment-structure-alert" role="alert">前面的配置已经变更，请先恢复默认后再检查OK判定条件。</div>`
+          : ""
+      }
+      ${
+        isJudgmentExpressionMode(tool)
+          ? renderJudgmentExpressionPanel(tool)
+          : `
+            <div class="judgment-builder-shell">
+              <aside class="judgment-tree-panel">
+                <div class="section-head section-head-tight">
+                  <div>
+                    <h3>判定对象</h3>
+                  </div>
+                </div>
+                <div class="judgment-tree">
+                  ${nodes.filter((node) => node.depth === 0).map((node) => renderJudgmentTreeNode(node, nodes, tool)).join("")}
+                </div>
+              </aside>
+              <section class="judgment-editor-panel">
+                ${renderJudgmentRuleEditor(tool, activeNode, activeRule)}
+              </section>
+            </div>
+          `
+      }
     </div>
   `;
 }
@@ -6093,47 +6693,31 @@ function renderJudgmentRuleBuilder(tool) {
 function renderJudgmentTreeNode(node, nodes, tool) {
   const children = getNodeChildren(nodes, node.id);
   const isActive = node.id === ui.builderRuleNodeId;
-  const rules = Array.isArray(tool?.ruleConfig?.rulesByNode?.[node.id]) ? tool.ruleConfig.rulesByNode[node.id] : [];
+  const mainClass = `judgment-tree-node-main ${isActive ? "is-active" : ""} ${node.configurable ? "is-configurable" : "is-readonly"}`;
   return `
     <div class="judgment-tree-node depth-${node.depth}">
       <button
-        class="judgment-tree-node-main ${isActive ? "is-active" : ""} ${node.configurable ? "" : "is-readonly"}"
+        class="${mainClass}"
         type="button"
         data-action="select-rule-node"
         data-node-id="${escapeAttribute(node.id)}"
       >
-        <span class="judgment-node-type">${escapeHtml(getRuleNodeTypeLabel(node))}</span>
         <strong>${escapeHtml(node.label)}</strong>
-        ${node.configurable ? `<span class="judgment-node-count">${rules.length} 条</span>` : `<span class="judgment-node-count">仅查看</span>`}
       </button>
       ${children.length ? `<div class="judgment-tree-children">${children.map((child) => renderJudgmentTreeNode(child, nodes, tool)).join("")}</div>` : ""}
     </div>
   `;
 }
 
-function renderJudgmentRuleCard(rule, node, tool) {
-  const isActive = rule.id === ui.builderRuleId;
-  return `
-    <article class="judgment-rule-card ${isActive ? "is-active" : ""}" data-action="select-node-rule" data-rule-id="${escapeAttribute(rule.id)}">
-      <div class="judgment-rule-card-head">
-        <strong>${escapeHtml(rule.name || "未命名规则")}</strong>
-        <span class="chip">${escapeHtml(rule.resultOnHit || "OK")}</span>
-      </div>
-      <p class="judgment-rule-card-summary">${escapeHtml(getJudgmentRuleSummary(rule, node, tool) || "暂无规则摘要")}</p>
-      <div class="judgment-rule-card-meta">
-        <span>${escapeHtml(rule.enabled ? "已启用" : "已停用")}</span>
-        <button class="table-btn table-btn-danger" type="button" data-action="delete-node-rule" data-rule-id="${escapeAttribute(rule.id)}">删除</button>
-      </div>
-    </article>
-  `;
-}
-
 function renderJudgmentRuleEditor(tool, node, rule) {
-  if (!node?.configurable) {
-    return `<div class="builder-empty">请选择左侧可配置节点。</div>`;
+  if (!node) {
+    return `<div class="builder-empty">请从左侧选择一项。</div>`;
+  }
+  if (!node.configurable) {
+    return renderJudgmentReadonlyPanel(tool, node);
   }
   if (!rule) {
-    return `<div class="builder-empty">当前节点还没有规则，请先新增一条规则。</div>`;
+    return `<div class="builder-empty">当前项还没有条件，请先恢复默认。</div>`;
   }
   const nodes = getJudgmentRuleNodes(tool);
   const availableChildren =
@@ -6145,50 +6729,88 @@ function renderJudgmentRuleEditor(tool, node, rule) {
   const detect = getDetectByNode(tool, node);
   const sceneType = node.sceneType || getDetectSceneType(detect);
   const categoryOptions = detect ? getModelCategoriesById(detect.modelId) : [];
+  const modelTypeText = sceneType || "";
 
   return `
     <div class="judgment-editor-scroll">
       <div class="section-head section-head-tight">
-        <div>
-          <h3>规则编辑</h3>
-          <p class="muted">${escapeHtml(node.label)} / ${escapeHtml(getRuleNodeTypeLabel(node))}</p>
-        </div>
+        <h3>${escapeHtml(node.label)}</h3>
+        ${modelTypeText ? `<span class="chip">${escapeHtml(modelTypeText)}</span>` : ""}
       </div>
 
-      <div class="form-grid double-column">
-        <label class="field">
-          <span>规则名称</span>
-          <input type="text" value="${escapeAttribute(rule.name || "")}" data-rule-field="name" />
-        </label>
-        <label class="field">
-          <span>模板类型</span>
-          <select data-rule-field="template">
-            ${getJudgmentTemplateOptions(node, sceneType).map((item) => `<option value="${item.value}" ${item.value === rule.template ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-          </select>
-        </label>
-        <label class="field">
-          <span>命中输出</span>
-          <select data-rule-field="resultOnHit">
-            ${["OK", "NG", "PENDING"].map((item) => `<option value="${item}" ${item === rule.resultOnHit ? "selected" : ""}>${item}</option>`).join("")}
-          </select>
-        </label>
-        <label class="field checkbox-field">
-          <input type="checkbox" data-rule-field="enabled" ${rule.enabled ? "checked" : ""} />
-          <span>启用这条规则</span>
-        </label>
+      <div class="judgment-preview-card">
+        <span>本项OK条件</span>
+        <div class="judgment-summary-copy">${renderJudgmentRuleSummaryHtml(rule, node, tool)}</div>
       </div>
 
       ${renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions)}
+    </div>
+  `;
+}
 
-      <div class="judgment-preview-card">
-        <span>自然语言预览</span>
-        <strong>${escapeHtml(getJudgmentRuleSummary(rule, node, tool))}</strong>
+function getJudgmentReadonlySummaries(tool, node) {
+  if (!tool || !node) return [];
+  const nodes = getJudgmentRuleNodes(tool);
+  if (node.type === "cycle") {
+    const cycleRule = tool.ruleConfig?.rulesByNode?.cycle?.[0] || null;
+    return cycleRule ? [{ summaryHtml: renderJudgmentRuleSummaryHtml(cycleRule, node, tool) }] : [];
+  }
+  if (node.type === "acquire") {
+    const processNames = getNodeChildren(nodes, node.id, "roi").map((item) => item.label).filter(Boolean);
+    if (!processNames.length) return [];
+    return [
+      {
+        summaryHtml: renderJudgmentAggregateSummaryHtml(processNames, "all-selected-ok"),
+      },
+    ];
+  }
+  return [];
+}
+
+function renderJudgmentReadonlyPanel(tool, node) {
+  const rows = getJudgmentReadonlySummaries(tool, node);
+  return `
+    <div class="judgment-editor-scroll">
+      <div class="section-head section-head-tight">
+        <h3>${escapeHtml(node.label)}</h3>
       </div>
+      <div class="judgment-preview-card">
+        <span>本项OK条件</span>
+        ${
+          rows.length
+            ? `
+              <div class="judgment-summary-lines">
+                ${rows
+                  .map(
+                    (item) => `
+                      <p class="judgment-summary-line">${item.summaryHtml || escapeHtml(item.summary)}</p>
+                    `,
+                  )
+                  .join("")}
+              </div>
+            `
+            : `<strong>当前还没有可用内容</strong>`
+        }
+      </div>
+    </div>
+  `;
+}
 
-      <label class="field">
-        <span>表达式预览</span>
-        <textarea rows="4" readonly>${escapeHtml(getJudgmentRuleExpression(rule, node, tool))}</textarea>
-      </label>
+function renderJudgmentExpressionPanel(tool) {
+  const errors = tool.ruleConfig.expressionErrors || [];
+  return `
+    <div class="judgment-global-expression-panel">
+      <div class="section-head section-head-tight">
+        <h3>表达式编辑</h3>
+        <div class="judgment-expression-status ${errors.length ? "is-error" : "is-ok"}">
+          ${errors.length ? "语法检查不通过" : "语法检查通过"}
+        </div>
+      </div>
+      <textarea
+        rows="14"
+        class="${errors.length ? "has-error" : ""}"
+        data-rule-config-field="expressionDraft"
+      >${escapeHtml(tool.ruleConfig.expressionDraft || "")}</textarea>
     </div>
   `;
 }
@@ -6196,67 +6818,74 @@ function renderJudgmentRuleEditor(tool, node, rule) {
 function getJudgmentTemplateOptions(node, sceneType = "") {
   if (node?.type === "cycle") {
     return [
-      { value: "all-selected-ok", label: "所有关键节点都 OK" },
-      { value: "any-selected-ok", label: "任一关键节点 OK 即通过" },
+      { value: "all-selected-ok", label: "所有关键结果都 OK" },
+      { value: "any-selected-ok", label: "任一关键结果 OK 即通过" },
     ];
   }
   if (node?.type === "roi") {
     return [
-      { value: "all-selected-ok", label: "全部检测项都 OK" },
-      { value: "any-selected-ok", label: "任一检测项 OK 即通过" },
-      { value: "exactly-one-ok", label: "必须且仅允许一个检测项 OK" },
+      { value: "all-selected-ok", label: "全部满足" },
+      { value: "any-selected-ok", label: "任一满足" },
+      { value: "exactly-one-ok", label: "仅一满足" },
     ];
   }
-  if (sceneType === "尺寸") {
-    return [{ value: "dimension-all-pass", label: "关键尺寸项全部合格" }];
-  }
-  if (sceneType === "分类") {
-    return [
-      { value: "label-count-eq", label: "指定标签数量等于 N" },
-      { value: "label-count-gte", label: "指定标签数量大于等于 N" },
-    ];
-  }
-  return [
-    { value: "defect-count-zero", label: "总缺陷数量等于 0" },
-    { value: "defect-label-count-lte", label: "指定缺陷数量小于等于 N" },
-  ];
+  return [];
 }
 
 function renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions) {
-  if (node.type === "cycle" || node.type === "roi") {
+  if (node.type === "cycle") {
     return `
       <div class="judgment-selection-card">
-        <span>生效节点</span>
-        <div class="judgment-checkbox-list">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+        </div>
+        <div class="judgment-checkbox-list judgment-display-list">
           ${availableChildren
-            .map(
-              (item) => `
-                <label class="judgment-checkbox-item">
-                  <input type="checkbox" data-selection-node-id="${escapeAttribute(item.id)}" ${(rule.selectedNodeIds || []).includes(item.id) ? "checked" : ""} />
-                  <span>${escapeHtml(item.label)}</span>
-                </label>
-              `,
-            )
+            .map((item) => `<div class="judgment-checkbox-item"><span>${escapeHtml(item.label)}</span><strong>OK</strong></div>`)
             .join("")}
         </div>
       </div>
     `;
   }
 
-  if (rule.template === "dimension-all-pass") {
+  if (node.type === "roi") {
     return `
-      <div class="judgment-dimension-card">
+      <div class="judgment-selection-card">
         <div class="section-head section-head-tight">
-          <div>
-            <h4>尺寸条件</h4>
+          <h4>OK判定条件</h4>
+          <label class="field judgment-inline-select">
+            <select data-rule-field="relation">
+              ${getJudgmentTemplateOptions(node).map((item) => `<option value="${item.value}" ${item.value === (rule.relation || rule.template) ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="judgment-checkbox-list judgment-display-list">
+          ${availableChildren
+            .map((item) => `<div class="judgment-checkbox-item"><span>${escapeHtml(item.label)}</span><strong>OK</strong></div>`)
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  if (rule.template === "dimension-conditions") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <div class="section-head-actions">
+            <label class="field judgment-inline-select">
+              <select data-rule-field="conditionRelation">
+                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
+                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
+              </select>
+            </label>
           </div>
         </div>
         <table class="judgment-dimension-table">
           <thead>
             <tr>
               <th>尺寸项</th>
-              <th>必须存在</th>
-              <th>errorCode</th>
               <th>下限</th>
               <th>上限</th>
             </tr>
@@ -6266,17 +6895,9 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
               .map(
                 (item, index) => `
                   <tr>
-                    <td><input type="text" value="${escapeAttribute(item.label || "")}" data-dimension-index="${index}" data-dimension-field="label" /></td>
-                    <td><input type="checkbox" data-dimension-index="${index}" data-dimension-field="required" ${item.required ? "checked" : ""} /></td>
-                    <td>
-                      <select data-dimension-index="${index}" data-dimension-field="errorCode">
-                        <option value="0" ${item.errorCode === "0" ? "selected" : ""}>正常</option>
-                        <option value="1" ${item.errorCode === "1" ? "selected" : ""}>模板不匹配</option>
-                        <option value="2" ${item.errorCode === "2" ? "selected" : ""}>检测异常</option>
-                      </select>
-                    </td>
-                    <td><input type="text" value="${escapeAttribute(item.min || "")}" data-dimension-index="${index}" data-dimension-field="min" /></td>
-                    <td><input type="text" value="${escapeAttribute(item.max || "")}" data-dimension-index="${index}" data-dimension-field="max" /></td>
+                    <td><div class="judgment-fixed-field">${escapeHtml(item.label || "尺寸项")}</div></td>
+                    <td><input type="number" step="any" value="${escapeAttribute(String(item.min ?? ""))}" data-dimension-index="${index}" data-dimension-field="min" /></td>
+                    <td><input type="number" step="any" value="${escapeAttribute(String(item.max ?? ""))}" data-dimension-index="${index}" data-dimension-field="max" /></td>
                   </tr>
                 `,
               )
@@ -6287,17 +6908,46 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
     `;
   }
 
-  if (rule.template === "defect-count-zero" || rule.template === "defect-label-count-lte") {
+  if (rule.template === "classify-conditions") {
     return `
-      <div class="form-grid double-column">
-        <label class="field">
-          <span>缺陷名称</span>
-          <input type="text" value="${escapeAttribute(rule.defectLabel || "缺陷")}" data-rule-field="defectLabel" ${rule.template === "defect-count-zero" ? "disabled" : ""} />
-        </label>
-        <label class="field">
-          <span>数量要求</span>
-          <input type="number" min="0" value="${escapeAttribute(String(rule.expectedCount ?? 0))}" data-rule-field="expectedCount" />
-        </label>
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <div class="section-head-actions">
+            <label class="field judgment-inline-select">
+              <select data-rule-field="conditionRelation">
+                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
+                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
+              </select>
+            </label>
+            <button class="secondary-btn" type="button" data-action="add-classify-condition">新增条件</button>
+          </div>
+        </div>
+        <div class="judgment-condition-list">
+          ${renderJudgmentConditionRows(rule.conditions || [], { categoryOptions, fixedLabel: false })}
+        </div>
+      </div>
+    `;
+  }
+
+  if (rule.template === "defect-conditions") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <div class="section-head-actions">
+            <label class="field judgment-inline-select">
+              <select data-rule-field="conditionRelation">
+                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
+                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
+              </select>
+            </label>
+            <button class="secondary-btn" type="button" data-action="add-classify-condition">新增条件</button>
+          </div>
+        </div>
+        <div class="judgment-condition-list">
+          ${renderJudgmentConditionRows(rule.conditions || [], { fixedLabel: "缺陷" })}
+        </div>
       </div>
     `;
   }
@@ -6318,6 +6968,50 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
       </label>
     </div>
   `;
+}
+
+function getConditionOperatorOptions() {
+  return [
+    { value: "eq", label: "数量=" },
+    { value: "le", label: "数量≦" },
+    { value: "lt", label: "数量<" },
+    { value: "ge", label: "数量≧" },
+    { value: "gt", label: "数量>" },
+    { value: "ne", label: "数量≠" },
+  ];
+}
+
+function getDimensionConditionLabels(conditions = []) {
+  const labels = conditions.map((item) => item.label).filter(Boolean);
+  return Array.from(new Set(labels.length ? labels : ["尺寸项1"]));
+}
+
+function renderJudgmentConditionRows(conditions = [], options = {}) {
+  const categoryOptions = Array.from(new Set((options.categoryOptions || []).filter(Boolean)));
+  const operatorOptions = getConditionOperatorOptions();
+  return conditions
+    .map((item, index) => {
+      const labelOptions = Array.from(new Set((categoryOptions.length ? categoryOptions : [item.label || options.fixedLabel || "目标"]).filter(Boolean)));
+      return `
+        <div class="judgment-condition-row">
+          ${
+            options.fixedLabel
+              ? `<div class="judgment-fixed-field">${escapeHtml(options.fixedLabel)}</div>`
+              : `
+                <select data-condition-index="${index}" data-condition-field="label">
+                  ${labelOptions.map((label) => `<option value="${escapeAttribute(label)}" ${label === item.label ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+                </select>
+              `
+          }
+          <select data-condition-index="${index}" data-condition-field="operator">
+            ${operatorOptions.map((option) => `<option value="${option.value}" ${option.value === item.operator ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+          </select>
+          <input type="number" min="0" step="any" value="${escapeAttribute(String(item.value ?? item.expectedCount ?? 1))}" data-condition-index="${index}" data-condition-field="${item.value !== undefined ? "value" : "expectedCount"}" />
+          <button class="ghost-btn judgment-condition-remove" type="button" data-action="remove-classify-condition" data-condition-index="${index}" ${conditions.length <= 1 ? "disabled" : ""}>删除</button>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderAcquireItem(tool, item) {

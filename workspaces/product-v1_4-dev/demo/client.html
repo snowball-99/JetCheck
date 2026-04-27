@@ -14,7 +14,7 @@
           <div class="brand-name">捷检</div>
         </div>
         <div class="login-copy">
-          <div class="login-demo-panel">
+          <div class="login-demo-panel" hidden>
             <span class="demo-panel-label demo-panel-label-light">Demo 场景</span>
             <button class="demo-btn" id="loginScenarioFirstBindBtn">Demo: 首次绑定</button>
             <button class="demo-btn" id="loginScenarioQuotaFullBtn">Demo: 额度已满</button>
@@ -28,27 +28,30 @@
         <div class="login-card">
           <div class="section-head section-head-tight">
             <div>
-              <h2>登录客户端</h2>
+              <h2>登录设备</h2>
             </div>
           </div>
 
           <div class="form-grid single-column">
-            <label class="field">
-              <span>客户端名称</span>
-              <input id="loginClientName" type="text" placeholder="请输入客户端名称" value="苏州客户端03" />
-            </label>
-            <label class="field">
+            <div class="field" id="loginClientNameField">
+              <span>设备名称</span>
+              <input id="loginClientName" type="text" placeholder="请输入设备名称" value="苏州客户端03" />
+              <p class="error-text field-error" id="loginClientNameError" hidden></p>
+            </div>
+            <div class="field" id="loginAccountField">
               <span>手机号</span>
               <input id="loginAccount" type="text" placeholder="请输入手机号" value="13800138000" />
-            </label>
-            <label class="field">
+              <p class="error-text field-error" id="loginAccountError" hidden></p>
+            </div>
+            <div class="field" id="loginPasswordField">
               <span>登录密码</span>
               <input id="loginPassword" type="password" placeholder="请输入登录密码" value="JetCheck#2026" />
-            </label>
+              <p class="error-text field-error" id="loginPasswordError" hidden></p>
+            </div>
           </div>
 
           <p class="login-text-hint" id="loginHint">
-            自动绑定当前设备并保存客户端名称。
+            首次登录后，系统会自动绑定当前设备。
           </p>
           <p class="error-text" id="loginError" hidden></p>
 
@@ -83,10 +86,10 @@
       <div class="workspace-layout">
         <aside class="sidebar client-sidebar">
           <button class="nav-item is-active" data-page="detect-tools">检测工具</button>
-          <button class="nav-item" data-page="camera-manage">相机管理</button>
-          <button class="nav-item" data-page="model-manage">模型管理</button>
+          <button class="nav-item" data-page="camera-manage">相机</button>
+          <button class="nav-item" data-page="model-manage">模型</button>
           <button class="nav-item" data-page="detect-records">检测记录</button>
-          <div class="sidebar-demo-panel">
+          <div class="sidebar-demo-panel" hidden>
             <span class="demo-panel-label demo-panel-label-light">Demo</span>
             <button class="demo-btn" id="demoToggleClientNetwork">Demo: 切换联网</button>
             <button class="demo-btn" id="simulateConsumeBtn">Demo: 写入 4GB</button>
@@ -109,7 +112,7 @@
             <div id="toolBuilderPanel" hidden>
               <div class="page-header">
                 <div class="page-title-inline">
-                  <h1 id="builderToolTitle">检测工具配置</h1>
+                  <h1 id="builderToolTitle">设置检测工具</h1>
                   <button class="ghost-btn" id="renameToolBtn">编辑名称</button>
                 </div>
                 <div class="toolbar-right">
@@ -142,13 +145,11 @@
               <div class="page-header">
                 <div class="page-title-inline runtime-page-title">
                   <button class="secondary-btn" id="backToToolOverviewFromRuntime">返回</button>
-                  <h1 id="runtimeToolTitle">检测运行</h1>
-                  <span class="runtime-mode-text" id="runtimeModeSummary">完整检测</span>
+                  <h1 id="runtimeToolTitle">检测中</h1>
+                  <span class="runtime-mode-text" id="runtimeModeSummary">检测模式</span>
                 </div>
                 <div class="toolbar-right">
-                  <button class="secondary-btn" id="resetCurrentRunBtn">重置当前任务</button>
-                  <button class="danger-btn" id="stopToolRunBtn">结束运行</button>
-                  <button class="demo-btn" id="startToolRun">Demo: 模拟信号</button>
+                  <button class="danger-btn" id="stopToolRunBtn">退出工具</button>
                 </div>
               </div>
 
@@ -159,7 +160,7 @@
                   <article class="card runtime-image-list-card">
                     <div class="section-head section-head-tight">
                       <div>
-                        <h3>图像列表</h3>
+                        <h3>本次图像</h3>
                       </div>
                     </div>
                     <div id="runtimeImageResultList" class="runtime-image-result-list"></div>
@@ -168,7 +169,7 @@
                   <article class="card runtime-camera-card">
                     <div class="section-head section-head-tight">
                       <div>
-                        <h3>相机信息</h3>
+                        <h3>当前相机</h3>
                       </div>
                     </div>
                     <div id="runtimeCameraInfo"></div>
@@ -197,6 +198,10 @@
                         <h3>运行概况</h3>
                       </div>
                     </div>
+                    <div class="runtime-primary-actions">
+                      <button class="primary-btn" id="startToolRun">检测</button>
+                      <button class="secondary-btn" id="resetCurrentRunBtn">重置</button>
+                    </div>
                     <div class="runtime-result-value" id="runtimePrimaryResult">OK</div>
                     <div class="runtime-cycle-line">
                       <span>本次节拍</span>
@@ -221,7 +226,7 @@
           <section class="page" data-page-panel="camera-manage">
             <div class="page-header">
               <div>
-                <h1>相机管理</h1>
+                <h1>相机</h1>
               </div>
               <div class="toolbar-right">
                 <button class="secondary-btn" id="refreshCameraBtn">刷新</button>
@@ -231,7 +236,7 @@
 
             <div class="toolbar-row">
               <div class="toolbar-left">
-                <input id="cameraKeywordInput" type="text" placeholder="搜索相机名称、相机 ID、厂商或型号" />
+                <input id="cameraKeywordInput" type="text" placeholder="搜索相机名称、相机编号、厂商或型号" />
                 <select id="cameraVendorFilter">
                   <option value="all">全部厂商</option>
                   <option value="HIK">HIKROBOT</option>
@@ -249,7 +254,7 @@
                 <thead>
                   <tr>
                     <th>相机名称</th>
-                    <th>相机ID</th>
+                    <th>相机编号</th>
                     <th>厂商</th>
                     <th>型号</th>
                     <th>状态</th>
@@ -258,7 +263,7 @@
                 </thead>
                 <tbody id="cameraTableBody"></tbody>
               </table>
-              <div class="empty-state" id="cameraEmptyState" hidden>当前没有符合筛选条件的相机</div>
+              <div class="empty-state" id="cameraEmptyState" hidden>暂无数据</div>
             </div>
           </section>
 
@@ -268,14 +273,14 @@
                 <h1>模型管理</h1>
               </div>
               <div class="toolbar-right">
-                <button class="secondary-btn" id="openCloudModelDrawerBtn">从云端添加</button>
-                <button class="primary-btn" id="importModelBtn">本地上传</button>
+                <button class="secondary-btn" id="openCloudModelDrawerBtn">从云端下载</button>
+                <button class="primary-btn" id="importModelBtn">导入本地模型</button>
               </div>
             </div>
 
             <div class="toolbar-row toolbar-row-wrap">
               <div class="toolbar-left">
-                <input id="localModelKeywordFilter" type="text" placeholder="搜索模型名称或版本编号" />
+                <input id="localModelKeywordFilter" type="text" placeholder="请输入模型名称或版本编号" />
                 <select id="localSceneFilter">
                   <option value="all">全部场景类型</option>
                   <option value="尺寸">尺寸</option>
@@ -304,7 +309,7 @@
                 </thead>
                 <tbody id="localModelTableBody"></tbody>
               </table>
-              <div class="empty-state" id="localModelEmpty" hidden>当前本地暂无模型</div>
+              <div class="empty-state" id="localModelEmpty" hidden>暂无数据</div>
             </article>
           </section>
 
@@ -322,7 +327,7 @@
               <div class="toolbar-left">
                 <select id="recordToolFilter"></select>
                 <select id="recordBusinessFilter">
-                  <option value="all">全部业务结果</option>
+                  <option value="all">全部结果</option>
                   <option value="OK">OK</option>
                   <option value="NG">NG</option>
                 </select>
@@ -347,14 +352,14 @@
                     <th>工具名称</th>
                     <th>运行模式</th>
                     <th>触发时间</th>
-                    <th>业务结果</th>
+                    <th>最终结果</th>
                     <th>标签</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="recordTableBody"></tbody>
               </table>
-              <div class="empty-state" id="recordEmptyState" hidden>没有符合当前筛选条件的检测记录</div>
+              <div class="empty-state" id="recordEmptyState" hidden>暂无数据</div>
               <div class="table-footer" id="recordTableFooter">
                 <div class="pagination-summary" id="recordPaginationSummary"></div>
                 <div class="pagination-controls" id="recordPaginationControls"></div>
@@ -381,7 +386,7 @@
                     <div class="meta-list" id="clientInfoMeta"></div>
                     <div class="settings-actions">
                       <button class="secondary-btn" id="editClientNameBtn">编辑名称</button>
-                      <button class="danger-btn" id="unbindClientBtn">解绑当前客户端</button>
+                      <button class="danger-btn" id="unbindClientBtn">解绑当前设备</button>
                     </div>
                   </div>
                 </section>
@@ -392,7 +397,7 @@
                   <div class="card storage-card">
                     <div class="section-head">
                       <div>
-                        <h3>阈值设置</h3>
+                        <h3>空间阈值设置</h3>
                       </div>
                     </div>
                     <div class="form-grid threshold-grid">
@@ -440,11 +445,11 @@
       <div class="modal-body">
         <div class="toolbar-row toolbar-row-wrap">
           <div class="toolbar-left">
-            <input id="cameraDiscoveryKeyword" type="text" placeholder="搜索相机名称、相机 ID、厂商或型号" />
+            <input id="cameraDiscoveryKeyword" type="text" placeholder="搜索相机名称、相机编号、厂商或型号" />
           </div>
           <div class="toolbar-right">
             <button class="secondary-btn" id="searchDiscoveryBtn">查询</button>
-            <button class="primary-btn" id="scanDiscoveryBtn">搜索网络设备</button>
+            <button class="primary-btn" id="scanDiscoveryBtn">搜索可用相机</button>
           </div>
         </div>
         <table>
@@ -452,7 +457,7 @@
             <tr>
               <th></th>
               <th>相机名称</th>
-              <th>相机 ID</th>
+              <th>相机编号</th>
               <th>厂商</th>
               <th>型号</th>
               <th>序列号</th>
@@ -488,12 +493,12 @@
           <section class="param-preview-panel">
             <div class="section-head section-head-tight">
               <div>
-                <h4>预览调试区</h4>
+                <h4>相机画面</h4>
               </div>
             </div>
             <div class="inspection-stage inspection-stage-compact param-preview-stage" id="paramPreviewStage">
               <div class="stage-overlay"></div>
-              <div class="stage-caption" id="paramPreviewCaption">预览调试区</div>
+              <div class="stage-caption" id="paramPreviewCaption">相机画面</div>
             </div>
           </section>
 
@@ -509,7 +514,7 @@
     <aside class="drawer" id="modelDrawer" hidden>
       <div class="drawer-header">
         <div>
-          <h3>从云端添加模型</h3>
+          <h3>从云端下载模型</h3>
         </div>
         <button class="icon-btn" id="closeModelDrawer">×</button>
       </div>
@@ -542,7 +547,7 @@
             </thead>
             <tbody id="selectorModelTableBody"></tbody>
           </table>
-          <div class="empty-state" id="selectorModelEmpty" hidden>当前本地暂无模型</div>
+          <div class="empty-state" id="selectorModelEmpty" hidden>暂无数据</div>
         </div>
 
         <div id="cloudModelPanel">

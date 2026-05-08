@@ -18,6 +18,11 @@ const ui = {
     keyword: "",
     vendor: "all",
   },
+  ioFilters: {
+    keyword: "",
+  },
+  activeIoConfigTab: "input",
+  activeToolIoModuleId: "",
   recordFilters: {
     toolId: "all",
     business: "all",
@@ -86,6 +91,25 @@ const RUN_MODE_OPTIONS = [
   { value: "detect", label: "检测模式", hint: "完成检测并给出最终结果。", requiredStep: "detect" },
 ];
 
+const IO_MODULE_MODEL_OPTIONS = [
+  { value: "USR-IO424T", label: "USR-IO424T", points: 4 },
+  { value: "USR-IO808", label: "USR-IO808", points: 8 },
+];
+
+const IO_INPUT_ACTIONS = [
+  { value: "new-cycle", label: "开始" },
+  { value: "capture-next", label: "触发下一个采图" },
+  { value: "capture-all", label: "依次触发全部采图" },
+  { value: "reset-cycle", label: "重置" },
+];
+
+const IO_OUTPUT_ACTIONS = [
+  { value: "cycle-done", label: "检测完成" },
+  { value: "cycle-ok", label: "检测OK" },
+  { value: "cycle-ng", label: "检测NG" },
+  { value: "cycle-error", label: "检测异常" },
+];
+
 const els = {
   loginShell: document.getElementById("loginShell"),
   loginClientNameField: document.getElementById("loginClientNameField"),
@@ -119,6 +143,7 @@ const els = {
   toolOverviewPanel: document.getElementById("toolOverviewPanel"),
   toolBuilderPanel: document.getElementById("toolBuilderPanel"),
   toolRuntimePanel: document.getElementById("toolRuntimePanel"),
+  toolIoConfigPanel: document.getElementById("toolIoConfigPanel"),
   toolCardGrid: document.getElementById("toolCardGrid"),
   builderToolTitle: document.getElementById("builderToolTitle"),
   backToToolOverview: document.getElementById("backToToolOverview"),
@@ -145,6 +170,16 @@ const els = {
   runtimeImageStage: document.getElementById("runtimeImageStage"),
   runtimeImageResultList: document.getElementById("runtimeImageResultList"),
   runtimeImageCaption: document.getElementById("runtimeImageCaption"),
+  backToToolOverviewFromIo: document.getElementById("backToToolOverviewFromIo"),
+  ioConfigToolTitle: document.getElementById("ioConfigToolTitle"),
+  toolIoConfigBody: document.getElementById("toolIoConfigBody"),
+
+  ioKeywordInput: document.getElementById("ioKeywordInput"),
+  searchIoBtn: document.getElementById("searchIoBtn"),
+  resetIoFilterBtn: document.getElementById("resetIoFilterBtn"),
+  openAddIoModuleBtn: document.getElementById("openAddIoModuleBtn"),
+  ioModuleTableBody: document.getElementById("ioModuleTableBody"),
+  ioModuleEmptyState: document.getElementById("ioModuleEmptyState"),
 
   cameraKeywordInput: document.getElementById("cameraKeywordInput"),
   cameraVendorFilter: document.getElementById("cameraVendorFilter"),
@@ -265,6 +300,7 @@ function bindStaticEvents() {
 
   els.backToToolOverview.addEventListener("click", () => switchToolView("overview"));
   els.backToToolOverviewFromRuntime.addEventListener("click", () => switchToolView("overview"));
+  els.backToToolOverviewFromIo.addEventListener("click", () => switchToolView("overview"));
   els.renameToolBtn.addEventListener("click", renameActiveTool);
   els.deleteToolBtn.addEventListener("click", deleteActiveTool);
   els.prevBuilderStep.addEventListener("click", moveBuilderStep.bind(null, -1));
@@ -284,6 +320,13 @@ function bindStaticEvents() {
   els.toolRuntimePanel.addEventListener("click", handleToolRuntimeClick);
   els.toolRuntimePanel.addEventListener("keydown", handleToolRuntimeKeydown);
   els.runtimeImageResultList.addEventListener("click", handleRuntimeImageResultClick);
+  els.toolIoConfigBody.addEventListener("click", handleToolIoConfigClick);
+  els.toolIoConfigBody.addEventListener("change", handleToolIoConfigChange);
+
+  els.searchIoBtn.addEventListener("click", applyIoFilters);
+  els.resetIoFilterBtn.addEventListener("click", resetIoFilters);
+  els.openAddIoModuleBtn.addEventListener("click", () => openIoModuleModal());
+  els.ioModuleTableBody.addEventListener("click", handleIoModuleTableClick);
 
   els.searchCameraBtn.addEventListener("click", applyCameraFilters);
   els.resetCameraFilterBtn.addEventListener("click", resetCameraFilters);
@@ -374,6 +417,9 @@ function resetDemoState() {
   ui.activeCameraId = state.cameras[0]?.id || null;
   ui.activeParamGroupId = state.cameras[0]?.paramGroups?.[0]?.id || null;
   ui.cameraFilters = { keyword: "", vendor: "all" };
+  ui.ioFilters = { keyword: "" };
+  ui.activeIoConfigTab = "input";
+  ui.activeToolIoModuleId = "";
   ui.recordFilters = { toolId: "all", business: "all", startAt: "", endAt: "", keyword: "" };
   ui.discoveryKeyword = "";
   ui.localFilters = { keyword: "", scene: "all" };
@@ -483,6 +529,7 @@ function renderAll() {
   renderGlobalAlerts();
   renderNavigation();
   renderTools();
+  renderIoModulePage();
   renderCameraPage();
   renderModelManagePage();
   renderRecords();
@@ -653,9 +700,11 @@ function renderTools() {
   els.toolOverviewPanel.hidden = ui.toolView !== "overview";
   els.toolBuilderPanel.hidden = ui.toolView !== "builder";
   els.toolRuntimePanel.hidden = ui.toolView !== "runtime";
+  els.toolIoConfigPanel.hidden = ui.toolView !== "io-config";
   renderToolCardGrid();
   renderToolBuilder();
   renderToolRuntime();
+  renderToolIoConfig();
 }
 
 function renderToolCardGrid() {
@@ -666,6 +715,7 @@ function renderToolCardGrid() {
         return `
           <article class="tool-card ${tool.tone || "tone-blue"}" data-action="open-tool-runtime" data-id="${tool.id}">
             <div class="tool-card-top">
+              <button class="tool-action-btn" data-action="open-io-config" data-id="${tool.id}" ${isRunning ? "disabled" : ""}>IO配置</button>
               <button class="tool-action-btn" data-action="edit-tool" data-id="${tool.id}" ${isRunning ? "disabled" : ""}>编辑</button>
             </div>
             <h3>${escapeHtml(tool.name)}</h3>
@@ -755,6 +805,86 @@ function renderToolBuilder() {
   els.nextBuilderStep.hidden = stepIndex >= BUILDER_STEPS.length - 1;
   els.finishBuilderBtn.disabled = stepIndex < BUILDER_STEPS.length - 1 || !Demo.evaluateToolCompletion(tool) || !isJudgmentRuleConfigValid(tool);
   restoreJudgmentScrollState();
+}
+
+function renderToolIoConfig() {
+  const tool = getActiveTool();
+  if (!tool || ui.toolView !== "io-config") return;
+  tool.ioConfig = getToolIoConfig(tool);
+  els.ioConfigToolTitle.textContent = `IO配置 - ${tool.name}`;
+  const activeModule = getActiveToolIoModule(tool);
+  const selectedModules = getToolSelectedIoModules(tool);
+  const canAddModule = state.ioModules.some((module) => !tool.ioConfig.moduleIds.includes(module.id));
+  els.toolIoConfigBody.innerHTML = `
+    ${
+      selectedModules.length
+        ? `
+          <div class="tool-io-module-bar">
+            <div class="tool-io-module-switcher">
+              ${selectedModules.map((module) => renderToolIoModuleSwitch(module, activeModule?.id)).join("")}
+            </div>
+            <div class="tool-io-module-actions">
+              <button class="secondary-btn" data-action="add-tool-io-module" ${canAddModule ? "" : "disabled"}>添加模块</button>
+              <button class="secondary-btn danger-btn-soft" data-action="remove-active-tool-io-module" data-id="${activeModule?.id || ""}" ${activeModule ? "" : "disabled"}>移除此模块</button>
+            </div>
+          </div>
+          ${activeModule ? renderToolIoModuleDetail(tool, activeModule) : ""}
+        `
+        : `
+          <div class="tool-io-module-empty-top">
+            <button class="primary-btn" data-action="add-tool-io-module" ${canAddModule ? "" : "disabled"}>添加模块</button>
+          </div>
+          <div class="builder-empty">当前工具还没有添加IO模块。</div>
+        `
+    }
+  `;
+}
+
+function renderToolIoModuleSwitch(module, activeModuleId) {
+  return `
+    <button class="tool-io-module-tab ${module.id === activeModuleId ? "is-active" : ""}" data-action="switch-tool-io-module" data-id="${module.id}">
+      <span>${escapeHtml(module.name)}</span>
+      <small>${escapeHtml(module.model)}</small>
+    </button>
+  `;
+}
+
+function renderToolIoModuleDetail(tool, module) {
+  return `
+    <div class="tool-io-module-detail">
+      <section class="tool-io-module-image-panel">
+        ${renderIoModuleSchematic(module.model, module)}
+      </section>
+      ${renderToolIoPointSection(tool, module, "input")}
+      ${renderToolIoPointSection(tool, module, "output")}
+    </div>
+  `;
+}
+
+function renderToolIoPointSection(tool, module, direction) {
+  const points = direction === "input" ? module.inputs : module.outputs;
+  const title = direction === "input" ? "触发输入点位" : "输出信号点位";
+  return `
+    <section class="tool-io-point-section">
+      <div class="tool-io-section-head">
+        <h4>${title}</h4>
+      </div>
+      <div class="tool-io-point-grid">
+        ${points.map((point) => renderToolIoPointCell(tool, module, point, direction)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderToolIoPointCell(tool, module, point, direction) {
+  const items = findToolIoConfigsByPoint(tool, module.id, point.point, direction);
+  const bound = items.length > 0;
+  return `
+    <button class="io-point-cell ${bound ? "is-configured" : ""}" data-action="open-tool-io-point-config" data-direction="${direction}" data-module-id="${module.id}" data-point="${escapeAttribute(point.point)}">
+      <strong>${escapeHtml(point.point)}</strong>
+      <div class="io-point-bind-state ${bound ? "is-bound" : "is-empty"}">${bound ? `已绑定 ${items.length} 个事件` : "未绑定"}</div>
+    </button>
+  `;
 }
 
 function getBuilderLimitText(type, count) {
@@ -1605,6 +1735,33 @@ function renderCameraPage() {
   els.cameraEmptyState.hidden = rows.length > 0;
 }
 
+function renderIoModulePage() {
+  if (!els.ioKeywordInput) return;
+  els.ioKeywordInput.value = ui.ioFilters.keyword;
+  const rows = getFilteredIoModules();
+  els.ioModuleTableBody.innerHTML = rows
+    .map((module) => {
+      return `
+        <tr>
+          <td>${escapeHtml(module.name)}</td>
+          <td>${escapeHtml(module.model)}</td>
+          <td>${escapeHtml(module.ip || "-")}</td>
+          <td>${escapeHtml(module.port || "-")}</td>
+          <td>${escapeHtml(module.deviceId || "-")}</td>
+          <td>${renderStatusBadgeHtml(module.status)}</td>
+          <td>
+            <div class="camera-row-actions">
+              <button class="table-btn table-btn-primary" data-action="edit-io-module" data-id="${module.id}">查看</button>
+              <button class="table-btn table-btn-danger" data-action="delete-io-module" data-id="${module.id}">删除</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.ioModuleEmptyState.hidden = rows.length > 0;
+}
+
 function renderRecords() {
   renderRecordFilters();
   renderRecordTable();
@@ -2109,6 +2266,7 @@ function createTool(name) {
     acquire: [],
     process: [],
     detect: [],
+    ioConfig: createEmptyIoConfig(),
     runtime: {
       lastRunAt: null,
       status: "未配置",
@@ -2191,6 +2349,7 @@ function handleToolCardClick(event) {
   const { action, id } = actionEl.dataset;
   if (action === "create-tool") return openCreateToolModal();
   if (action === "edit-tool") return openToolBuilder(id);
+  if (action === "open-io-config") return openToolIoConfig(id);
   if (action === "open-tool-runtime") return openToolRuntime(id);
 }
 
@@ -2205,6 +2364,261 @@ function openToolBuilder(toolId) {
   ui.toolView = "builder";
   ui.runtimeInitialToolId = null;
   renderAll();
+}
+
+function openToolIoConfig(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  if (isToolEditingLocked(tool)) {
+    showToast("工具运行中，不能编辑IO配置，请先结束运行");
+    return;
+  }
+  ui.activeToolId = toolId;
+  ui.activeIoConfigTab = ui.activeIoConfigTab || "input";
+  ui.toolView = "io-config";
+  ui.runtimeInitialToolId = null;
+  renderAll();
+}
+
+function handleIoConfigTabClick(event) {
+  const tab = getClosestEventTarget(event, "[data-io-tab]");
+  if (!tab) return;
+  ui.activeIoConfigTab = tab.dataset.ioTab === "output" ? "output" : "input";
+  renderToolIoConfig();
+}
+
+function handleToolIoConfigClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, direction, id, moduleId, point } = actionEl.dataset;
+  if (action === "add-tool-io-module") return openAddToolIoModuleModal();
+  if (action === "switch-tool-io-module") {
+    ui.activeToolIoModuleId = id;
+    renderToolIoConfig();
+    return;
+  }
+  if (action === "remove-active-tool-io-module") return removeToolIoModule(id);
+  if (action === "open-tool-io-point-config") return openToolIoPointConfigModal({ direction, moduleId, point });
+}
+
+function handleToolIoConfigChange(event) {
+  const target = event.target;
+  if (target?.dataset?.role === "io-event-scope") {
+    const row = target.closest("[data-event-row]");
+    syncIoEventActionOptions(row);
+  }
+}
+
+function openAddToolIoModuleModal() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const config = getToolIoConfig(tool);
+  const candidates = state.ioModules.filter((module) => !config.moduleIds.includes(module.id));
+  if (!candidates.length) {
+    showToast("暂无可添加的IO模块");
+    return;
+  }
+  openSharedModal({
+    title: "添加IO模块",
+    body: `
+      <label class="field">
+        <span>选择IO模块</span>
+        <select id="toolIoModuleSelect">
+          ${state.ioModules
+            .map((module) => {
+              const selected = candidates[0]?.id === module.id;
+              const disabled = config.moduleIds.includes(module.id);
+              const suffix = disabled ? "（已添加）" : "";
+              return `<option value="${module.id}" ${selected ? "selected" : ""} ${disabled ? "disabled" : ""}>${escapeHtml(module.name)} / ${escapeHtml(module.model)}${suffix}</option>`;
+            })
+            .join("")}
+        </select>
+      </label>
+    `,
+    confirmText: "添加",
+    onConfirm() {
+      const moduleId = document.getElementById("toolIoModuleSelect")?.value || "";
+      if (!moduleId) return showToast("请选择IO模块");
+      if (!config.moduleIds.includes(moduleId)) config.moduleIds.push(moduleId);
+      ui.activeToolIoModuleId = moduleId;
+      closeSharedModal();
+      persistState("IO模块已添加到当前工具");
+      return true;
+    },
+  });
+}
+
+function removeToolIoModule(moduleId) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const config = getToolIoConfig(tool);
+  openSharedModal({
+    title: "移除IO模块",
+    body: `<p class="banner banner-warning">移除模块会同时清除该模块在当前工具下的点位事件配置。是否继续？</p>`,
+    confirmText: "确认移除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      config.moduleIds = config.moduleIds.filter((id) => id !== moduleId);
+      config.input = config.input.filter((item) => item.moduleId !== moduleId);
+      config.output = config.output.filter((item) => item.moduleId !== moduleId);
+      if (ui.activeToolIoModuleId === moduleId) ui.activeToolIoModuleId = config.moduleIds[0] || "";
+      closeSharedModal();
+      persistState("IO模块已移除");
+      return true;
+    },
+  });
+}
+
+function openToolIoPointConfigModal({ direction, moduleId, point }) {
+  const tool = getActiveTool();
+  const module = state.ioModules.find((item) => item.id === moduleId);
+  if (!tool || !module || !point) return;
+  const title = `${direction === "input" ? "触发输入点位" : "输出信号点位"} · ${point}`;
+  openSharedModal({
+    title,
+    panelClass: "modal-io-point-config",
+    body: `
+      <div class="io-point-event-modal" data-direction="${direction}" data-module-id="${moduleId}" data-point="${escapeAttribute(point)}">
+        <div class="io-point-event-scroll">
+          <table class="io-point-event-table ${direction === "input" ? "is-input" : "is-output"}">
+            <thead>
+              <tr>
+                ${direction === "input" ? "<th>顺序</th>" : ""}
+                <th>对象</th>
+                <th>事件</th>
+                ${direction === "output" ? "<th>信号持续秒数</th>" : ""}
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ioPointEventList">
+              ${renderIoPointEventRows(tool, moduleId, point, direction)}
+            </tbody>
+          </table>
+        </div>
+        <button class="secondary-btn" type="button" id="addIoPointEventBtn">添加事件</button>
+      </div>
+    `,
+    confirmText: "保存",
+    onOpen() {
+      bindIoPointEventModal(direction);
+    },
+    onConfirm() {
+      saveIoPointEventModal({ tool, moduleId, point, direction });
+      closeSharedModal();
+      persistState("点位事件已保存");
+      return true;
+    },
+  });
+}
+
+function renderIoPointEventRows(tool, moduleId, point, direction) {
+  const rows = findToolIoConfigsByPoint(tool, moduleId, point, direction);
+  const sourceRows = rows.length ? rows : [];
+  if (!sourceRows.length) return `<tr class="io-event-empty-row"><td colspan="${direction === "input" ? 4 : 4}">当前点位还没有绑定事件。</td></tr>`;
+  return sourceRows.map((item) => renderIoPointEventRow(tool, item, direction)).join("");
+}
+
+function renderIoPointEventRow(tool, item, direction) {
+  const parsed = parseIoEventType(item.type, direction);
+  return `
+    <tr class="io-point-event-row" data-event-row draggable="${direction === "input" ? "true" : "false"}" data-id="${escapeAttribute(item.id)}">
+      ${direction === "input" ? `<td><span class="io-drag-handle" title="拖动调整顺序">≡</span></td>` : ""}
+      <td>
+        <select data-role="io-event-scope">
+          ${getIoEventScopeOptions(tool, direction)
+            .map((option) => `<option value="${escapeAttribute(option.value)}" ${option.value === parsed.scope ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+            .join("")}
+        </select>
+      </td>
+      <td><select data-role="io-event-action" data-selected-action="${escapeAttribute(parsed.action)}"></select></td>
+      ${direction === "output" ? `<td><input data-role="io-event-duration" type="number" min="0.1" step="0.1" value="${escapeAttribute(item.duration || 1)}" /></td>` : ""}
+      <td><button class="table-btn table-btn-danger" type="button" data-action="delete-io-point-event">删除</button></td>
+    </tr>
+  `;
+}
+
+function bindIoPointEventModal(direction) {
+  const list = document.getElementById("ioPointEventList");
+  const addBtn = document.getElementById("addIoPointEventBtn");
+  list?.querySelectorAll("[data-event-row]").forEach(syncIoEventActionOptions);
+  addBtn?.addEventListener("click", () => {
+    if (list.querySelector(".io-event-empty-row")) list.innerHTML = "";
+    const tool = getActiveTool();
+    const item = createDefaultIoEventItem(tool, direction);
+    list.insertAdjacentHTML("beforeend", renderIoPointEventRow(tool, item, direction));
+    const row = list.lastElementChild;
+    syncIoEventActionOptions(row);
+  });
+  list?.addEventListener("click", (event) => {
+    const deleteBtn = getClosestEventTarget(event, "[data-action='delete-io-point-event']");
+    if (!deleteBtn) return;
+    deleteBtn.closest("[data-event-row]")?.remove();
+    if (!list.querySelector("[data-event-row]")) {
+      list.innerHTML = `<tr class="io-event-empty-row"><td colspan="${direction === "input" ? 4 : 4}">当前点位还没有绑定事件。</td></tr>`;
+    }
+  });
+  list?.addEventListener("change", (event) => {
+    if (event.target?.dataset?.role !== "io-event-scope") return;
+    syncIoEventActionOptions(event.target.closest("[data-event-row]"));
+  });
+  if (direction === "input") bindDraggableIoEventRows(list);
+}
+
+function bindDraggableIoEventRows(list) {
+  let draggingRow = null;
+  list?.addEventListener("dragstart", (event) => {
+    draggingRow = event.target.closest("[data-event-row]");
+    if (draggingRow) draggingRow.classList.add("is-dragging");
+  });
+  list?.addEventListener("dragend", () => {
+    draggingRow?.classList.remove("is-dragging");
+    draggingRow = null;
+  });
+  list?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (!draggingRow) return;
+    const rows = Array.from(list.querySelectorAll("[data-event-row]:not(.is-dragging)"));
+    const afterRow = rows.find((row) => event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2);
+    if (afterRow) {
+      list.insertBefore(draggingRow, afterRow);
+    } else {
+      list.appendChild(draggingRow);
+    }
+  });
+}
+
+function syncIoEventActionOptions(row) {
+  if (!row) return;
+  const direction = els.sharedModalBody.querySelector(".io-point-event-modal")?.dataset.direction || "input";
+  const scope = row.querySelector("[data-role='io-event-scope']")?.value || "cycle";
+  const actionSelect = row.querySelector("[data-role='io-event-action']");
+  if (!actionSelect) return;
+  const selected = actionSelect.value || actionSelect.dataset.selectedAction || "";
+  const options = getIoEventActionOptions(direction, scope);
+  actionSelect.innerHTML = options.map((option) => `<option value="${escapeAttribute(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  actionSelect.value = options.some((option) => option.value === selected) ? selected : options[0]?.value || "";
+  actionSelect.dataset.selectedAction = actionSelect.value;
+}
+
+function saveIoPointEventModal({ tool, moduleId, point, direction }) {
+  const config = getToolIoConfig(tool);
+  const rows = Array.from(els.sharedModalBody.querySelectorAll("[data-event-row]"));
+  const otherItems = config[direction].filter((item) => !(item.moduleId === moduleId && item.point === point));
+  const nextItems = rows.map((row, index) => {
+    const scope = row.querySelector("[data-role='io-event-scope']")?.value || "cycle";
+    const action = row.querySelector("[data-role='io-event-action']")?.value || "";
+    const type = buildIoEventType(scope, action, direction);
+    return {
+      id: row.dataset.id || Demo.makeId(`io_${direction}`),
+      type,
+      name: getIoActionLabel(tool, type, direction),
+      moduleId,
+      point,
+      priority: index + 1,
+      duration: Number(row.querySelector("[data-role='io-event-duration']")?.value || 1),
+    };
+  });
+  config[direction] = otherItems.concat(nextItems);
 }
 
 function openToolRuntime(toolId) {
@@ -3694,6 +4108,154 @@ function handleCameraTableClick(event) {
   const { action, id } = actionEl.dataset;
   if (action === "manage-param") return openParamModal(id);
   if (action === "delete-camera") return deleteCamera(id);
+}
+
+function applyIoFilters() {
+  ui.ioFilters.keyword = els.ioKeywordInput.value.trim();
+  renderIoModulePage();
+}
+
+function resetIoFilters() {
+  ui.ioFilters.keyword = "";
+  renderIoModulePage();
+}
+
+function handleIoModuleTableClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, id } = actionEl.dataset;
+  if (action === "edit-io-module") return openIoModuleModal(id);
+  if (action === "delete-io-module") return deleteIoModule(id);
+}
+
+function openIoModuleModal(moduleId = "") {
+  const module = state.ioModules.find((item) => item.id === moduleId) || null;
+  const model = module?.model || IO_MODULE_MODEL_OPTIONS[0].value;
+  const defaultName = `IO模块${state.ioModules.length + 1}`;
+  openSharedModal({
+    title: module ? "查看IO模块" : "添加IO模块",
+    panelClass: "modal-io-module",
+    body: `
+      <div class="io-module-modal-layout">
+        <div class="form-grid single-column">
+          <label class="field">
+            <span>设备名称</span>
+            <input id="ioModuleNameInput" type="text" maxlength="24" value="${escapeAttribute(module?.name || defaultName)}" />
+          </label>
+          <label class="field">
+            <span>型号</span>
+            ${
+              module
+                ? `<div class="readonly-field" id="ioModuleModelReadonly" data-value="${escapeAttribute(model)}">${escapeHtml(model)}</div>`
+                : `<select id="ioModuleModelInput">
+                    ${IO_MODULE_MODEL_OPTIONS.map((item) => `<option value="${item.value}" ${item.value === model ? "selected" : ""}>${item.label}</option>`).join("")}
+                  </select>`
+            }
+          </label>
+          <label class="field">
+            <span>IP地址</span>
+            <input id="ioModuleIpInput" type="text" value="${escapeAttribute(module?.ip || "")}" />
+          </label>
+          <label class="field">
+            <span>端口</span>
+            <input id="ioModulePortInput" type="number" min="1" max="65535" value="${escapeAttribute(module?.port || 28899)}" />
+          </label>
+          <label class="field">
+            <span>设备ID</span>
+            <input id="ioModuleDeviceIdInput" type="text" maxlength="24" value="${escapeAttribute(module?.deviceId || "17")}" />
+          </label>
+        </div>
+        <div id="ioModuleSchematicPreview">${renderIoModuleSchematic(model, module)}</div>
+      </div>
+    `,
+    confirmText: "保存",
+    onOpen() {
+      const modelSelect = document.getElementById("ioModuleModelInput");
+      const schematic = document.getElementById("ioModuleSchematicPreview");
+      modelSelect?.addEventListener("change", () => {
+        schematic.innerHTML = renderIoModuleSchematic(modelSelect.value, module);
+      });
+    },
+    onConfirm() {
+      const name = document.getElementById("ioModuleNameInput")?.value.trim() || "";
+      const nextModel = module?.model || document.getElementById("ioModuleModelInput")?.value || IO_MODULE_MODEL_OPTIONS[0].value;
+      const ip = document.getElementById("ioModuleIpInput")?.value.trim() || "";
+      const port = Number(document.getElementById("ioModulePortInput")?.value || 28899);
+      const deviceId = document.getElementById("ioModuleDeviceIdInput")?.value.trim() || "";
+      if (!name) return showToast("请输入设备名称");
+      if (!ip) return showToast("请输入IP地址");
+      if (!Number.isFinite(port) || port < 1 || port > 65535) return showToast("请输入正确的端口");
+      if (!deviceId) return showToast("请输入设备ID");
+      const pointCount = getIoModulePointCount(nextModel);
+      if (module) {
+        module.name = name;
+        module.model = nextModel;
+        module.ip = ip;
+        module.port = port;
+        module.deviceId = deviceId;
+        module.inputs = normalizeIoPointList(module.inputs, "DI", pointCount);
+        module.outputs = normalizeIoPointList(module.outputs, "DO", pointCount);
+      } else {
+        state.ioModules.push({
+          id: Demo.makeId("io"),
+          name,
+          model: nextModel,
+          ip,
+          port,
+          deviceId,
+          status: "在线",
+          inputs: normalizeIoPointList([], "DI", pointCount),
+          outputs: normalizeIoPointList([], "DO", pointCount),
+        });
+      }
+      closeSharedModal();
+      persistState(module ? "IO模块已更新" : "IO模块已添加");
+      return true;
+    },
+  });
+}
+
+function renderIoModuleSchematic(model, module = null) {
+  const normalizedModel = IO_MODULE_MODEL_OPTIONS.some((item) => item.value === model) ? model : IO_MODULE_MODEL_OPTIONS[0].value;
+  return `
+    <div class="io-module-schematic">
+      <img class="io-device-image" src="${escapeAttribute(getIoModuleImageUrl(normalizedModel))}" alt="${escapeAttribute(normalizedModel)} IO模块示意图" />
+    </div>
+  `;
+}
+
+function getIoModuleImageUrl(model) {
+  return `./sample-images/${model === "USR-IO808" ? "USR-IO808" : "USR-IO424T"}.png`;
+}
+
+function deleteIoModule(moduleId) {
+  const module = state.ioModules.find((item) => item.id === moduleId);
+  if (!module) return;
+  const referenced = state.tools.some((tool) => {
+    const config = getToolIoConfig(tool);
+    return [...config.input, ...config.output].some((item) => item.moduleId === moduleId);
+  });
+  openSharedModal({
+    title: "删除IO模块",
+    body: `<p class="banner ${referenced ? "banner-warning" : "banner-danger"}">${referenced ? "该IO模块已被工具配置引用，删除后相关IO配置会显示为未选择。是否继续？" : `是否删除“${escapeHtml(module.name)}”？`}</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.ioModules = state.ioModules.filter((item) => item.id !== moduleId);
+      state.tools.forEach((tool) => {
+        const config = getToolIoConfig(tool);
+        [...config.input, ...config.output].forEach((item) => {
+          if (item.moduleId === moduleId) {
+            item.moduleId = "";
+            item.point = "";
+          }
+        });
+      });
+      closeSharedModal();
+      persistState("IO模块已删除");
+      return true;
+    },
+  });
 }
 
 function previewCamera(cameraId) {
@@ -5753,6 +6315,168 @@ function getFilteredCameras() {
   });
 }
 
+function getFilteredIoModules() {
+  const keyword = ui.ioFilters.keyword.toLowerCase();
+  return (state.ioModules || []).filter((module) => {
+    if (!keyword) return true;
+    return [module.name, module.model, module.ip, module.deviceId].some((value) => String(value || "").toLowerCase().includes(keyword));
+  });
+}
+
+function getIoModulePointCount(model) {
+  const option = IO_MODULE_MODEL_OPTIONS.find((item) => item.value === model);
+  return option?.points || 4;
+}
+
+function normalizeIoPointList(points, prefix, count) {
+  const byPoint = new Map((Array.isArray(points) ? points : []).map((item) => [String(item.point || ""), item]));
+  return Array.from({ length: count }, (_, index) => {
+    const point = `${prefix}-${index + 1}`;
+    const source = byPoint.get(point) || {};
+    return {
+      point,
+      name: String(source.name || ""),
+    };
+  });
+}
+
+function createEmptyIoConfig() {
+  return { moduleIds: [], input: [], output: [] };
+}
+
+function getToolIoConfig(tool) {
+  if (!tool.ioConfig || typeof tool.ioConfig !== "object") tool.ioConfig = createEmptyIoConfig();
+  if (!Array.isArray(tool.ioConfig.moduleIds)) tool.ioConfig.moduleIds = [];
+  if (!Array.isArray(tool.ioConfig.input)) tool.ioConfig.input = [];
+  if (!Array.isArray(tool.ioConfig.output)) tool.ioConfig.output = [];
+  const referencedModuleIds = [...tool.ioConfig.input, ...tool.ioConfig.output].map((item) => item.moduleId).filter(Boolean);
+  referencedModuleIds.forEach((moduleId) => {
+    if (!tool.ioConfig.moduleIds.includes(moduleId)) tool.ioConfig.moduleIds.push(moduleId);
+  });
+  return tool.ioConfig;
+}
+
+function getToolSelectedIoModules(tool) {
+  const config = getToolIoConfig(tool);
+  return config.moduleIds.map((moduleId) => state.ioModules.find((module) => module.id === moduleId)).filter(Boolean);
+}
+
+function getActiveToolIoModule(tool) {
+  const selectedModules = getToolSelectedIoModules(tool);
+  if (!selectedModules.length) return null;
+  const selected =
+    selectedModules.find((module) => module.id === ui.activeToolIoModuleId) ||
+    selectedModules[0];
+  ui.activeToolIoModuleId = selected?.id || "";
+  return selected || null;
+}
+
+function findToolIoConfigByPoint(tool, moduleId, point, direction) {
+  return findToolIoConfigsByPoint(tool, moduleId, point, direction)[0] || null;
+}
+
+function findToolIoConfigsByPoint(tool, moduleId, point, direction) {
+  const config = getToolIoConfig(tool);
+  return (config[direction] || []).filter((item) => item.moduleId === moduleId && item.point === point);
+}
+
+function getIoActionOptions(tool, direction) {
+  if (direction === "output") {
+    const captureOutputOptions = (tool.acquire || []).flatMap((acquire, index) => {
+      const label = `采图${index + 1}`;
+      return [
+        { value: `capture:${index + 1}:done`, label: `${label}完成` },
+        { value: `capture:${index + 1}:ok`, label: `${label}结果OK` },
+        { value: `capture:${index + 1}:ng`, label: `${label}结果NG` },
+        { value: `capture:${index + 1}:error`, label: `${label}结果异常` },
+      ];
+    });
+    return IO_OUTPUT_ACTIONS.concat(captureOutputOptions);
+  }
+  const captureInputOptions = (tool.acquire || []).map((acquire, index) => ({
+    value: `capture:${index + 1}`,
+    label: `触发采图${index + 1}`,
+  }));
+  return IO_INPUT_ACTIONS.slice(0, 1).concat(captureInputOptions, IO_INPUT_ACTIONS.slice(1));
+}
+
+function getIoActionLabel(tool, type, direction) {
+  return getIoActionOptions(tool, direction).find((item) => item.value === type)?.label || type || "-";
+}
+
+function getIoEventScopeOptions(tool, direction) {
+  return [{ value: "cycle", label: "整个周期" }].concat(
+    (tool.acquire || []).map((acquire, index) => ({
+      value: `capture:${index + 1}`,
+      label: `采图${index + 1}`,
+    }))
+  );
+}
+
+function getIoEventActionOptions(direction, scope) {
+  if (direction === "input") {
+    if (scope === "cycle") {
+      return [
+        { value: "start", label: "开始" },
+        { value: "capture-next", label: "触发下一个采图" },
+        { value: "capture-all", label: "依次触发全部采图" },
+        { value: "reset", label: "重置" },
+      ];
+    }
+    return [{ value: "trigger", label: "触发采图" }];
+  }
+  return [
+    { value: "done", label: "完成" },
+    { value: "ok", label: "OK" },
+    { value: "ng", label: "NG" },
+    { value: "error", label: "异常" },
+  ];
+}
+
+function createDefaultIoEventItem(tool, direction) {
+  const scope = "cycle";
+  const action = getIoEventActionOptions(direction, scope)[0]?.value || "";
+  const type = buildIoEventType(scope, action, direction);
+  return {
+    id: Demo.makeId(`io_${direction}`),
+    type,
+    name: getIoActionLabel(tool, type, direction),
+    moduleId: "",
+    point: "",
+    priority: 1,
+    duration: 1,
+  };
+}
+
+function parseIoEventType(type, direction) {
+  const text = String(type || "");
+  const captureMatch = text.match(/^capture:(\d+)(?::(.+))?$/);
+  if (direction === "input") {
+    if (text === "reset-cycle") return { scope: "cycle", action: "reset" };
+    if (text === "capture-next") return { scope: "cycle", action: "capture-next" };
+    if (text === "capture-all") return { scope: "cycle", action: "capture-all" };
+    if (captureMatch) return { scope: `capture:${captureMatch[1]}`, action: "trigger" };
+    return { scope: "cycle", action: "start" };
+  }
+  if (captureMatch) return { scope: `capture:${captureMatch[1]}`, action: captureMatch[2] || "done" };
+  const cycleMatch = text.match(/^cycle-(.+)$/);
+  return { scope: "cycle", action: cycleMatch?.[1] || "done" };
+}
+
+function buildIoEventType(scope, action, direction) {
+  if (direction === "input") {
+    if (scope === "cycle") {
+      if (action === "reset") return "reset-cycle";
+      if (action === "capture-next") return "capture-next";
+      if (action === "capture-all") return "capture-all";
+      return "new-cycle";
+    }
+    return scope;
+  }
+  if (scope === "cycle") return `cycle-${action || "done"}`;
+  return `${scope}:${action || "done"}`;
+}
+
 function getFilteredRecords() {
   return state.detectionRecords.filter((record) => {
     const toolMatch = ui.recordFilters.toolId === "all" || record.toolId === ui.recordFilters.toolId;
@@ -6150,13 +6874,12 @@ function createDefaultJudgmentRule(tool, node, nodes) {
 
   if (node.type === "roi") {
     const detectNodes = getNodeChildren(nodes, node.id, "detect");
-    const allDimension = detectNodes.length > 1 && detectNodes.every((item) => item.sceneType === "尺寸");
     return {
       id: Demo.makeId("rule"),
-      name: allDimension ? "互斥匹配判定" : "区域结果汇总",
-      template: allDimension ? "exactly-one-ok" : "all-selected-ok",
+      name: "区域结果汇总",
+      template: "all-selected-ok",
       selectedNodeIds: detectNodes.map((item) => item.id),
-      relation: allDimension ? "exactly-one-ok" : "all-selected-ok",
+      relation: "all-selected-ok",
       resultOnHit: "OK",
       failResult: "NG",
       enabled: true,
@@ -6265,7 +6988,7 @@ function syncJudgmentRuleSelection(tool) {
   if (!tool) return;
   ensureJudgmentRuleState(tool);
   const nodes = getJudgmentRuleNodes(tool);
-  const selectableNodes = nodes.filter((node) => node.selectable !== false);
+  const selectableNodes = nodes.filter((node) => node.type === "detect" && node.selectable !== false);
   if (!selectableNodes.some((node) => node.id === ui.builderRuleNodeId)) {
     ui.builderRuleNodeId = selectableNodes[0]?.id || "";
   }
@@ -6293,7 +7016,8 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
     if (!Array.isArray(rule.selectedNodeIds) || !rule.selectedNodeIds.length) {
       rule.selectedNodeIds = getNodeChildren(nodes, node.id, "detect").map((item) => item.id);
     }
-    if (!rule.relation) rule.relation = rule.template || "all-selected-ok";
+    rule.template = "all-selected-ok";
+    rule.relation = "all-selected-ok";
     return;
   }
   const detect = getDetectByNode(tool, node);
@@ -6637,6 +7361,7 @@ function renderJudgmentRuleBuilder(tool) {
   syncJudgmentRuleSelection(tool);
   const isStale = isJudgmentRuleStructureStale(tool);
   const nodes = getJudgmentRuleNodes(tool);
+  const visualNodes = nodes.filter((node) => node.type === "detect");
   const activeNode = nodes.find((node) => node.id === ui.builderRuleNodeId) || null;
   const nodeRules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
   const activeRule = nodeRules[0] || null;
@@ -6673,11 +7398,15 @@ function renderJudgmentRuleBuilder(tool) {
               <aside class="judgment-tree-panel">
                 <div class="section-head section-head-tight">
                   <div>
-                    <h3>判定对象</h3>
+                    <h3>检测项</h3>
                   </div>
                 </div>
                 <div class="judgment-tree">
-                  ${nodes.filter((node) => node.depth === 0).map((node) => renderJudgmentTreeNode(node, nodes, tool)).join("")}
+                  ${
+                    visualNodes.length
+                      ? visualNodes.map((node) => renderJudgmentDetectListItem(node)).join("")
+                      : `<div class="builder-empty">还没有检测项，请先完成图像检测配置。</div>`
+                  }
                 </div>
               </aside>
               <section class="judgment-editor-panel">
@@ -6686,6 +7415,24 @@ function renderJudgmentRuleBuilder(tool) {
             </div>
           `
       }
+    </div>
+  `;
+}
+
+function renderJudgmentDetectListItem(node) {
+  const isActive = node.id === ui.builderRuleNodeId;
+  const mainClass = `judgment-tree-node-main is-configurable ${isActive ? "is-active" : ""}`;
+  return `
+    <div class="judgment-tree-node depth-0">
+      <button
+        class="${mainClass}"
+        type="button"
+        data-action="select-rule-node"
+        data-node-id="${escapeAttribute(node.id)}"
+      >
+        <strong>${escapeHtml(node.label)}</strong>
+        ${node.sceneType ? `<span>${escapeHtml(node.sceneType)}</span>` : ""}
+      </button>
     </div>
   `;
 }
@@ -6738,11 +7485,6 @@ function renderJudgmentRuleEditor(tool, node, rule) {
         ${modelTypeText ? `<span class="chip">${escapeHtml(modelTypeText)}</span>` : ""}
       </div>
 
-      <div class="judgment-preview-card">
-        <span>本项OK条件</span>
-        <div class="judgment-summary-copy">${renderJudgmentRuleSummaryHtml(rule, node, tool)}</div>
-      </div>
-
       ${renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions)}
     </div>
   `;
@@ -6774,24 +7516,21 @@ function renderJudgmentReadonlyPanel(tool, node) {
       <div class="section-head section-head-tight">
         <h3>${escapeHtml(node.label)}</h3>
       </div>
-      <div class="judgment-preview-card">
-        <span>本项OK条件</span>
-        ${
-          rows.length
-            ? `
-              <div class="judgment-summary-lines">
-                ${rows
-                  .map(
-                    (item) => `
-                      <p class="judgment-summary-line">${item.summaryHtml || escapeHtml(item.summary)}</p>
-                    `,
-                  )
-                  .join("")}
-              </div>
-            `
-            : `<strong>当前还没有可用内容</strong>`
-        }
-      </div>
+      ${
+        rows.length
+          ? `
+            <div class="judgment-summary-lines">
+              ${rows
+                .map(
+                  (item) => `
+                    <p class="judgment-summary-line">${item.summaryHtml || escapeHtml(item.summary)}</p>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : `<div class="builder-empty">当前还没有可用内容</div>`
+      }
     </div>
   `;
 }

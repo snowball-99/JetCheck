@@ -85,10 +85,61 @@
 
       <div class="workspace-layout">
         <aside class="sidebar client-sidebar">
-          <button class="nav-item is-active" data-page="detect-tools">检测工具</button>
-          <button class="nav-item" data-page="camera-manage">相机</button>
-          <button class="nav-item" data-page="model-manage">模型</button>
-          <button class="nav-item" data-page="detect-records">检测记录</button>
+          <button class="nav-item is-active" data-page="detect-tools">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 7V5.6C8 4.7 8.7 4 9.6 4h4.8c.9 0 1.6.7 1.6 1.6V7"></path>
+                <path d="M5 7h14c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2Z"></path>
+                <path d="M9 12h6"></path>
+              </svg>
+            </span>
+            <span>检测工具</span>
+          </button>
+          <button class="nav-item" data-page="detect-records">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 3h8l4 4v14H7c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2Z"></path>
+                <path d="M15 3v5h5"></path>
+                <path d="M8.5 12h7"></path>
+                <path d="M8.5 16h5"></path>
+              </svg>
+            </span>
+            <span>检测记录</span>
+          </button>
+          <button class="nav-item" data-page="model-manage">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 4h10c1.1 0 2 .9 2 2v14.5l-7-3-7 3V6c0-1.1.9-2 2-2Z"></path>
+                <path d="M9 8h6"></path>
+                <path d="M9 11.5h6"></path>
+              </svg>
+            </span>
+            <span>模型管理</span>
+          </button>
+          <button class="nav-item" data-page="camera-manage">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 7l1.4-2h5.2L16 7h2.5c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2H8Z"></path>
+                <circle cx="12" cy="13" r="3.4"></circle>
+              </svg>
+            </span>
+            <span>相机管理</span>
+          </button>
+          <button class="nav-item" data-page="io-manage">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 5h14v14H5V5Z"></path>
+                <path d="M9 9h6v6H9V9Z"></path>
+                <path d="M2.5 8h2.5"></path>
+                <path d="M2.5 12h2.5"></path>
+                <path d="M2.5 16h2.5"></path>
+                <path d="M19 8h2.5"></path>
+                <path d="M19 12h2.5"></path>
+                <path d="M19 16h2.5"></path>
+              </svg>
+            </span>
+            <span>IO模块管理</span>
+          </button>
           <div class="sidebar-demo-panel" hidden>
             <span class="demo-panel-label demo-panel-label-light">Demo</span>
             <button class="demo-btn" id="demoToggleClientNetwork">Demo: 切换联网</button>
@@ -220,6 +271,58 @@
                   </article>
                 </div>
               </div>
+            </div>
+
+            <div id="toolIoConfigPanel" hidden>
+              <div class="page-header">
+                <div class="page-title-inline">
+                  <button class="secondary-btn" id="backToToolOverviewFromIo">返回</button>
+                  <h1 id="ioConfigToolTitle">IO配置</h1>
+                </div>
+              </div>
+
+              <article class="card io-config-card">
+                <div id="toolIoConfigBody"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="page" data-page-panel="io-manage">
+            <div class="page-header">
+              <div>
+                <h1>IO模块</h1>
+              </div>
+              <div class="toolbar-right">
+                <button class="primary-btn" id="openAddIoModuleBtn">添加IO模块</button>
+              </div>
+            </div>
+
+            <div class="toolbar-row">
+              <div class="toolbar-left">
+                <input id="ioKeywordInput" type="text" placeholder="搜索设备名称、IP地址或设备ID" />
+              </div>
+              <div class="toolbar-right">
+                <button class="secondary-btn" id="resetIoFilterBtn">重置</button>
+                <button class="primary-btn" id="searchIoBtn">查询</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>设备名称</th>
+                    <th>型号</th>
+                    <th>IP地址</th>
+                    <th>端口</th>
+                    <th>设备ID</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="ioModuleTableBody"></tbody>
+              </table>
+              <div class="empty-state" id="ioModuleEmptyState" hidden>暂无数据</div>
             </div>
           </section>
 

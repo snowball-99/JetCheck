@@ -14,7 +14,7 @@
   };
 
   const DEFAULT_STATE = {
-    version: 9,
+    version: 13,
     meta: {
       now: "2026-03-23T09:16:00+08:00",
     },
@@ -393,6 +393,58 @@
         status: "离线",
       },
     ],
+    ioModules: [
+      {
+        id: "io_001",
+        name: "IO模块1",
+        model: "USR-IO424T",
+        ip: "",
+        port: 28899,
+        deviceId: "17",
+        status: "在线",
+        inputs: [
+          { point: "DI-1", name: "" },
+          { point: "DI-2", name: "" },
+          { point: "DI-3", name: "" },
+          { point: "DI-4", name: "" },
+        ],
+        outputs: [
+          { point: "DO-1", name: "" },
+          { point: "DO-2", name: "" },
+          { point: "DO-3", name: "" },
+          { point: "DO-4", name: "" },
+        ],
+      },
+      {
+        id: "io_002",
+        name: "IO模块2",
+        model: "USR-IO808",
+        ip: "",
+        port: 28899,
+        deviceId: "17",
+        status: "离线",
+        inputs: [
+          { point: "DI-1", name: "" },
+          { point: "DI-2", name: "" },
+          { point: "DI-3", name: "" },
+          { point: "DI-4", name: "" },
+          { point: "DI-5", name: "" },
+          { point: "DI-6", name: "" },
+          { point: "DI-7", name: "" },
+          { point: "DI-8", name: "" },
+        ],
+        outputs: [
+          { point: "DO-1", name: "" },
+          { point: "DO-2", name: "" },
+          { point: "DO-3", name: "" },
+          { point: "DO-4", name: "" },
+          { point: "DO-5", name: "" },
+          { point: "DO-6", name: "" },
+          { point: "DO-7", name: "" },
+          { point: "DO-8", name: "" },
+        ],
+      },
+    ],
     tools: [
       {
         id: "tool_001",
@@ -470,6 +522,17 @@
           cycleTime: "-",
           sessionActive: false,
           sessionMode: "detect",
+        },
+        ioConfig: {
+          input: [
+            { id: "io_in_safe_start", type: "new-cycle", name: "开始检测", moduleId: "io_001", point: "DI-1", priority: 1 },
+            { id: "io_in_safe_reset", type: "reset-cycle", name: "复位", moduleId: "io_001", point: "DI-2", priority: 2 },
+          ],
+          output: [
+            { id: "io_out_safe_ok", type: "cycle-ok", name: "OK输出", moduleId: "io_001", point: "DO-1", duration: 1 },
+            { id: "io_out_safe_ng", type: "cycle-ng", name: "NG输出", moduleId: "io_001", point: "DO-2", duration: 1 },
+            { id: "io_out_safe_error", type: "cycle-error", name: "异常输出", moduleId: "io_001", point: "DO-3", duration: 1 },
+          ],
         },
       },
       {
@@ -944,6 +1007,49 @@
       .filter((item) => item.w > 0 && item.h > 0);
   }
 
+  function getIoModulePointCount(model) {
+    const normalized = String(model || "").trim() === "USR-IO424808" ? "USR-IO808" : String(model || "").trim();
+    if (normalized === "USR-IO808") return 8;
+    return 4;
+  }
+
+  function normalizeIoPointList(points, prefix, count) {
+    const byPoint = new Map((Array.isArray(points) ? points : []).map((item) => [String(item?.point || "").trim(), item]));
+    return Array.from({ length: count }, (_, index) => {
+      const point = `${prefix}-${index + 1}`;
+      const source = byPoint.get(point) || {};
+      return {
+        point,
+        name: String(source.name || ""),
+      };
+    });
+  }
+
+  function normalizeToolIoConfig(config) {
+    const source = config && typeof config === "object" ? config : {};
+    const normalizeItems = (items, direction) =>
+      (Array.isArray(items) ? items : []).map((item, index) => ({
+        id: item?.id || `io_${direction}_${index + 1}`,
+        type: String(item?.type || ""),
+        name: String(item?.name || ""),
+        moduleId: String(item?.moduleId || ""),
+        point: String(item?.point || ""),
+        priority: Number.isFinite(Number(item?.priority)) ? Number(item.priority) : index + 1,
+        duration: Number.isFinite(Number(item?.duration)) ? Number(item.duration) : 1,
+      }));
+    const input = normalizeItems(source.input, "input");
+    const output = normalizeItems(source.output, "output");
+    const moduleIds = Array.isArray(source.moduleIds) ? source.moduleIds.map((item) => String(item || "")).filter(Boolean) : [];
+    [...input, ...output].forEach((item) => {
+      if (item.moduleId && !moduleIds.includes(item.moduleId)) moduleIds.push(item.moduleId);
+    });
+    return {
+      moduleIds,
+      input,
+      output,
+    };
+  }
+
   function normalizeLoadedState(parsed) {
     const next = parsed && typeof parsed === "object" ? parsed : cloneDefaultState();
     const loadedVersion = Number.isFinite(Number(next.version)) ? Number(next.version) : 0;
@@ -1035,6 +1141,41 @@
       sceneType: normalizeModelSceneType(model.sceneType),
       versions: Array.isArray(model.versions) ? model.versions : [],
     }));
+
+    next.ioModules = Array.isArray(next.ioModules) ? next.ioModules : cloneDefaultState().ioModules;
+    next.ioModules = next.ioModules.map((module, index) => {
+      const model = String(module?.model || "USR-IO424T").trim() === "USR-IO424808" ? "USR-IO808" : String(module?.model || "USR-IO424T").trim();
+      const count = getIoModulePointCount(model);
+      return {
+        id: module?.id || `io_${index + 1}`,
+        name: String(module?.name || `IO模块 ${index + 1}`),
+        model,
+        ip: String(module?.ip || ""),
+        port: Number.isFinite(Number(module?.port)) ? Number(module.port) : 28899,
+        deviceId: String(module?.deviceId || "17"),
+        status: module?.status === "离线" ? "离线" : "在线",
+        inputs: normalizeIoPointList(module?.inputs, "DI", count),
+        outputs: normalizeIoPointList(module?.outputs, "DO", count),
+      };
+    });
+    if (loadedVersion < 12) {
+      next.ioModules.forEach((module, index) => {
+        if (module.id === "io_001" || module.id === "io_002") {
+          module.name = `IO模块${index + 1}`;
+          module.ip = "";
+          module.port = 28899;
+          module.deviceId = "17";
+          module.inputs = normalizeIoPointList([], "DI", getIoModulePointCount(module.model));
+          module.outputs = normalizeIoPointList([], "DO", getIoModulePointCount(module.model));
+        }
+      });
+    }
+    if (loadedVersion < 13) {
+      next.ioModules.forEach((module) => {
+        module.inputs = normalizeIoPointList([], "DI", getIoModulePointCount(module.model));
+        module.outputs = normalizeIoPointList([], "DO", getIoModulePointCount(module.model));
+      });
+    }
 
     const fallbackRoiModelId = next.localModels.find((model) => isCategoryOutputModel(model) && normalizeModelCategories(model).length)?.id || null;
     next.tools = Array.isArray(next.tools) && next.tools.length ? next.tools : cloneDefaultState().tools;
@@ -1136,6 +1277,7 @@
         sessionMode: normalizeRunMode(tool.runtime?.sessionMode || tool.runtime?.selectedRunMode || "detect"),
         runToken: Number.isFinite(Number(tool.runtime?.runToken)) ? Number(tool.runtime.runToken) : 0,
       },
+      ioConfig: normalizeToolIoConfig(tool.ioConfig),
     }));
 
     next.detectionRecords = Array.isArray(next.detectionRecords) ? next.detectionRecords : cloneDefaultState().detectionRecords;

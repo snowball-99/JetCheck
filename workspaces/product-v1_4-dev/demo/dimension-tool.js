@@ -1,15 +1,7 @@
 const TABS = [
   {
-    key: "calibration",
-    label: "标定",
-    title: "标定",
-    desc: "选择标定模板，导入标定图并完成自动标定。",
-    note: "标定允许后置。当前窗口以配置链路为主，不在进入步骤时做强阻断。",
-    modeLabel: "当前模式：标定",
-  },
-  {
     key: "roi",
-    label: "模版图",
+    label: "ROI",
     title: "模版图配置",
     desc: "上传模版图，并完成检测对象与出现范围的 ROI 配置。",
     note: "模版图是后续测量的基础，检测对象 ROI 与出现范围 ROI 都需要完成。",
@@ -24,9 +16,17 @@ const TABS = [
     modeLabel: "当前模式：测量项",
   },
   {
+    key: "calibration",
+    label: "标定",
+    title: "标定",
+    desc: "选择标定模板，导入标定图并完成自动标定。",
+    note: "标定允许后置。当前窗口以配置链路为主，不在进入步骤时做强阻断。",
+    modeLabel: "当前模式：标定",
+  },
+  {
     key: "validate",
-    label: "验证",
-    title: "验证",
+    label: "测试",
+    title: "测试",
     desc: "选择验证样本并查看当前工程配置在样本上的输出结果。",
     note: "验证允许跳过，发布前检查会统一提示当前工程是否已完成验证。",
     modeLabel: "当前模式：验证",
@@ -46,85 +46,155 @@ const MEASURE_TOOL_SECTIONS = [
     key: "element",
     title: "元素",
     tools: [
-      { key: "anchor_point", label: "定位点", icon: "PT" },
-      { key: "edge_line", label: "边缘线", icon: "LN" },
-      { key: "circle_feature", label: "圆特征", icon: "CR" },
+      { key: "line_segment", label: "直线段", icon: "LN" },
+      { key: "circle", label: "圆", icon: "CR" },
+      { key: "point", label: "点", icon: "PT" },
+      { key: "contour", label: "轮廓", icon: "CT" },
+      { key: "corner_point", label: "拐点", icon: "CP" },
     ],
   },
   {
     key: "construct",
     title: "构造",
     tools: [
-      { key: "center_axis", label: "中心轴", icon: "AX" },
-      { key: "midline", label: "中分线", icon: "ML" },
-      { key: "baseline_box", label: "基准框", icon: "BX" },
+      { key: "point_to_line", label: "两点连线", icon: "PL" },
+      { key: "line_intersection", label: "线线交点", icon: "LI" },
+      { key: "contour_line_intersection", label: "轮廓线交点", icon: "CI" },
+      { key: "center_line", label: "中线", icon: "CL" },
+      { key: "contour_inner_cut", label: "轮廓内切圆", icon: "IC" },
+      { key: "three_point_circle", label: "三点画圆", icon: "3C" },
+      { key: "circle_center", label: "圆点", icon: "OC" },
     ],
   },
   {
     key: "measure",
     title: "测量",
     tools: [
-      { key: "measure_length", label: "长度", icon: "LG" },
-      { key: "measure_angle", label: "角度", icon: "AG" },
-      { key: "measure_diameter", label: "直径", icon: "DM" },
+      { key: "line_distance", label: "线线距离", icon: "LD" },
+      { key: "circle_diameter", label: "圆直径", icon: "CD" },
+      { key: "circle_distance", label: "圆圆距离", icon: "CC" },
+      { key: "line_circle_distance", label: "线圆距离", icon: "LC" },
+      { key: "point_circle_distance", label: "点圆距离", icon: "PC" },
+      { key: "point_line_distance", label: "点线距离", icon: "PD" },
+      { key: "point_point_distance", label: "点点距离", icon: "PP" },
     ],
   },
 ];
 
 const MEASURE_TOOL_META = {
-  anchor_point: {
-    name: "定位点",
+  line_segment: {
+    name: "直线段",
     category: "元素",
-    itemName: "基准点 A",
-    drawHint: "单击图像放置定位点",
+    itemName: "直线段1",
+    drawHint: "在图像上拖拽绘制直线段",
   },
-  edge_line: {
-    name: "边缘线",
+  circle: {
+    name: "圆",
     category: "元素",
-    itemName: "外轮廓边缘",
-    drawHint: "沿目标边缘拖拽画线",
+    itemName: "圆1",
+    drawHint: "围绕目标区域拖拽绘制圆",
   },
-  circle_feature: {
-    name: "圆特征",
+  point: {
+    name: "点",
     category: "元素",
-    itemName: "头部圆特征",
-    drawHint: "围绕目标区域拖拽画圆",
+    itemName: "点1",
+    drawHint: "单击图像放置点",
   },
-  center_axis: {
-    name: "中心轴",
+  contour: {
+    name: "轮廓",
+    category: "元素",
+    itemName: "轮廓1",
+    drawHint: "沿目标边缘绘制轮廓",
+  },
+  corner_point: {
+    name: "拐点",
+    category: "元素",
+    itemName: "拐点1",
+    drawHint: "单击选择轮廓上的拐点",
+  },
+  point_to_line: {
+    name: "两点连线",
     category: "构造",
-    itemName: "主体中心轴",
-    drawHint: "依次选择两条参考边生成轴线",
+    itemName: "两点连线1",
+    drawHint: "依次选择两个点生成连线",
   },
-  midline: {
-    name: "中分线",
+  line_intersection: {
+    name: "线线交点",
     category: "构造",
-    itemName: "槽位中分线",
-    drawHint: "选择两条边后生成中分线",
+    itemName: "线线交点1",
+    drawHint: "选择两条直线生成交点",
   },
-  baseline_box: {
-    name: "基准框",
+  contour_line_intersection: {
+    name: "轮廓线交点",
     category: "构造",
-    itemName: "基准检测框",
-    drawHint: "拖拽画出基准参考框",
+    itemName: "轮廓线交点1",
+    drawHint: "选择轮廓和直线生成交点",
   },
-  measure_length: {
-    name: "长度",
-    category: "测量",
-    itemName: "总长",
-    drawHint: "在起点与终点之间拖拽画线",
+  center_line: {
+    name: "中线",
+    category: "构造",
+    itemName: "中线1",
+    drawHint: "选择两条参考线生成中线",
   },
-  measure_angle: {
-    name: "角度",
-    category: "测量",
-    itemName: "偏转角",
-    drawHint: "依次选择两条线计算夹角",
+  contour_inner_cut: {
+    name: "轮廓内切圆",
+    category: "构造",
+    itemName: "轮廓内切圆1",
+    drawHint: "选择轮廓后生成内切圆",
   },
-  measure_diameter: {
-    name: "直径",
+  three_point_circle: {
+    name: "三点画圆",
+    category: "构造",
+    itemName: "三点圆1",
+    drawHint: "依次选择三个点生成圆",
+  },
+  circle_center: {
+    name: "圆点",
+    category: "构造",
+    itemName: "圆点1",
+    drawHint: "选择圆后生成圆心点",
+  },
+  line_distance: {
+    name: "线线距离",
     category: "测量",
-    itemName: "头部直径",
-    drawHint: "圈选圆特征后输出直径",
+    itemName: "线线距离1",
+    drawHint: "选择两条线输出距离",
+  },
+  circle_diameter: {
+    name: "圆直径",
+    category: "测量",
+    itemName: "圆直径1",
+    drawHint: "选择圆输出直径",
+  },
+  circle_distance: {
+    name: "圆圆距离",
+    category: "测量",
+    itemName: "圆圆距离1",
+    drawHint: "选择两个圆输出圆心距离",
+  },
+  line_circle_distance: {
+    name: "线圆距离",
+    category: "测量",
+    itemName: "线圆距离1",
+    drawHint: "选择线和圆输出距离",
+  },
+  point_circle_distance: {
+    name: "点圆距离",
+    category: "测量",
+    itemName: "点圆距离1",
+    drawHint: "选择点和圆输出距离",
+  },
+  point_line_distance: {
+    name: "点线距离",
+    category: "测量",
+    itemName: "点线距离1",
+    drawHint: "选择点和线输出距离",
+  },
+  point_point_distance: {
+    name: "点点距离",
+    category: "测量",
+    itemName: "点点距离1",
+    drawHint: "选择两个点输出距离",
   },
 };
 
@@ -141,12 +211,12 @@ const PROJECTS = [
     owner: "Operator-A",
     workflowState: {
       calibration: false,
-      template: true,
+      template: false,
       roi: true,
       measure: false,
       validate: false,
     },
-    measureCount: 2,
+    measureCount: 0,
     roiCount: 1,
     validationState: "待验证",
     calibrationState: "已补齐",
@@ -246,25 +316,9 @@ const PROJECTS = [
       measure: {
         sampleIds: ["screw_main"],
         defaultSampleId: "screw_main",
-        overlays: {
-          screw_main: [
-            { type: "line", x: 26, y: 45, len: 42, angle: 6, label: "长度" },
-            { type: "circle", x: 48, y: 37, d: 13, label: "头部直径" },
-            { type: "tag", x: 44, y: 57, text: "mm" },
-          ],
-        },
-        results: [
-          { label: "测量项数量", value: "2" },
-          { label: "测量类型", value: "长度 / 圆直径" },
-          { label: "单位", value: "mm" },
-          { label: "精度", value: "0.001" },
-        ],
-        fields: [
-          { label: "当前测量项", value: "长度" },
-          { label: "对象关系", value: "点到点 / 轴向" },
-          { label: "输出单位", value: "mm" },
-          { label: "显示精度", value: "0.001" },
-        ],
+        overlays: { screw_main: [] },
+        results: [],
+        fields: [],
       },
       tolerance: {
         sampleIds: ["screw_main"],
@@ -367,12 +421,12 @@ const PROJECTS = [
     owner: "Operator-A",
     workflowState: {
       calibration: false,
-      template: true,
+      template: false,
       roi: false,
       measure: false,
       validate: false,
     },
-    measureCount: 1,
+    measureCount: 0,
     roiCount: 1,
     validationState: "未验证",
     calibrationState: "未补齐",
@@ -436,17 +490,9 @@ const PROJECTS = [
       measure: {
         sampleIds: ["xray_main"],
         defaultSampleId: "xray_main",
-        overlays: {
-          xray_main: [{ type: "line", x: 30, y: 46, len: 38, angle: 4, label: "长度" }],
-        },
-        results: [
-          { label: "测量项数量", value: "1" },
-          { label: "当前项", value: "长度" },
-        ],
-        fields: [
-          { label: "单位", value: "mm" },
-          { label: "精度", value: "0.001" },
-        ],
+        overlays: { xray_main: [] },
+        results: [],
+        fields: [],
       },
       tolerance: {
         sampleIds: ["xray_main"],
@@ -499,12 +545,12 @@ const PROJECTS = [
     owner: "Engineer-Li",
     workflowState: {
       calibration: true,
-      template: true,
+      template: false,
       roi: true,
       measure: true,
       validate: true,
     },
-    measureCount: 3,
+    measureCount: 0,
     roiCount: 2,
     validationState: "已验证",
     calibrationState: "已补齐",
@@ -542,13 +588,17 @@ const PROJECTS = [
 ];
 
 const state = {
-  startupVisible: true,
+  startupVisible: false,
   projectId: PROJECTS[0]?.id || "",
   managerSelectedProjectId: PROJECTS[0]?.id || "",
-  tabKey: TABS[0].key,
+  tabKey: "measure",
   sampleByTab: {},
-  measureToolSectionKey: "measure",
-  measureToolKey: "measure_length",
+  roiVisible: true,
+  stageZoom: 1,
+  calibrationMode: "auto",
+  measureToolSectionKey: "element",
+  measureToolKey: "line_segment",
+  measureElementSelected: false,
   activeWindow: "manager",
   editorOpen: false,
   managerQuery: "",
@@ -556,14 +606,13 @@ const state = {
   managerMessage: "",
   modal: null,
   settingsOpen: false,
+  paramModal: null,
+  releaseModal: null,
   localSettings: {
-    autoSave: true,
-    paths: [
-      { key: "project_root", label: "工程根目录", value: "D:\\JetCheck\\Projects" },
-      { key: "import_root", label: "导入目录", value: "D:\\JetCheck\\Import" },
-      { key: "export_root", label: "导出目录", value: "D:\\JetCheck\\Export" },
-      { key: "log_root", label: "日志目录", value: "D:\\JetCheck\\Logs" },
-    ],
+    modelServiceUrl: "http://127.0.0.1:8080",
+    workspacePath: "C:\\Users\\16095\\Desktop\\MeasureWorkspace",
+    logPath: "C:\\Users\\16095\\Desktop\\MeasureWorkspace\\logs",
+    cachePath: "C:\\Users\\16095\\Desktop\\MeasureWorkspace\\cache",
   },
 };
 
@@ -575,11 +624,12 @@ const refs = {
   managerEmpty: document.getElementById("dtManagerEmpty"),
   managerHint: document.getElementById("dtManagerHint"),
   managerMessage: document.getElementById("dtManagerMessage"),
-  openSettingsBtn: document.getElementById("dtOpenSettingsBtn"),
+  openSettingsBtns: Array.from(document.querySelectorAll("[data-open-settings]")),
   emptyTitle: document.getElementById("dtEmptyTitle"),
   emptyDesc: document.getElementById("dtEmptyDesc"),
   createProjectBtn: document.getElementById("dtCreateProjectBtn"),
   importProjectBtn: document.getElementById("dtImportProjectBtn"),
+  importProjectInput: document.getElementById("dtImportProjectInput"),
   projectSearch: document.getElementById("dtProjectSearch"),
   editorWindowTitle: document.getElementById("dtEditorWindowTitle"),
   workspace: document.getElementById("dtWorkspace"),
@@ -591,6 +641,13 @@ const refs = {
   projectNav: document.getElementById("dtProjectNav"),
   assetTree: document.getElementById("dtAssetTree"),
   tabList: document.getElementById("dtTabList"),
+  editorBackBtn: document.getElementById("dtEditorBackBtn"),
+  runTestBtn: document.getElementById("dtRunTestBtn"),
+  resetViewBtn: document.getElementById("dtResetViewBtn"),
+  fitViewBtn: document.getElementById("dtFitViewBtn"),
+  toggleRoiInput: document.getElementById("dtToggleRoiInput"),
+  calibrationEntryBtn: document.getElementById("dtCalibrationEntryBtn"),
+  uploadTemplateBtn: document.getElementById("dtUploadTemplateBtn"),
   prevStepBtn: document.getElementById("dtPrevStepBtn"),
   nextStepBtn: document.getElementById("dtNextStepBtn"),
   skipStepBtn: document.getElementById("dtSkipStepBtn"),
@@ -618,8 +675,26 @@ const refs = {
   settingsCloseBtn: document.getElementById("dtSettingsCloseBtn"),
   settingsCancelBtn: document.getElementById("dtSettingsCancelBtn"),
   settingsSaveBtn: document.getElementById("dtSettingsSaveBtn"),
-  settingsPathList: document.getElementById("dtSettingsPathList"),
-  settingsAutoSaveInput: document.getElementById("dtSettingsAutoSaveInput"),
+  settingsModelServiceInput: document.getElementById("dtSettingsModelServiceInput"),
+  settingsWorkspaceInput: document.getElementById("dtSettingsWorkspaceInput"),
+  settingsLogInput: document.getElementById("dtSettingsLogInput"),
+  settingsCacheInput: document.getElementById("dtSettingsCacheInput"),
+  settingsClearCacheBtn: document.getElementById("dtSettingsClearCacheBtn"),
+  releaseModal: document.getElementById("dtReleaseModal"),
+  releaseModalTitle: document.getElementById("dtReleaseModalTitle"),
+  releaseModalDesc: document.getElementById("dtReleaseModalDesc"),
+  releaseModalBody: document.getElementById("dtReleaseModalBody"),
+  releaseCloseBtn: document.getElementById("dtReleaseCloseBtn"),
+  shapeMatchModal: document.getElementById("dtShapeMatchModal"),
+  preprocessModal: document.getElementById("dtPreprocessModal"),
+  shapeAngleFromInput: document.getElementById("dtShapeAngleFromInput"),
+  shapeAngleToInput: document.getElementById("dtShapeAngleToInput"),
+  shapeAngleStepInput: document.getElementById("dtShapeAngleStepInput"),
+  shapeAccuracyInput: document.getElementById("dtShapeAccuracyInput"),
+  shapeMatchInput: document.getElementById("dtShapeMatchInput"),
+  shapeScaleInput: document.getElementById("dtShapeScaleInput"),
+  binaryThresholdInput: document.getElementById("dtBinaryThresholdInput"),
+  medianThresholdInput: document.getElementById("dtMedianThresholdInput"),
   windows: Array.from(document.querySelectorAll("[data-window]")),
 };
 
@@ -688,10 +763,6 @@ function buildDraftProject(name, note) {
   return project;
 }
 
-function normalizeProjectState(project) {
-  return /已发布/.test(project.releaseState) ? "已发布" : "草稿";
-}
-
 function findProject(projectId) {
   return PROJECTS.find((item) => item.id === projectId) || null;
 }
@@ -739,7 +810,8 @@ function getActiveSample(project = getProject(), tabKey = state.tabKey) {
 }
 
 function getMeasureToolMeta() {
-  return MEASURE_TOOL_META[state.measureToolKey] || MEASURE_TOOL_META.measure_length;
+  const key = MEASURE_TOOL_META[state.measureToolKey] ? state.measureToolKey : "line_segment";
+  return { ...MEASURE_TOOL_META[key], key };
 }
 
 function getMeasureSection() {
@@ -813,6 +885,45 @@ function getReleaseReadiness(project) {
   };
 }
 
+function hasTemplateImage(project = getProject()) {
+  return project?.workflowState?.template === true;
+}
+
+function hasCalibrationImage(project = getProject()) {
+  return project?.workflowState?.calibrationImage === true || project?.workflowState?.calibration === true;
+}
+
+function hasValidateImages(project = getProject()) {
+  return project?.workflowState?.validateImages === true;
+}
+
+function getPixelSizeValue(tabState) {
+  const rawValue = (tabState.results || []).find((item) => item.label === "像素尺寸")?.value || "0.021 mm/px";
+  return String(rawValue).replace(/\s*mm\/px\s*/i, "");
+}
+
+function getMeasureRows(sampleId = "") {
+  if (sampleId === "val_error" || sampleId === "xray_warn") {
+    return [
+      { name: "螺杆1总长", lower: "16.200", upper: "16.700", value: "--", result: "异常" },
+      { name: "螺杆1螺纹长", lower: "6.000", upper: "6.400", value: "--", result: "异常" },
+      { name: "头部直径", lower: "4.900", upper: "5.200", value: "--", result: "异常" },
+    ];
+  }
+  if (sampleId === "val_warn") {
+    return [
+      { name: "螺杆1总长", lower: "16.200", upper: "16.700", value: "16.701", result: "NG" },
+      { name: "螺杆1螺纹长", lower: "6.000", upper: "6.400", value: "6.214", result: "OK" },
+      { name: "头部直径", lower: "4.900", upper: "5.200", value: "5.091", result: "OK" },
+    ];
+  }
+  return [
+    { name: "螺杆1总长", lower: "16.200", upper: "16.700", value: "16.443", result: "OK" },
+    { name: "螺杆1螺纹长", lower: "6.000", upper: "6.400", value: "6.214", result: "OK" },
+    { name: "头部直径", lower: "4.900", upper: "5.200", value: "5.091", result: "OK" },
+  ];
+}
+
 function ensureProjectSelection() {
   if (!PROJECTS.length) {
     state.projectId = "";
@@ -873,6 +984,8 @@ function openProject(projectId) {
   if (!findProject(projectId)) return;
   state.projectId = projectId;
   state.managerSelectedProjectId = projectId;
+  state.tabKey = "measure";
+  state.measureElementSelected = false;
   state.editorOpen = true;
   state.activeWindow = "editor";
   clearManagerMessage();
@@ -931,7 +1044,6 @@ function renderProjectList() {
   refs.projectList.innerHTML = projects
     .map((project) => {
       const selected = project.id === state.managerSelectedProjectId ? "is-active" : "";
-      const projectState = normalizeProjectState(project);
       const showMenu = project.id === state.managerMenuProjectId;
       return `
         <article class="dt-project-row ${selected}" data-project-id="${project.id}">
@@ -939,9 +1051,6 @@ function renderProjectList() {
             <strong>${project.name}</strong>
           </div>
           <div class="dt-project-row-note">${project.note || "—"}</div>
-          <div class="dt-project-row-status">
-            <span class="dt-project-row-tag is-${projectState === "已发布" ? "published" : "draft"}">${projectState}</span>
-          </div>
           <div class="dt-project-row-time">${project.updatedAt}</div>
           <div class="dt-project-row-actions">
             <button type="button" class="dt-row-btn is-primary" data-action="open-project" data-project-id="${project.id}">进入配置</button>
@@ -950,9 +1059,12 @@ function renderProjectList() {
             <button type="button" class="dt-row-btn is-quiet" data-action="toggle-menu" data-project-id="${project.id}">···</button>
             ${showMenu ? `
               <div class="dt-project-menu">
-                <button type="button" data-action="rename-project" data-project-id="${project.id}">重命名</button>
+                <button type="button" data-action="rename-project" data-project-id="${project.id}">编辑信息</button>
                 <button type="button" data-action="duplicate-project" data-project-id="${project.id}">复制工程</button>
                 <button type="button" data-action="export-project" data-project-id="${project.id}">导出工程</button>
+                <button type="button" data-action="export-model" data-project-id="${project.id}">导出模型</button>
+                <button type="button" data-action="publish-model" data-project-id="${project.id}">发布模型</button>
+                <span class="dt-project-menu-separator"></span>
                 <button type="button" class="is-danger" data-action="delete-project" data-project-id="${project.id}">删除工程</button>
               </div>
             ` : ""}
@@ -964,7 +1076,7 @@ function renderProjectList() {
 }
 
 function renderEditorHeader(project) {
-  refs.editorWindowTitle.textContent = project ? `工程配置 - ${project.name}` : "工程配置";
+  refs.editorWindowTitle.textContent = project ? project.name : "";
 }
 
 function renderProjectCard(project) {
@@ -977,7 +1089,6 @@ function renderProjectCard(project) {
     <div class="dt-project-card-row"><span>工程名称</span><strong>${project.name}</strong></div>
     <div class="dt-project-card-row"><span>负责人</span><strong>${project.owner}</strong></div>
     <div class="dt-project-card-row"><span>最近修改</span><strong>${project.updatedAt}</strong></div>
-    <div class="dt-project-card-row"><span>发布状态</span><strong>${normalizeProjectState(project)}</strong></div>
   `;
 }
 
@@ -993,10 +1104,8 @@ function renderProjectNav(project, tab) {
     <button type="button" class="dt-tree-node is-branch ${tab.key === "calibration" ? "is-active" : ""}" data-tab-key="calibration" style="--tree-depth:0">标定</button>
     <button type="button" class="dt-tree-node is-branch ${tab.key === "roi" ? "is-active" : ""}" data-tab-key="roi" style="--tree-depth:0">ROI</button>
     <button type="button" class="dt-tree-node is-branch ${tab.key === "measure" ? "is-active" : ""}" data-tab-key="measure" style="--tree-depth:0">测量项</button>
-    <button type="button" class="dt-tree-node is-leaf" style="--tree-depth:1" disabled>长度</button>
-    <button type="button" class="dt-tree-node is-leaf" style="--tree-depth:1" disabled>头部直径</button>
     <button type="button" class="dt-tree-node is-branch ${tab.key === "validate" ? "is-active" : ""}" data-tab-key="validate" style="--tree-depth:0">验证</button>
-    <button type="button" class="dt-tree-node is-branch ${tab.key === "release" ? "is-active" : ""}" data-tab-key="release" style="--tree-depth:0">发布版本</button>
+    <button type="button" class="dt-tree-node is-branch" data-release-open style="--tree-depth:0">发布版本</button>
   `;
 }
 
@@ -1030,16 +1139,513 @@ function renderAssetTree(project) {
 }
 
 function renderTabs(tab) {
-  const currentIndex = TABS.findIndex((item) => item.key === tab.key);
-  refs.tabList.innerHTML = TABS.map((item, index) => {
-    const stateClass = index === currentIndex ? "is-active" : index < currentIndex ? "is-done" : "";
+  const tabItems = [
+    { key: "measure", label: "测量项配置" },
+    { key: "calibration", label: "标定" },
+    { key: "validate", label: "批量测试" },
+  ];
+  refs.tabList.innerHTML = `
+    <div class="dt-work-tab-group">
+      ${tabItems.map((item) => {
+    const stateClass = item.key === tab.key ? "is-active" : "";
     return `
-      <button type="button" class="dt-tab-btn ${stateClass}" data-tab-key="${item.key}">
-        <span class="dt-tab-btn-index">${index + 1}</span>
+          <button type="button" class="dt-work-tab ${stateClass}" data-tab-key="${item.key}">
         <span class="dt-tab-btn-label">${item.label}</span>
       </button>
     `;
-  }).join("");
+      }).join("")}
+    </div>
+    <button type="button" class="dt-work-action is-primary" data-release-open>
+      <span class="dt-tab-btn-label">发布</span>
+    </button>
+  `;
+}
+
+function getDefaultRoiNodes() {
+  return [
+    { type: "roiRange", x: 10, y: 10, w: 80, h: 80 },
+    { type: "roiTarget", x: 20, y: 20, w: 60, h: 60 },
+  ];
+}
+
+function renderToolboxPanel() {
+  const measureSection = getMeasureSection();
+  return `
+    <section class="dt-workbench-panel dt-toolbox-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>工具箱</strong>
+      </div>
+      <div class="dt-toolbox-tabs">
+        ${MEASURE_TOOL_SECTIONS.map((section) => {
+          const active = section.key === measureSection.key ? "is-active" : "";
+          return `<button type="button" class="dt-toolbox-tab ${active}" data-measure-section="${section.key}">${section.title}</button>`;
+        }).join("")}
+      </div>
+      <div class="dt-toolbox-scroll">
+        <div class="dt-toolbox-icon-grid">
+          ${measureSection.tools
+            .map((tool) => {
+              const active = state.measureElementSelected && tool.key === state.measureToolKey ? "is-active" : "";
+              return `
+                <button type="button" class="dt-toolbox-icon-btn ${active}" data-measure-tool="${tool.key}">
+                  <span class="dt-toolbox-icon-mark">${tool.icon}</span>
+                  <strong>${tool.label}</strong>
+                </button>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderFieldHint(text) {
+  return `<span class="dt-field-hint" tabindex="0" title="${text}">?</span>`;
+}
+
+function renderInfoInput(label, value, hint, type = "text") {
+  return `
+    <label class="dt-side-field">
+      <span class="dt-side-field-label">${label}${renderFieldHint(hint)}</span>
+      <input class="dt-side-input" type="${type}" value="${value}" />
+    </label>
+  `;
+}
+
+function renderInfoSelect(label, value, hint, options = []) {
+  const selectOptions = options.length ? options : [value];
+  return `
+    <label class="dt-side-field">
+      <span class="dt-side-field-label">${label}${renderFieldHint(hint)}</span>
+      <select class="dt-side-select">
+        ${selectOptions
+          .map((option) => `<option ${option === value ? "selected" : ""}>${option}</option>`)
+          .join("")}
+      </select>
+    </label>
+  `;
+}
+
+function getElementInfoFields(measureTool) {
+  if (measureTool.key === "line_segment") {
+    return [
+      { label: "元素名称", value: measureTool.itemName, hint: "用于在测量项、构造关系和结果中识别该直线段。" },
+      { label: "段长度", value: "1", hint: "直线段的最小有效长度，低于该值时不生成有效元素。", type: "number" },
+      { label: "残差阈值", value: "1.00", hint: "拟合直线允许的最大残差，值越小越严格。", type: "number" },
+    ];
+  }
+  if (measureTool.category === "元素") {
+    return [
+      { label: "元素名称", value: measureTool.itemName, hint: "用于在后续构造和测量中引用该元素。" },
+      { label: "搜索范围", value: "自动", hint: "限制该元素在模板图中的搜索区域。" },
+      { label: "识别阈值", value: "0.80", hint: "元素识别的置信阈值，值越高越严格。", type: "number" },
+    ];
+  }
+  if (measureTool.category === "构造") {
+    return [
+      { label: "元素名称", value: measureTool.itemName, hint: "构造元素的名称，用于后续测量引用。" },
+      { label: "输入元素", value: "未选择", hint: "构造该元素所依赖的上游元素。" },
+      { label: "输出类型", value: measureTool.name, hint: "当前构造工具生成的元素类型。" },
+    ];
+  }
+  if (measureTool.key === "line_distance") {
+    return [
+      {
+        label: "选择第一条线",
+        value: "未选择",
+        hint: "选择参与距离计算的第一条线。",
+        type: "select",
+        options: ["未选择", "直线段1", "中线1"],
+      },
+      {
+        label: "选择第二条线",
+        value: "未选择",
+        hint: "选择参与距离计算的第二条线。",
+        type: "select",
+        options: ["未选择", "直线段2", "中线1"],
+      },
+      { label: "元素名称", value: measureTool.itemName, hint: "该线线距离测量项的输出名称。" },
+      { label: "上限", value: "", hint: "测量值允许的最大值，留空表示不限制上限。", type: "number" },
+      { label: "下限", value: "", hint: "测量值允许的最小值，留空表示不限制下限。", type: "number" },
+      { label: "偏移量", value: "0", hint: "对测量输出进行固定补偿，可输入正值或负值。", type: "number" },
+    ];
+  }
+  return [
+    { label: "测量项名称", value: measureTool.itemName, hint: "最终输出到测量结果中的名称。" },
+    { label: "上限（可选）", value: "16.700", hint: "测量值允许的最大值，超出时输出 NG。", type: "number" },
+    { label: "下限（可选）", value: "16.200", hint: "测量值允许的最小值，低于时输出 NG。", type: "number" },
+    { label: "输出精度", value: "0.001", hint: "测量结果显示和输出的小数精度。", type: "number" },
+  ];
+}
+
+function renderElementInfoPanel() {
+  const measureTool = getMeasureToolMeta();
+  if (!state.measureElementSelected) {
+    return `
+      <section class="dt-workbench-panel dt-config-panel">
+        <div class="dt-workbench-panel-head">
+          <strong>元素信息</strong>
+        </div>
+        <div class="dt-panel-scroll">
+          <div class="dt-empty-mini">未选中元素</div>
+        </div>
+      </section>
+    `;
+  }
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>元素信息</strong>
+      </div>
+      <div class="dt-panel-scroll">
+        ${getElementInfoFields(measureTool)
+          .map((field) =>
+            field.type === "select"
+              ? renderInfoSelect(field.label, field.value, field.hint, field.options)
+              : renderInfoInput(field.label, field.value, field.hint, field.type || "text")
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderPixelSizePanel(tabState) {
+  const pixelSize = getPixelSizeValue(tabState);
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>像素尺寸</strong>
+      </div>
+      <div class="dt-panel-scroll">
+        <label class="dt-side-field">
+          <span class="dt-side-field-label">mm/px</span>
+          <input class="dt-side-input" type="number" value="${pixelSize}" step="0.001" data-pixel-size-input />
+        </label>
+      </div>
+    </section>
+  `;
+}
+
+function renderCalibrationPanel(tabState, calibrationImageReady = true) {
+  const mode = state.calibrationMode === "manual" ? "manual" : "auto";
+  const calibrationUploadText = mode === "manual" ? "请先上传一张标定块或标准件图像" : "请先上传一张棋盘格图像";
+  const boardType = (tabState.results || []).find((item) => item.label === "标定板")?.value || "标准板 A-10mm";
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>标定配置</strong>
+      </div>
+      <div class="dt-panel-scroll">
+        <div class="dt-calibration-mode-tabs">
+          <button type="button" class="${mode === "auto" ? "is-active" : ""}" data-calibration-mode="auto">自动标定</button>
+          <button type="button" class="${mode === "manual" ? "is-active" : ""}" data-calibration-mode="manual">手动标定</button>
+        </div>
+        ${!calibrationImageReady ? `
+          <div class="dt-side-field">
+            <span class="dt-side-field-label">标定图</span>
+            <span class="dt-side-field-value">${calibrationUploadText}</span>
+          </div>
+        ` : mode === "auto" ? `
+          <label class="dt-side-field">
+            <span class="dt-side-field-label">标定板型号</span>
+            <select class="dt-side-select">
+              <option selected>${boardType}</option>
+              <option>标准板 B-20mm</option>
+            </select>
+          </label>
+          <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="auto">自动标定</button>
+        ` : `
+          <label class="dt-side-field">
+            <span class="dt-side-field-label">测量项</span>
+            <select class="dt-side-select">
+              <option selected>螺杆1总长</option>
+              <option>螺杆1螺纹长</option>
+              <option>头部直径</option>
+            </select>
+          </label>
+          <label class="dt-side-field">
+            <span class="dt-side-field-label">实际尺寸（mm）</span>
+            <input class="dt-side-input" type="number" value="10.000000" step="0.000001" />
+          </label>
+          <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="manual">计算并应用</button>
+        `}
+      </div>
+    </section>
+  `;
+}
+
+function renderCalibrationUploadGuide() {
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>标定配置</strong>
+      </div>
+      <div class="dt-panel-scroll">
+        <div class="dt-side-field">
+          <span class="dt-side-field-label">标定图</span>
+          <span class="dt-side-field-value">请先上传一张标定图像</span>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderValidateListPanel(project, tab) {
+  const validateImagesReady = hasValidateImages(project);
+  const validateSamples = getSamplesForTab(project, tab.key);
+  const activeSample = getActiveSample(project, tab.key);
+  const validateResultMap = { ok: "OK", warn: "NG", error: "异常" };
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>待测列表</strong>
+      </div>
+      <div class="dt-validate-panel-body">
+        <div class="dt-validate-toolbar">
+          <button type="button" class="dt-step-tool-btn is-primary" data-validate-action="upload">上传测试图</button>
+          <button type="button" class="dt-step-tool-btn" data-validate-action="run" ${validateImagesReady ? "" : "disabled"}>执行批量测试</button>
+        </div>
+        <div class="dt-validate-list">
+          ${validateImagesReady ? validateSamples
+            .map((sample) => {
+              const active = sample.id === activeSample?.id ? "is-active" : "";
+              const tone = sample.status === "error" ? "is-error" : sample.status === "warn" ? "is-warn" : "is-ok";
+              const resultText = validateResultMap[sample.status] || "OK";
+              return `
+                <button type="button" class="dt-validate-card ${active}" data-sample-id="${sample.id}">
+                  <img src="${sample.image}" alt="${sample.name}" />
+                  <div class="dt-validate-card-copy">
+                    <strong>${sample.name}</strong>
+                    <span>${sample.summary || "待测图像"}</span>
+                  </div>
+                  <span class="dt-validate-card-result ${tone}">${resultText}</span>
+                </button>
+              `;
+            })
+            .join("") : `<div class="dt-empty-mini">暂无测试图</div>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderConfigPanel(project, tab, tabState) {
+  const measureTool = getMeasureToolMeta();
+  const isMeasureTool = measureTool.category === "测量";
+  const pixelSize = (tabState.results || []).find((item) => item.label === "像素尺寸")?.value || "--";
+  const boardType = (tabState.results || []).find((item) => item.label === "标定板")?.value || "标准板 A-10mm";
+  const releaseState = getReleaseReadiness(project);
+  const titleMap = {
+    roi: "工具配置 - ROI",
+    measure: `工具配置 - ${measureTool.name}`,
+    calibration: "工具配置 - 标定",
+    validate: "工具配置 - 测试",
+    release: "发布前检查",
+  };
+
+  if (tab.key === "release") {
+    return `
+      <section class="dt-workbench-panel dt-config-panel">
+        <div class="dt-workbench-panel-head">
+          <strong>${titleMap.release}</strong>
+        </div>
+        <div class="dt-panel-scroll">
+          <div class="dt-release-list">
+            ${releaseState.checks
+              .map((item) => `
+                <div class="dt-release-check-row">
+                  <div class="dt-release-check-copy">
+                    <strong>${item.label}</strong>
+                    <span class="dt-release-check-state is-${item.status}">${item.statusLabel}</span>
+                  </div>
+                  ${item.status === "missing" ? `<button type="button" class="dt-row-btn" data-release-tab="${item.targetTab}">去处理</button>` : ""}
+                </div>
+              `)
+              .join("")}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab.key === "calibration") {
+    const mode = state.calibrationMode || "auto";
+    return `
+      <section class="dt-workbench-panel dt-config-panel">
+        <div class="dt-workbench-panel-head">
+          <strong>${titleMap.calibration}</strong>
+        </div>
+        <div class="dt-panel-scroll">
+          <div class="dt-calibration-mode-tabs">
+            <button type="button" class="${mode === "auto" ? "is-active" : ""}" data-calibration-mode="auto">自动标定</button>
+            <button type="button" class="${mode === "manual" ? "is-active" : ""}" data-calibration-mode="manual">手动标定</button>
+            <button type="button" class="${mode === "direct" ? "is-active" : ""}" data-calibration-mode="direct">直接输入</button>
+          </div>
+          ${mode === "auto" ? `
+            <label class="dt-side-field">
+              <span class="dt-side-field-label">标定模板</span>
+              <select class="dt-side-select">
+                <option selected>${boardType}</option>
+                <option>标准板 B-20mm</option>
+              </select>
+            </label>
+            <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="auto">自动标定</button>
+          ` : ""}
+          ${mode === "manual" ? `
+            <label class="dt-side-field">
+              <span class="dt-side-field-label">选择测量项</span>
+              <select class="dt-side-select">
+                <option selected>DistanceValueShape_0</option>
+                <option>螺杆1总长</option>
+              </select>
+            </label>
+            <label class="dt-side-field">
+              <span class="dt-side-field-label">实际尺寸（mm）</span>
+              <input class="dt-side-input" type="number" value="10.000000" step="0.000001" />
+            </label>
+            <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="manual">计算并应用</button>
+          ` : ""}
+          ${mode === "direct" ? `
+            <label class="dt-side-field">
+              <span class="dt-side-field-label">标定值（mm/px）</span>
+              <input class="dt-side-input" type="number" value="0.021" step="0.001" />
+            </label>
+            <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="direct">应用标定值</button>
+          ` : ""}
+          <div class="dt-side-field">
+            <span class="dt-side-field-label">当前像素尺寸</span>
+            <strong class="dt-side-metric">${pixelSize}</strong>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab.key === "roi") {
+    const templateReady = hasTemplateImage(project);
+    return `
+      <section class="dt-workbench-panel dt-config-panel">
+        <div class="dt-workbench-panel-head">
+          <strong>${titleMap.roi}</strong>
+        </div>
+        <div class="dt-panel-scroll">
+          <div class="dt-side-field">
+            <span class="dt-side-field-label">模版图</span>
+            <span class="dt-side-field-value">${templateReady ? "已上传，可在画布中更换" : "未上传"}</span>
+          </div>
+          <div class="dt-side-field">
+            <span class="dt-side-field-label">出现范围</span>
+            <span class="dt-side-field-value">蓝色大框，限制检测对象可能出现的区域</span>
+          </div>
+          <div class="dt-side-field">
+            <span class="dt-side-field-label">检测对象</span>
+            <span class="dt-side-field-value">绿色小框，表示当前模板中的检测对象</span>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  if (tab.key === "validate") {
+    const validateSamples = getSamplesForTab(project, tab.key);
+    const activeSample = getActiveSample(project, tab.key);
+    const validateResultMap = { ok: "OK", warn: "NG", error: "异常" };
+    return `
+      <section class="dt-workbench-panel dt-config-panel">
+        <div class="dt-workbench-panel-head">
+          <strong>批量测试</strong>
+        </div>
+        <div class="dt-panel-scroll">
+          <div class="dt-validate-toolbar">
+            <button type="button" class="dt-step-tool-btn is-primary" data-validate-action="upload">上传测试图</button>
+            <button type="button" class="dt-step-tool-btn" data-validate-action="run">执行批量测试</button>
+          </div>
+          <div class="dt-validate-list">
+            ${validateSamples
+              .map((sample) => {
+                const active = sample.id === activeSample?.id ? "is-active" : "";
+                const tone = sample.status === "error" ? "is-error" : sample.status === "warn" ? "is-warn" : "is-ok";
+                const resultText = validateResultMap[sample.status] || "OK";
+                return `
+                  <button type="button" class="dt-validate-card ${active}" data-sample-id="${sample.id}">
+                    <img src="${sample.image}" alt="${sample.name}" />
+                    <div class="dt-validate-card-copy">
+                      <strong>${sample.name}</strong>
+                      ${sample.metric ? `<em>${sample.metric}</em>` : ""}
+                    </div>
+                    <span class="dt-validate-card-result ${tone}">${resultText}</span>
+                  </button>
+                `;
+              })
+              .join("")}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="dt-workbench-panel dt-config-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>${titleMap.measure}</strong>
+      </div>
+      <div class="dt-panel-scroll">
+        <label class="dt-side-field">
+          <span class="dt-side-field-label">测量项名称</span>
+          <input class="dt-side-input" type="text" value="${measureTool.itemName}" />
+        </label>
+        ${isMeasureTool ? `
+          <label class="dt-side-field">
+            <span class="dt-side-field-label">上限（可选）</span>
+            <input class="dt-side-input" type="text" placeholder="例如 16.700" />
+          </label>
+          <label class="dt-side-field">
+            <span class="dt-side-field-label">下限（可选）</span>
+            <input class="dt-side-input" type="text" placeholder="例如 16.200" />
+          </label>
+        ` : ""}
+      </div>
+    </section>
+  `;
+}
+
+function renderMeasureValuePanel(tabState, tab) {
+  const activeProject = getProject();
+  const activeSample = getActiveSample(activeProject, tab.key);
+  const rows = tab.key === "validate" && hasValidateImages(activeProject) ? getMeasureRows(activeSample?.id) : [];
+  const results = tabState.results || [];
+  const imageStatus = tab.key === "release" ? "待发布" : tab.key === "validate" ? "已运行测试" : "配置中";
+  return `
+    <section class="dt-workbench-panel dt-value-panel">
+      <div class="dt-workbench-panel-head">
+        <strong>${tab.key === "measure" ? "测量项" : "测量值"}</strong>
+      </div>
+      <div class="dt-workbench-value-list">
+        ${rows.length
+          ? rows.map((item) => `
+            <div class="dt-measure-row">
+              <div>
+                <strong>${item.name}</strong>
+                <span>${item.lower} - ${item.upper} mm</span>
+              </div>
+              <em>${item.value}</em>
+              <b class="is-${item.result === "OK" ? "ok" : item.result === "NG" ? "ng" : "error"}">${item.result}</b>
+            </div>
+          `).join("")
+          : tab.key === "measure"
+            ? `<div class="dt-empty-mini">暂无测量项</div>`
+            : results.length
+            ? results.map((item) => `<div class="dt-result-card"><span>${item.label}</span><strong>${item.value}</strong></div>`).join("")
+            : `<div class="dt-empty-mini">暂无测量值</div>`}
+      </div>
+      <div class="dt-image-state-row" ${tab.key === "measure" || tab.key === "validate" ? "hidden" : ""}>
+        <span>当前图像状态：</span>
+        <strong>${imageStatus}</strong>
+      </div>
+    </section>
+  `;
 }
 
 function renderStepScaffold(project, tab) {
@@ -1049,33 +1655,45 @@ function renderStepScaffold(project, tab) {
   const isMeasureConfig = tab.key === "measure";
   const isValidateConfig = tab.key === "validate";
   const isReleaseConfig = tab.key === "release";
-  const pixelSize = (tabState.results || []).find((item) => item.label === "像素尺寸")?.value || "--";
-  const boardType = (tabState.results || []).find((item) => item.label === "标定板")?.value || "标准板 A-10mm";
-  const measureTool = getMeasureToolMeta();
-  const measureSection = getMeasureSection();
-  const isMeasureTool = measureTool.category === "测量";
-  const validateSamples = getSamplesForTab(project, tab.key);
-  const activeSample = getActiveSample(project, tab.key);
-  const validateResultMap = {
-    ok: "OK",
-    warn: "NG",
-    error: "异常",
-  };
+  const templateReady = hasTemplateImage(project);
+  const calibrationImageReady = hasCalibrationImage(project);
+  const validateImagesReady = hasValidateImages(project);
+  const showTemplateEmptyState = (isTemplateConfig || isMeasureConfig) && !templateReady;
+  const showCalibrationEmptyState = isCalibration && !calibrationImageReady;
+  const showValidateEmptyState = isValidateConfig && !validateImagesReady;
   const releaseState = getReleaseReadiness(project);
 
   if (!refs.workspace || !refs.stageUpload || !refs.rightPanel || !refs.leftPanel || !refs.stageContent) return;
 
+  refs.workspace.classList.add("is-workbench");
   refs.workspace.classList.toggle("is-calibration", isCalibration);
   refs.workspace.classList.toggle("is-template-config", isTemplateConfig);
   refs.workspace.classList.toggle("is-measure-config", isMeasureConfig);
   refs.workspace.classList.toggle("is-validate-config", isValidateConfig);
   refs.workspace.classList.toggle("is-release-config", isReleaseConfig);
-  refs.leftPanel.hidden = !isMeasureConfig && !isValidateConfig && !isReleaseConfig;
-  refs.stageUpload.hidden = !isCalibration && !isTemplateConfig && !isMeasureConfig && !isValidateConfig && !isReleaseConfig;
-  refs.stageContent.hidden = !isReleaseConfig;
-  refs.rightPanel.hidden = !isCalibration && !isTemplateConfig && !isMeasureConfig;
-  refs.stageImage.hidden = isReleaseConfig;
-  refs.overlay.hidden = isReleaseConfig;
+  refs.workspace.classList.toggle("is-calibration-manual", isCalibration && state.calibrationMode === "manual" && calibrationImageReady);
+  refs.workspace.classList.toggle("is-calibration-auto", isCalibration && state.calibrationMode !== "manual" && calibrationImageReady);
+  refs.leftPanel.hidden = true;
+  refs.stageUpload.hidden = false;
+  refs.stageContent.hidden = !isReleaseConfig && !showTemplateEmptyState && !showCalibrationEmptyState && !showValidateEmptyState;
+  refs.rightPanel.hidden = false;
+  refs.stageImage.hidden = isReleaseConfig || showTemplateEmptyState || showCalibrationEmptyState || showValidateEmptyState;
+  refs.overlay.hidden = isReleaseConfig || showTemplateEmptyState || showCalibrationEmptyState || showValidateEmptyState;
+  refs.leftPanel.innerHTML = "";
+  refs.stageImage.style.transform = `translate(-50%, -50%) scale(${state.stageZoom})`;
+  refs.overlay.style.transform = `translate(-50%, -50%) scale(${state.stageZoom})`;
+  if (refs.uploadTemplateBtn) {
+    refs.uploadTemplateBtn.hidden = isReleaseConfig;
+  }
+  const currentImageReady = isCalibration ? calibrationImageReady : isValidateConfig ? validateImagesReady : templateReady;
+  if (refs.toggleRoiInput) {
+    refs.toggleRoiInput.disabled = !currentImageReady;
+    refs.toggleRoiInput.classList.toggle("is-active", state.roiVisible);
+    refs.toggleRoiInput.classList.toggle("is-hidden-roi", !state.roiVisible);
+  }
+  if (refs.resetViewBtn) {
+    refs.resetViewBtn.disabled = !currentImageReady;
+  }
 
   if (!isCalibration && !isTemplateConfig && !isMeasureConfig && !isValidateConfig && !isReleaseConfig) {
     refs.leftPanel.innerHTML = "";
@@ -1085,63 +1703,12 @@ function renderStepScaffold(project, tab) {
     return;
   }
 
-  if (isCalibration) {
-    refs.leftPanel.innerHTML = "";
-    refs.stageUpload.innerHTML = `
-      <button type="button" class="dt-stage-upload-btn">导入标定图</button>
-    `;
-
-    refs.rightPanel.innerHTML = `
-      <label class="dt-side-field">
-        <span class="dt-side-field-label">标定模板</span>
-        <select class="dt-side-select">
-          <option selected>${boardType}</option>
-          <option>标准板 B-20mm</option>
-        </select>
-      </label>
-      <button type="button" class="dt-step-tool-btn is-primary dt-side-action">自动标定</button>
-      <div class="dt-side-field">
-        <span class="dt-side-field-label">像素尺寸</span>
-        <strong class="dt-side-metric">${pixelSize}</strong>
-      </div>
-    `;
-    return;
-  }
-
-  if (isTemplateConfig) {
-    refs.leftPanel.innerHTML = "";
-    refs.stageUpload.innerHTML = `
-      <button type="button" class="dt-stage-upload-btn">上传模版图</button>
-    `;
-
-    refs.rightPanel.innerHTML = `
-      <button type="button" class="dt-step-tool-btn dt-side-action">框检测对象</button>
-      <button type="button" class="dt-step-tool-btn dt-side-action">框出现范围</button>
-    `;
-    return;
-  }
-
   if (isReleaseConfig) {
-    refs.leftPanel.innerHTML = `
-      <div class="dt-release-list">
-        ${releaseState.checks
-          .map((item) => {
-            return `
-              <div class="dt-release-check-row">
-                <div class="dt-release-check-copy">
-                  <strong>${item.label}</strong>
-                  <span class="dt-release-check-state is-${item.status}">${item.statusLabel}</span>
-                </div>
-                ${item.status === "missing" ? `<button type="button" class="dt-row-btn" data-release-tab="${item.targetTab}">去处理</button>` : ""}
-              </div>
-            `;
-          })
-          .join("")}
-      </div>
-    `;
-
     refs.stageUpload.innerHTML = "";
-    refs.rightPanel.innerHTML = "";
+    refs.rightPanel.innerHTML = `
+      ${renderConfigPanel(project, tab, tabState)}
+      ${renderMeasureValuePanel(tabState, tab)}
+    `;
     refs.stageContent.innerHTML = `
       <div class="dt-release-card">
         <div class="dt-release-card-head">
@@ -1171,104 +1738,91 @@ function renderStepScaffold(project, tab) {
     return;
   }
 
-  refs.leftPanel.innerHTML = `
-    <div class="dt-toolbox-tabs">
-      ${MEASURE_TOOL_SECTIONS.map((section) => {
-        const active = section.key === measureSection.key ? "is-active" : "";
-        return `<button type="button" class="dt-toolbox-tab ${active}" data-measure-section="${section.key}">${section.title}</button>`;
-      }).join("")}
-    </div>
-    <div class="dt-toolbox-icon-grid">
-      ${measureSection.tools
-        .map((tool) => {
-          const active = tool.key === state.measureToolKey ? "is-active" : "";
-          return `
-            <button type="button" class="dt-toolbox-icon-btn ${active}" data-measure-tool="${tool.key}">
-              <span class="dt-toolbox-icon-mark">${tool.icon}</span>
-              <strong>${tool.label}</strong>
-            </button>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-
-  refs.stageUpload.innerHTML = `
-    <div class="dt-stage-floating">
-      <strong>${measureTool.name}</strong>
-      <span>${measureTool.drawHint}</span>
-    </div>
-  `;
-
-  refs.rightPanel.innerHTML = `
-    <div class="dt-toolbox-head">
-      <strong>测量项参数</strong>
-    </div>
-    <label class="dt-side-field">
-      <span class="dt-side-field-label">测量项名称</span>
-      <input class="dt-side-input" type="text" value="${measureTool.itemName}" />
-    </label>
-    ${isMeasureTool ? `
-      <label class="dt-side-field">
-        <span class="dt-side-field-label">上限（可选）</span>
-        <input class="dt-side-input" type="text" placeholder="例如 16.700" />
-      </label>
-      <label class="dt-side-field">
-        <span class="dt-side-field-label">下限（可选）</span>
-        <input class="dt-side-input" type="text" placeholder="例如 16.200" />
-      </label>
-    ` : ""}
-  `;
-
-  if (!isValidateConfig) {
-    return;
+  const uploadLabel = isCalibration
+    ? calibrationImageReady ? "更换标定图" : "上传标定图"
+    : isValidateConfig
+      ? "上传测试图"
+      : templateReady
+        ? "更换模版图"
+        : "上传模版图";
+  if (refs.uploadTemplateBtn) {
+    refs.uploadTemplateBtn.textContent = uploadLabel;
   }
-
-  refs.leftPanel.innerHTML = `
-    <div class="dt-validate-toolbar">
-      <button type="button" class="dt-step-tool-btn is-primary">上传验证图</button>
-      <button type="button" class="dt-step-tool-btn">开始验证</button>
-    </div>
-    <div class="dt-validate-list">
-      ${validateSamples
-        .map((sample) => {
-          const active = sample.id === activeSample?.id ? "is-active" : "";
-          const tone =
-            sample.status === "error" ? "is-error" : sample.status === "warn" ? "is-warn" : "is-ok";
-          const resultText = validateResultMap[sample.status] || "OK";
-          return `
-            <button type="button" class="dt-validate-card ${active}" data-sample-id="${sample.id}">
-              <img src="${sample.image}" alt="${sample.name}" />
-              <div class="dt-validate-card-copy">
-                <strong>${sample.name}</strong>
-                ${sample.summary ? `<span>${sample.summary}</span>` : ""}
-                ${sample.metric ? `<em>${sample.metric}</em>` : ""}
-              </div>
-              <span class="dt-validate-card-result ${tone}">${resultText}</span>
-            </button>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-
-  refs.stageUpload.innerHTML = "";
-  refs.rightPanel.innerHTML = "";
-
-  if (!isValidateConfig) {
-    refs.stageContent.innerHTML = "";
-    return;
+  refs.stageUpload.hidden = showTemplateEmptyState || showCalibrationEmptyState || showValidateEmptyState || isValidateConfig;
+  refs.stageUpload.innerHTML = `<button type="button" class="dt-stage-upload-btn">${uploadLabel}</button>`;
+  if (isValidateConfig) {
+    refs.rightPanel.innerHTML = `
+      ${renderValidateListPanel(project, tab)}
+      ${renderMeasureValuePanel(tabState, tab)}
+    `;
+  } else if (isCalibration) {
+    if (!calibrationImageReady) {
+      refs.rightPanel.innerHTML = `
+        ${renderPixelSizePanel(tabState)}
+        ${renderCalibrationPanel(tabState, false)}
+      `;
+    } else if (state.calibrationMode === "manual") {
+      refs.rightPanel.innerHTML = `
+        ${renderPixelSizePanel(tabState)}
+        ${renderCalibrationPanel(tabState, true)}
+        ${renderToolboxPanel()}
+        ${renderElementInfoPanel()}
+      `;
+    } else {
+      refs.rightPanel.innerHTML = `
+        ${renderPixelSizePanel(tabState)}
+        ${renderCalibrationPanel(tabState, true)}
+      `;
+    }
+  } else if (isMeasureConfig) {
+    refs.rightPanel.innerHTML = templateReady
+      ? `
+        ${renderToolboxPanel()}
+        ${renderElementInfoPanel()}
+        ${renderMeasureValuePanel(tabState, tab)}
+      `
+      : `
+        <section class="dt-workbench-panel dt-config-panel">
+          <div class="dt-workbench-panel-head">
+            <strong>测量项配置</strong>
+          </div>
+          <div class="dt-panel-scroll">
+            <div class="dt-empty-mini">请先上传标准模版图像</div>
+          </div>
+        </section>
+      `;
+  } else {
+    refs.rightPanel.innerHTML = `
+      ${renderToolboxPanel()}
+      ${renderConfigPanel(project, tab, tabState)}
+      ${renderMeasureValuePanel(tabState, tab)}
+    `;
   }
+  const zoomPercent = Math.round(state.stageZoom * 100);
+  refs.stageContent.innerHTML = showTemplateEmptyState || showCalibrationEmptyState || showValidateEmptyState
+    ? `
+      <button type="button" class="dt-template-empty-card" data-template-upload>
+        <strong>${showCalibrationEmptyState ? "上传标定图" : showValidateEmptyState ? "上传测试图" : "上传模版图"}</strong>
+        <span>${showCalibrationEmptyState ? state.calibrationMode === "manual" ? "请先上传一张标定块或标准件图像" : "请先上传一张棋盘格图像" : showValidateEmptyState ? "请先上传若干测试图，用于批量测试" : "请先上传一张标准模版图像，用于测量项配置"}</span>
+      </button>
+    `
+    : `
+      <div class="dt-stage-zoom">
+        <button type="button" data-stage-zoom="out">-</button>
+        <span>${zoomPercent}%</span>
+        <button type="button" data-stage-zoom="in">+</button>
+      </div>
+    `;
 }
 
 function renderMain(project, tab, sample) {
   const currentIndex = TABS.findIndex((item) => item.key === tab.key);
+  refs.prevStepBtn.hidden = true;
+  refs.nextStepBtn.hidden = true;
+  refs.skipStepBtn.hidden = true;
   if (!project) {
     refs.prevStepBtn.disabled = true;
     refs.nextStepBtn.disabled = true;
-    refs.nextStepBtn.textContent = "下一步";
-    refs.nextStepBtn.hidden = false;
-    refs.skipStepBtn.hidden = true;
     refs.skipStepBtn.textContent = "跳过";
     refs.stageImage.removeAttribute("src");
     return;
@@ -1276,8 +1830,6 @@ function renderMain(project, tab, sample) {
   refs.prevStepBtn.disabled = currentIndex <= 0;
   refs.nextStepBtn.disabled = currentIndex >= TABS.length - 1;
   refs.nextStepBtn.textContent = currentIndex >= TABS.length - 1 ? "完成" : "下一步";
-  refs.nextStepBtn.hidden = tab.key === "release";
-  refs.skipStepBtn.hidden = !["calibration", "validate"].includes(tab.key);
   refs.skipStepBtn.textContent = tab.key === "validate" ? "跳过验证" : "跳过标定";
   refs.stageImage.src = sample?.image || "";
 }
@@ -1291,12 +1843,13 @@ function moveStep(offset) {
 }
 
 function renderOverlay(project, tab, sample) {
-  if (tab.key === "calibration" || tab.key === "measure" || tab.key === "release") {
+  if (tab.key === "release") {
     refs.overlay.innerHTML = "";
     return;
   }
   const tabState = getTabState(project, tab.key);
-  const nodes = tabState.overlays?.[sample?.id] || [];
+  const tabNodes = (tabState.overlays?.[sample?.id] || []).filter((node) => !["roi", "box"].includes(node.type));
+  const nodes = state.roiVisible ? [...getDefaultRoiNodes(), ...tabNodes] : tabNodes;
   refs.overlay.innerHTML = "";
   nodes.forEach((node) => {
     const el = document.createElement("div");
@@ -1309,7 +1862,14 @@ function renderOverlay(project, tab, sample) {
       return;
     }
 
-    el.className = node.type === "roi" ? "dt-shape dt-roi" : "dt-shape";
+    el.className =
+      node.type === "roiRange"
+        ? "dt-shape dt-roi-range"
+        : node.type === "roiTarget"
+          ? "dt-shape dt-roi-target"
+          : node.type === "roi"
+            ? "dt-shape dt-roi"
+            : "dt-shape";
     el.style.left = `${node.x}%`;
     el.style.top = `${node.y}%`;
 
@@ -1394,14 +1954,14 @@ function renderModal() {
 
   if (modal.mode === "rename") {
     const project = findProject(modal.projectId);
-    refs.modalTitle.textContent = "重命名工程";
-    refs.modalDesc.textContent = "修改工程名称，不改变当前草稿或已发布状态。";
-    refs.modalSubmitBtn.textContent = "保存名称";
+    refs.modalTitle.textContent = "编辑工程信息";
+    refs.modalDesc.textContent = "";
+    refs.modalSubmitBtn.textContent = "保存信息";
     refs.projectNameInput.value = project?.name || "";
     refs.projectNoteInput.value = project?.note || "";
   } else {
     refs.modalTitle.textContent = "新建工程";
-    refs.modalDesc.textContent = "填写工程名称后，创建一个新的尺寸工程草稿。";
+    refs.modalDesc.textContent = "";
     refs.modalSubmitBtn.textContent = "创建并打开";
     refs.projectNameInput.value = "";
     refs.projectNoteInput.value = "";
@@ -1410,23 +1970,51 @@ function renderModal() {
 
 function renderSettingsModal() {
   refs.settingsModal.hidden = !state.settingsOpen;
-  refs.settingsAutoSaveInput.checked = state.localSettings.autoSave;
-  refs.settingsPathList.innerHTML = state.localSettings.paths
-    .map((item) => {
-      return `
-        <div class="dt-settings-path-row">
-          <div class="dt-settings-path-copy">
-            <strong>${item.label}</strong>
-            <span>${item.value}</span>
-          </div>
-          <div class="dt-settings-path-actions">
-            <button type="button" class="dt-row-btn" data-settings-action="open-path" data-settings-key="${item.key}">打开文件夹</button>
-            <button type="button" class="dt-row-btn" data-settings-action="copy-path" data-settings-key="${item.key}">复制路径</button>
-          </div>
+  refs.settingsModelServiceInput.value = state.localSettings.modelServiceUrl;
+  refs.settingsWorkspaceInput.value = state.localSettings.workspacePath;
+  refs.settingsLogInput.value = state.localSettings.logPath;
+  refs.settingsCacheInput.value = state.localSettings.cachePath;
+}
+
+function renderReleaseModal() {
+  const modal = state.releaseModal;
+  const project = getProject();
+  refs.releaseModal.hidden = !modal;
+  if (!modal) return;
+
+  refs.releaseModalTitle.textContent = modal.success ? "发布成功" : "确认发布";
+  refs.releaseModalDesc.textContent = modal.success ? "工程已发布完成。" : "请确认发布信息无误。";
+  refs.releaseModalBody.innerHTML = modal.success
+    ? `
+      <div class="dt-release-success">
+        <strong>发布成功</strong>
+        <span>${project?.name || "--"} 已发布为版本 ${modal.version}</span>
+      </div>
+      <div class="dt-modal-actions">
+        <button type="button" class="dt-toolbar-btn is-primary" data-release-close>完成</button>
+      </div>
+    `
+    : `
+      <div class="dt-release-confirm-list">
+        <div class="dt-release-confirm-row">
+          <span>工程名称</span>
+          <strong>${project?.name || "--"}</strong>
         </div>
-      `;
-    })
-    .join("");
+        <div class="dt-release-confirm-row">
+          <span>发布版本号</span>
+          <strong>${modal.version}</strong>
+        </div>
+      </div>
+      <div class="dt-modal-actions">
+        <button type="button" class="dt-toolbar-btn" data-release-close>取消</button>
+        <button type="button" class="dt-toolbar-btn is-primary" data-release-confirm>发布</button>
+      </div>
+    `;
+}
+
+function renderParamModals() {
+  refs.shapeMatchModal.hidden = state.paramModal !== "shape";
+  refs.preprocessModal.hidden = state.paramModal !== "preprocess";
 }
 
 function syncWindowState() {
@@ -1485,6 +2073,8 @@ function render() {
   renderNote(tab);
   renderModal();
   renderSettingsModal();
+  renderReleaseModal();
+  renderParamModals();
   syncWindowState();
 }
 
@@ -1518,6 +2108,111 @@ function closeSettingsModal() {
   render();
 }
 
+function buildReleaseVersion() {
+  const now = new Date();
+  const datePart = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("");
+  const suffix = String((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) % 100000).padStart(5, "0");
+  return `${datePart}${suffix}`;
+}
+
+function openReleaseModal() {
+  state.releaseModal = {
+    success: false,
+    version: buildReleaseVersion(),
+  };
+  render();
+}
+
+function closeReleaseModal() {
+  state.releaseModal = null;
+  render();
+}
+
+function openParamModal(type) {
+  state.paramModal = type;
+  render();
+}
+
+function closeParamModal() {
+  state.paramModal = null;
+  render();
+}
+
+function resetShapeParams() {
+  refs.shapeAngleFromInput.value = "-180";
+  refs.shapeAngleToInput.value = "180";
+  refs.shapeAngleStepInput.value = "1";
+  refs.shapeAccuracyInput.value = "1.00";
+  refs.shapeMatchInput.value = "0.40";
+  refs.shapeScaleInput.value = "0.10";
+}
+
+function resetPreprocessParams() {
+  refs.binaryThresholdInput.value = "-1";
+  refs.medianThresholdInput.value = "5";
+}
+
+function markWorkflowDone(key) {
+  const project = getProject();
+  if (!project) return;
+  project.workflowState = { ...(project.workflowState || {}), [key]: true };
+  project.updatedAt = formatNowLabel();
+}
+
+function handleWorkbenchUpload() {
+  const tab = getTab();
+  if (tab.key === "calibration") {
+    markWorkflowDone("calibrationImage");
+    setManagerMessage("已上传标定图（demo 示意）");
+    render();
+    return;
+  }
+  if (tab.key === "validate") {
+    markWorkflowDone("validateImages");
+    setManagerMessage("已上传测试图（demo 示意）");
+    render();
+    return;
+  }
+  markWorkflowDone("template");
+  setManagerMessage("已上传模版图（demo 示意）");
+  render();
+}
+
+function getBatchTestBlocker(project = getProject()) {
+  const workflowState = project?.workflowState || {};
+  if (workflowState.template !== true) return "请先上传模版图";
+  if (workflowState.roi !== true) return "请先完成 ROI 配置";
+  if (workflowState.measure !== true) return "请先配置测量项";
+  return "";
+}
+
+function setStageZoom(nextZoom) {
+  state.stageZoom = Math.min(2.6, Math.max(0.45, Number(nextZoom) || 1));
+  render();
+}
+
+function handleBatchTest() {
+  const blocker = getBatchTestBlocker();
+  if (blocker) {
+    setManagerMessage(`${blocker}，再执行批量测试`);
+    render();
+    return;
+  }
+  if (!hasValidateImages()) {
+    setManagerMessage("请先上传测试图，再执行批量测试");
+    render();
+    return;
+  }
+  state.tabKey = "validate";
+  markWorkflowDone("validate");
+  setManagerMessage("已执行批量测试（demo 示意）");
+  render();
+}
+
 function handleDuplicateProject(projectId) {
   const source = findProject(projectId);
   if (!source) return;
@@ -1538,16 +2233,21 @@ function handleDuplicateProject(projectId) {
 }
 
 function handleImportProject() {
+  refs.importProjectInput?.click();
+}
+
+function handleImportProjectFile(file) {
+  if (!file) return;
   const source = cloneDeep(PROJECTS[2] || PROJECTS[0] || createBaseProjectTemplate());
   source.id = buildProjectId();
-  source.name = makeCopyName(source.name || "导入工程");
+  source.name = file.name ? file.name.replace(/\.[^.]+$/, "") : "导入工程";
   source.updatedAt = formatNowLabel();
   PROJECTS.unshift(source);
   state.managerSelectedProjectId = source.id;
   state.projectId = source.id;
   state.editorOpen = true;
   state.activeWindow = "editor";
-  setManagerMessage(`已导入工程“${source.name}”，当前保留原状态为“${normalizeProjectState(source)}”`);
+  clearManagerMessage();
   render();
 }
 
@@ -1566,7 +2266,14 @@ function handleDeleteProject(projectId) {
 
 refs.createProjectBtn.addEventListener("click", openCreateModal);
 refs.importProjectBtn.addEventListener("click", handleImportProject);
-refs.openSettingsBtn.addEventListener("click", openSettingsModal);
+refs.importProjectInput?.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  handleImportProjectFile(file);
+  event.target.value = "";
+});
+refs.openSettingsBtns.forEach((button) => {
+  button.addEventListener("click", openSettingsModal);
+});
 
 refs.projectSearch.addEventListener("input", (event) => {
   state.managerQuery = event.target.value || "";
@@ -1610,6 +2317,18 @@ refs.projectList.addEventListener("click", (event) => {
     render();
     return;
   }
+  if (action === "export-model") {
+    state.managerMenuProjectId = "";
+    setManagerMessage(`已导出模型“${findProject(projectId)?.name || ""}”（demo 提示）`);
+    render();
+    return;
+  }
+  if (action === "publish-model") {
+    state.managerMenuProjectId = "";
+    setManagerMessage(`已发布模型“${findProject(projectId)?.name || ""}”（demo 提示）`);
+    render();
+    return;
+  }
   if (action === "delete-project") {
     handleDeleteProject(projectId);
   }
@@ -1633,6 +2352,11 @@ refs.managerEmpty.addEventListener("click", (event) => {
 
 if (refs.projectNav) {
   refs.projectNav.addEventListener("click", (event) => {
+    const releaseOpenButton = event.target.closest("[data-release-open]");
+    if (releaseOpenButton) {
+      openReleaseModal();
+      return;
+    }
     const button = event.target.closest("[data-tab-key]");
     if (!button) return;
     state.tabKey = button.dataset.tabKey || state.tabKey;
@@ -1650,10 +2374,32 @@ if (refs.assetTree) {
   });
 }
 
+if (refs.stageUpload) {
+  refs.stageUpload.addEventListener("click", (event) => {
+    const button = event.target.closest(".dt-stage-upload-btn");
+    if (!button) return;
+    handleWorkbenchUpload();
+  });
+}
+
 refs.tabList.addEventListener("click", (event) => {
+  const releaseOpenButton = event.target.closest("[data-release-open]");
+  if (releaseOpenButton) {
+    openReleaseModal();
+    return;
+  }
+
+  const actionButton = event.target.closest("[data-editor-action='batch-test']");
+  if (actionButton) {
+    handleBatchTest();
+    return;
+  }
   const button = event.target.closest("[data-tab-key]");
   if (!button) return;
   state.tabKey = button.dataset.tabKey || state.tabKey;
+  if (state.tabKey === "calibration") {
+    state.calibrationMode = "auto";
+  }
   state.activeWindow = "editor";
   render();
 });
@@ -1682,6 +2428,7 @@ if (refs.leftPanel) {
     const button = event.target.closest("[data-measure-tool]");
     if (!button) return;
     state.measureToolKey = button.dataset.measureTool || state.measureToolKey;
+    state.measureElementSelected = true;
     const matchedSection = MEASURE_TOOL_SECTIONS.find((section) =>
       section.tools.some((tool) => tool.key === state.measureToolKey)
     );
@@ -1692,8 +2439,153 @@ if (refs.leftPanel) {
   });
 }
 
+if (refs.rightPanel) {
+  refs.rightPanel.addEventListener("click", (event) => {
+    const releaseTabButton = event.target.closest("[data-release-tab]");
+    if (releaseTabButton) {
+      state.tabKey = releaseTabButton.dataset.releaseTab || state.tabKey;
+      render();
+      return;
+    }
+
+    const calibrationModeButton = event.target.closest("[data-calibration-mode]");
+    if (calibrationModeButton) {
+      state.calibrationMode = calibrationModeButton.dataset.calibrationMode || state.calibrationMode;
+      render();
+      return;
+    }
+
+    const roiButton = event.target.closest("[data-roi-action]");
+    if (roiButton) {
+      markWorkflowDone("roi");
+      render();
+      return;
+    }
+
+    const calibrationButton = event.target.closest("[data-calibration-action]");
+    if (calibrationButton) {
+      markWorkflowDone("calibration");
+      render();
+      return;
+    }
+
+    const validateButton = event.target.closest("[data-validate-action]");
+    if (validateButton) {
+      if (validateButton.dataset.validateAction === "run") {
+        handleBatchTest();
+      } else {
+        markWorkflowDone("validateImages");
+        setManagerMessage("已上传多张测试图（demo 示意）");
+        render();
+      }
+      return;
+    }
+
+    const sampleButton = event.target.closest("[data-sample-id]");
+    if (sampleButton && state.tabKey === "validate") {
+      state.sampleByTab[state.tabKey] = sampleButton.dataset.sampleId || state.sampleByTab[state.tabKey];
+      render();
+      return;
+    }
+
+    const tabButton = event.target.closest("[data-measure-section]");
+    if (tabButton) {
+      state.measureToolSectionKey = tabButton.dataset.measureSection || state.measureToolSectionKey;
+      render();
+      return;
+    }
+
+    const toolButton = event.target.closest("[data-measure-tool]");
+    if (!toolButton) return;
+    state.measureToolKey = toolButton.dataset.measureTool || state.measureToolKey;
+    state.measureElementSelected = true;
+    const matchedSection = MEASURE_TOOL_SECTIONS.find((section) =>
+      section.tools.some((tool) => tool.key === state.measureToolKey)
+    );
+    if (matchedSection) {
+      state.measureToolSectionKey = matchedSection.key;
+    }
+    render();
+  });
+}
+
+refs.editorBackBtn.addEventListener("click", closeEditorWindow);
+refs.uploadTemplateBtn?.addEventListener("click", handleWorkbenchUpload);
+refs.runTestBtn?.addEventListener("click", handleBatchTest);
+refs.resetViewBtn.addEventListener("click", () => {
+  state.stageZoom = 1;
+  setManagerMessage("已重置画布视图（demo 示意）");
+  render();
+});
+refs.fitViewBtn?.addEventListener("click", () => {
+  setManagerMessage("已适应窗口显示（demo 示意）");
+  render();
+});
+refs.toggleRoiInput.addEventListener("click", () => {
+  if (refs.toggleRoiInput.disabled) return;
+  state.roiVisible = !state.roiVisible;
+  render();
+});
+
+document.querySelectorAll("[data-title-menu-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const action = button.dataset.titleMenuAction;
+    if (action === "shape-match") {
+      openParamModal("shape");
+      return;
+    }
+    if (action === "preprocess") {
+      openParamModal("preprocess");
+      return;
+    }
+    setManagerMessage(`${button.textContent.trim()}（demo 示意）`);
+    render();
+  });
+});
+
+document.querySelectorAll("[data-param-close]").forEach((button) => {
+  button.addEventListener("click", closeParamModal);
+});
+
+document.querySelectorAll("[data-param-reset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.paramReset === "shape") {
+      resetShapeParams();
+      return;
+    }
+    resetPreprocessParams();
+  });
+});
+
+document.querySelectorAll("[data-param-save]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const label = button.dataset.paramSave === "shape" ? "形状匹配参数" : "预处理参数";
+    setManagerMessage(`${label}已保存`);
+    closeParamModal();
+  });
+});
+
+[refs.shapeMatchModal, refs.preprocessModal].forEach((modal) => {
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) return;
+  });
+});
+
 if (refs.stageContent) {
   refs.stageContent.addEventListener("click", (event) => {
+    const templateUploadButton = event.target.closest("[data-template-upload]");
+    if (templateUploadButton) {
+      handleWorkbenchUpload();
+      return;
+    }
+
+    const zoomButton = event.target.closest("[data-stage-zoom]");
+    if (zoomButton) {
+      const offset = zoomButton.dataset.stageZoom === "in" ? 0.12 : -0.12;
+      setStageZoom(state.stageZoom + offset);
+      return;
+    }
+
     const tabButton = event.target.closest("[data-release-tab]");
     if (tabButton) {
       state.tabKey = tabButton.dataset.releaseTab || state.tabKey;
@@ -1713,6 +2605,12 @@ if (refs.stageContent) {
     render();
   });
 }
+
+refs.stageImage.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const offset = event.deltaY < 0 ? 0.08 : -0.08;
+  setStageZoom(state.stageZoom + offset);
+}, { passive: false });
 
 refs.prevStepBtn.addEventListener("click", () => {
   moveStep(-1);
@@ -1762,23 +2660,36 @@ refs.projectModal.addEventListener("click", (event) => {
 refs.settingsCloseBtn.addEventListener("click", closeSettingsModal);
 refs.settingsCancelBtn.addEventListener("click", closeSettingsModal);
 refs.settingsSaveBtn.addEventListener("click", () => {
-  state.localSettings.autoSave = refs.settingsAutoSaveInput.checked;
-  setManagerMessage(`本地设置已保存，自动保存已${state.localSettings.autoSave ? "开启" : "关闭"}`);
+  state.localSettings.modelServiceUrl = refs.settingsModelServiceInput.value.trim();
+  setManagerMessage("全局设置已保存");
   closeSettingsModal();
+});
+
+refs.releaseCloseBtn.addEventListener("click", closeReleaseModal);
+refs.releaseModal.addEventListener("click", (event) => {
+  if (event.target === refs.releaseModal) return;
+  const closeButton = event.target.closest("[data-release-close]");
+  if (closeButton) {
+    closeReleaseModal();
+    return;
+  }
+  const confirmButton = event.target.closest("[data-release-confirm]");
+  if (!confirmButton) return;
+  const project = getProject();
+  if (project) {
+    project.releaseState = "已发布版本";
+    project.version = state.releaseModal?.version || project.version;
+    project.updatedAt = formatNowLabel();
+    project.workflowState = { ...(project.workflowState || {}), release: true };
+  }
+  state.releaseModal = { ...(state.releaseModal || {}), success: true };
+  render();
 });
 refs.settingsModal.addEventListener("click", (event) => {
   if (event.target === refs.settingsModal) closeSettingsModal();
 });
-refs.settingsPathList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-settings-action]");
-  if (!button) return;
-  const pathItem = state.localSettings.paths.find((item) => item.key === button.dataset.settingsKey);
-  if (!pathItem) return;
-  if (button.dataset.settingsAction === "open-path") {
-    setManagerMessage(`已定位到 ${pathItem.label}（demo 提示）：${pathItem.value}`);
-  } else {
-    setManagerMessage(`已复制路径（demo 提示）：${pathItem.value}`);
-  }
+refs.settingsClearCacheBtn.addEventListener("click", () => {
+  setManagerMessage("缓存已清除（demo 示意）");
   closeSettingsModal();
 });
 
@@ -1797,6 +2708,16 @@ refs.projectForm.addEventListener("submit", (event) => {
   if (!name) {
     refs.modalError.hidden = false;
     refs.modalError.textContent = "工程名称不能为空。";
+    return;
+  }
+  if (name.length > 20) {
+    refs.modalError.hidden = false;
+    refs.modalError.textContent = "工程名称不能超过 20 个字符。";
+    return;
+  }
+  if (note.length > 120) {
+    refs.modalError.hidden = false;
+    refs.modalError.textContent = "备注不能超过 120 个字符。";
     return;
   }
   if (duplicate) {

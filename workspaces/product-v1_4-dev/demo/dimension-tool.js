@@ -996,6 +996,7 @@ function closeEditorWindow() {
   state.editorOpen = false;
   state.activeWindow = "manager";
   state.managerMenuProjectId = "";
+  clearManagerMessage();
   render();
 }
 
@@ -1168,7 +1169,8 @@ function getDefaultRoiNodes() {
   ];
 }
 
-function renderToolboxPanel() {
+function renderToolboxPanel(options = {}) {
+  const toolsDisabled = options.toolsDisabled === true;
   const measureSection = getMeasureSection();
   return `
     <section class="dt-workbench-panel dt-toolbox-panel">
@@ -1187,7 +1189,7 @@ function renderToolboxPanel() {
             .map((tool) => {
               const active = state.measureElementSelected && tool.key === state.measureToolKey ? "is-active" : "";
               return `
-                <button type="button" class="dt-toolbox-icon-btn ${active}" data-measure-tool="${tool.key}">
+                <button type="button" class="dt-toolbox-icon-btn ${active}" data-measure-tool="${tool.key}" ${toolsDisabled ? "disabled" : ""}>
                   <span class="dt-toolbox-icon-mark">${tool.icon}</span>
                   <strong>${tool.label}</strong>
                 </button>
@@ -1331,6 +1333,8 @@ function renderPixelSizePanel(tabState) {
 function renderCalibrationPanel(tabState, calibrationImageReady = true) {
   const mode = state.calibrationMode === "manual" ? "manual" : "auto";
   const calibrationUploadText = mode === "manual" ? "请先上传一张标定块或标准件图像" : "请先上传一张棋盘格图像";
+  const actionText = mode === "manual" ? "计算并应用" : "自动标定";
+  const actionType = mode === "manual" ? "manual" : "auto";
   const boardType = (tabState.results || []).find((item) => item.label === "标定板")?.value || "标准板 A-10mm";
   return `
     <section class="dt-workbench-panel dt-config-panel">
@@ -1338,9 +1342,12 @@ function renderCalibrationPanel(tabState, calibrationImageReady = true) {
         <strong>标定配置</strong>
       </div>
       <div class="dt-panel-scroll">
-        <div class="dt-calibration-mode-tabs">
-          <button type="button" class="${mode === "auto" ? "is-active" : ""}" data-calibration-mode="auto">自动标定</button>
-          <button type="button" class="${mode === "manual" ? "is-active" : ""}" data-calibration-mode="manual">手动标定</button>
+        <div class="dt-calibration-action-row">
+          <div class="dt-calibration-mode-tabs is-compact">
+            <button type="button" class="${mode === "auto" ? "is-active" : ""}" data-calibration-mode="auto">自动</button>
+            <button type="button" class="${mode === "manual" ? "is-active" : ""}" data-calibration-mode="manual">手动</button>
+          </div>
+          <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="${actionType}" ${calibrationImageReady ? "" : "disabled"}>${actionText}</button>
         </div>
         ${!calibrationImageReady ? `
           <div class="dt-side-field">
@@ -1355,7 +1362,6 @@ function renderCalibrationPanel(tabState, calibrationImageReady = true) {
               <option>标准板 B-20mm</option>
             </select>
           </label>
-          <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="auto">自动标定</button>
         ` : `
           <label class="dt-side-field">
             <span class="dt-side-field-label">测量项</span>
@@ -1369,7 +1375,6 @@ function renderCalibrationPanel(tabState, calibrationImageReady = true) {
             <span class="dt-side-field-label">实际尺寸（mm）</span>
             <input class="dt-side-input" type="number" value="10.000000" step="0.000001" />
           </label>
-          <button type="button" class="dt-step-tool-btn is-primary dt-side-action" data-calibration-action="manual">计算并应用</button>
         `}
       </div>
     </section>
@@ -1775,22 +1780,11 @@ function renderStepScaffold(project, tab) {
       `;
     }
   } else if (isMeasureConfig) {
-    refs.rightPanel.innerHTML = templateReady
-      ? `
-        ${renderToolboxPanel()}
-        ${renderElementInfoPanel()}
-        ${renderMeasureValuePanel(tabState, tab)}
-      `
-      : `
-        <section class="dt-workbench-panel dt-config-panel">
-          <div class="dt-workbench-panel-head">
-            <strong>测量项配置</strong>
-          </div>
-          <div class="dt-panel-scroll">
-            <div class="dt-empty-mini">请先上传标准模版图像</div>
-          </div>
-        </section>
-      `;
+    refs.rightPanel.innerHTML = `
+      ${renderToolboxPanel({ toolsDisabled: !templateReady })}
+      ${renderElementInfoPanel()}
+      ${renderMeasureValuePanel(tabState, tab)}
+    `;
   } else {
     refs.rightPanel.innerHTML = `
       ${renderToolboxPanel()}
@@ -2167,18 +2161,15 @@ function handleWorkbenchUpload() {
   const tab = getTab();
   if (tab.key === "calibration") {
     markWorkflowDone("calibrationImage");
-    setManagerMessage("已上传标定图（demo 示意）");
     render();
     return;
   }
   if (tab.key === "validate") {
     markWorkflowDone("validateImages");
-    setManagerMessage("已上传测试图（demo 示意）");
     render();
     return;
   }
   markWorkflowDone("template");
-  setManagerMessage("已上传模版图（demo 示意）");
   render();
 }
 
@@ -2475,7 +2466,6 @@ if (refs.rightPanel) {
         handleBatchTest();
       } else {
         markWorkflowDone("validateImages");
-        setManagerMessage("已上传多张测试图（demo 示意）");
         render();
       }
       return;

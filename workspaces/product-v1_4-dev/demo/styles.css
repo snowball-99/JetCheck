@@ -5622,7 +5622,18 @@ thead th {
 }
 
 .dt-workspace.is-workbench.is-calibration-manual .dt-side-panel-right {
-  grid-template-rows: 104px minmax(180px, 0.85fr) minmax(240px, 1.1fr) minmax(160px, 0.75fr);
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.dt-workspace.is-workbench.is-calibration-manual .dt-workbench-panel {
+  min-height: auto;
+}
+
+.dt-workspace.is-workbench.is-calibration-manual .dt-toolbox-panel {
+  max-height: 190px;
 }
 
 .dt-workspace.is-workbench.is-calibration-auto .dt-side-panel-right {
@@ -5683,6 +5694,25 @@ thead th {
   gap: 6px;
 }
 
+.dt-calibration-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.dt-calibration-mode-tabs.is-compact {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(42px, 1fr));
+  gap: 4px;
+  min-width: 104px;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid #d9e4f1;
+  border-radius: 10px;
+  background: #f3f7fc;
+}
+
 .dt-calibration-mode-tabs button {
   min-height: 32px;
   border: 1px solid #d4dfec;
@@ -5693,10 +5723,24 @@ thead th {
   font-weight: 800;
 }
 
+.dt-calibration-mode-tabs.is-compact button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12px;
+}
+
 .dt-calibration-mode-tabs button.is-active {
   border-color: rgba(28, 99, 242, 0.28);
   background: #edf4ff;
   color: #1c63f2;
+}
+
+.dt-calibration-mode-tabs.is-compact button.is-active {
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(25, 55, 92, 0.12);
 }
 
 .dt-value-panel {
@@ -5889,6 +5933,17 @@ thead th {
   border-color: rgba(28, 99, 242, 0.28);
   background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
   box-shadow: inset 0 0 0 1px rgba(28, 99, 242, 0.08);
+}
+
+.dt-toolbox-icon-btn:disabled {
+  border-color: #dde7f2;
+  background: #f5f8fc;
+  color: #91a3b7;
+}
+
+.dt-toolbox-icon-btn:disabled .dt-toolbox-icon-mark {
+  background: #edf2f7;
+  color: #99a9bb;
 }
 
 .dt-toolbox-icon-mark {

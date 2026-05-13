@@ -6846,16 +6846,17 @@ function getDefaultDimensionRows(tool, node) {
       label,
       min: presetRanges[label]?.min ?? "",
       max: presetRanges[label]?.max ?? "",
+      offset: "0",
     }));
   }
   if (tool?.id === "tool_001") {
     return [
-      { label: "螺杆1", min: "9.0", max: "10.0" },
-      { label: "螺杆2", min: "6.0", max: "7.0" },
+      { label: "螺杆1", min: "9.0", max: "10.0", offset: "0" },
+      { label: "螺杆2", min: "6.0", max: "7.0", offset: "0" },
     ];
   }
   return [
-    { label: "尺寸项1", min: "", max: "" },
+    { label: "尺寸项1", min: "", max: "", offset: "0" },
   ];
 }
 
@@ -7028,7 +7029,7 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
       rule.template = "dimension-conditions";
       rule.dimensions = legacyRows.flatMap((item) => {
         if (item.min !== undefined || item.max !== undefined) {
-          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "" }];
+          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "", offset: item.offset ?? "0" }];
         }
         return [];
       });
@@ -7038,7 +7039,7 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
       if (legacyConditions.length) {
         const grouped = {};
         legacyConditions.forEach((item) => {
-          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "" };
+          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "", offset: "0" };
           if (item.operator === "ge" || item.operator === "gt") grouped[item.label].min = item.value ?? "";
           if (item.operator === "le" || item.operator === "lt") grouped[item.label].max = item.value ?? "";
         });
@@ -7057,6 +7058,7 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
           label: item.label,
           min: previous?.min ?? item.min ?? "",
           max: previous?.max ?? item.max ?? "",
+          offset: previous?.offset ?? item.offset ?? "0",
         };
       });
     }
@@ -7119,7 +7121,7 @@ function getJudgmentRuleSummary(rule, node, tool) {
   if (rule.template === "dimension-conditions") {
     const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
     const conditions = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
-      .map((item) => `${item.label || "尺寸项"} ${item.min || "-"} ~ ${item.max || "-"}`)
+      .map((item) => `${item.label || "尺寸项"} 偏移 ${item.offset || "0"} 后 ${item.min || "-"} ~ ${item.max || "-"}`)
       .join("；");
     return `${relationText}：${conditions}`;
   }
@@ -7145,8 +7147,9 @@ function getJudgmentRuleExpression(rule, node, tool) {
     const relationFn = rule.conditionRelation === "any" ? "any" : "all";
     const items = (Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => {
       const checks = [`eq(label,'${item.label || ""}')`];
-      if (item.min !== "" && item.min !== undefined) checks.push(`ge(data.value,'${item.min}')`);
-      if (item.max !== "" && item.max !== undefined) checks.push(`le(data.value,'${item.max}')`);
+      const valueRef = item.offset !== "" && item.offset !== undefined && Number(item.offset) !== 0 ? `add(data.value,'${item.offset}')` : "data.value";
+      if (item.min !== "" && item.min !== undefined) checks.push(`ge(${valueRef},'${item.min}')`);
+      if (item.max !== "" && item.max !== undefined) checks.push(`le(${valueRef},'${item.max}')`);
       return `all(${checks.join(",")})`;
     });
     return `${relationFn}(${items.join(",")})`;
@@ -7197,7 +7200,7 @@ function validateJudgmentExpression(expression) {
     return ["表达式不能为空"];
   }
 
-  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray"];
+  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray", "add"];
   const lines = text.split("\n");
   const stack = [];
   let quoteOpen = null;
@@ -7307,7 +7310,11 @@ function renderJudgmentAggregateSummaryHtml(names = [], relation = "all-selected
 function getJudgmentDetailSummaryHtml(rule) {
   if (rule.template === "dimension-conditions") {
     const items = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
-      .map((item) => `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span> 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`)
+      .map((item) => {
+        const offset = item.offset || "0";
+        const offsetCopy = Number(offset) === 0 ? "" : `，偏移 <span class="judgment-copy-value">${escapeHtml(String(offset))}</span> 后`;
+        return `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span>${offsetCopy} 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`;
+      })
       .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
     return items;
   }
@@ -7627,6 +7634,7 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
               <th>尺寸项</th>
               <th>下限</th>
               <th>上限</th>
+              <th>偏移量</th>
             </tr>
           </thead>
           <tbody>
@@ -7637,6 +7645,7 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
                     <td><div class="judgment-fixed-field">${escapeHtml(item.label || "尺寸项")}</div></td>
                     <td><input type="number" step="any" value="${escapeAttribute(String(item.min ?? ""))}" data-dimension-index="${index}" data-dimension-field="min" /></td>
                     <td><input type="number" step="any" value="${escapeAttribute(String(item.max ?? ""))}" data-dimension-index="${index}" data-dimension-field="max" /></td>
+                    <td><input type="number" step="any" value="${escapeAttribute(String(item.offset ?? "0"))}" data-dimension-index="${index}" data-dimension-field="offset" /></td>
                   </tr>
                 `,
               )

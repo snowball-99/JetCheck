@@ -458,7 +458,7 @@
             cameraId: "cam_01",
             paramGroupId: "cam_01_pg_01",
             sampleImageName: "安全座椅-卡扣kakou.png",
-            sampleImageUrl: "../sample-images/安全座椅-卡扣kakou.png",
+            sampleImageUrl: "./sample-images/安全座椅-卡扣kakou.png",
             sampleImageWidth: 1280,
             sampleImageHeight: 960,
             sampleImage: "安全座椅-卡扣kakou.png",
@@ -470,7 +470,7 @@
             cameraId: "cam_02",
             paramGroupId: "cam_02_pg_01",
             sampleImageName: "安全座椅-螺杆.bmp",
-            sampleImageUrl: "../sample-images/安全座椅-螺杆.bmp",
+            sampleImageUrl: "./sample-images/安全座椅-螺杆.bmp",
             sampleImageWidth: 3072,
             sampleImageHeight: 2048,
             sampleImage: "安全座椅-螺杆.bmp",
@@ -546,7 +546,7 @@
             type: "api",
             endpoint: "tcp://xray-line/image/part",
             sampleImageName: "马斯特X光.bmp",
-            sampleImageUrl: "../sample-images/马斯特X光.bmp",
+            sampleImageUrl: "./sample-images/马斯特X光.bmp",
             sampleImageWidth: 3072,
             sampleImageHeight: 3072,
             sampleImage: "马斯特X光.bmp",
@@ -594,7 +594,7 @@
             cameraId: "cam_03",
             paramGroupId: "cam_03_pg_01",
             sampleImageName: "血氧纱布.jpg",
-            sampleImageUrl: "../sample-images/血氧纱布.jpg",
+            sampleImageUrl: "./sample-images/血氧纱布.jpg",
             sampleImageWidth: 2000,
             sampleImageHeight: 1258,
             sampleImage: "血氧纱布.jpg",
@@ -656,7 +656,7 @@
             cameraId: "cam_01",
             paramGroupId: "cam_01_pg_01",
             sampleImageName: "瑾辰-左.png",
-            sampleImageUrl: "../sample-images/瑾辰-左.png",
+            sampleImageUrl: "./sample-images/瑾辰-左.png",
             sampleImageWidth: 2102,
             sampleImageHeight: 1400,
             sampleImage: "瑾辰-左.png",
@@ -668,7 +668,7 @@
             cameraId: "cam_02",
             paramGroupId: "cam_02_pg_01",
             sampleImageName: "瑾辰-右.png",
-            sampleImageUrl: "../sample-images/瑾辰-右.png",
+            sampleImageUrl: "./sample-images/瑾辰-右.png",
             sampleImageWidth: 2102,
             sampleImageHeight: 1400,
             sampleImage: "瑾辰-右.png",
@@ -949,6 +949,11 @@
     return next === "acquire" || next === "process" || next === "detect" ? next : "detect";
   }
 
+  function normalizeSampleImageUrl(value) {
+    const url = String(value || "").trim();
+    return url.replace(/^\.\.\/sample-images\//, "./sample-images/");
+  }
+
   function inferRunModeFromCompletedStages(value) {
     const stages = Array.isArray(value) ? value.map((item) => String(item || "").trim()) : [];
     if (stages.includes("detect")) return "detect";
@@ -1191,7 +1196,7 @@
             name: item.name || `图像获取 ${index + 1}`,
             type: item.type === "api" ? "api" : "camera",
             sampleImageName: String(item.sampleImageName || item.sampleImage || ""),
-            sampleImageUrl: String(item.sampleImageUrl || ""),
+            sampleImageUrl: normalizeSampleImageUrl(item.sampleImageUrl),
             sampleImage: String(item.sampleImageName || item.sampleImage || ""),
           }))
         : [],

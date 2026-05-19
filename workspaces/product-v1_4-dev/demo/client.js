@@ -1455,6 +1455,29 @@ function getDimensionDetectItems(tool) {
   return Array.isArray(tool?.detect) ? tool.detect.filter((detect) => isDimensionDetect(detect)) : [];
 }
 
+function getDimensionItemLabelsByModelId(modelId) {
+  const labels = getModelCategoriesById(modelId);
+  return labels.length ? labels : ["尺寸项1"];
+}
+
+function getDimensionOutputParamRows(detect, rawConfig = null) {
+  const raw = rawConfig && typeof rawConfig === "object" ? rawConfig : detect?.dimensionConfig || {};
+  const legacyRows = Array.isArray(raw.outputOffsets)
+    ? raw.outputOffsets
+    : Array.isArray(raw.dimensionOffsets)
+      ? raw.dimensionOffsets
+      : [];
+  const legacyMap = new Map(
+    legacyRows
+      .filter((item) => item?.label)
+      .map((item) => [String(item.label), { label: String(item.label), offset: String(item.offset ?? "0") }]),
+  );
+  return getDimensionItemLabelsByModelId(detect?.modelId).map((label) => ({
+    label,
+    offset: legacyMap.get(label)?.offset ?? "0",
+  }));
+}
+
 function getNormalizedDimensionConfig(detect) {
   if (!isDimensionDetect(detect)) return null;
   const raw = detect?.dimensionConfig && typeof detect.dimensionConfig === "object" ? detect.dimensionConfig : {};
@@ -1471,6 +1494,7 @@ function getNormalizedDimensionConfig(detect) {
     calibrationStatus: String(raw.calibrationStatus || (calibrationReady ? "已就绪" : "需重新标定")),
     lastCalibratedAt: String(raw.lastCalibratedAt || ""),
     precheckMode,
+    outputOffsets: getDimensionOutputParamRows(detect, raw),
   };
 }
 
@@ -2725,6 +2749,7 @@ function handleBuilderBodyClick(event) {
   if (action === "delete-process") return deleteProcess(id);
   if (action === "add-detect") return openDetectModal();
   if (action === "edit-detect") return openDetectModal(id);
+  if (action === "edit-detect-params") return openDetectParamModal(id);
   if (action === "delete-detect") return deleteDetect(id);
   if (action === "select-rule-node") {
     ui.builderRuleNodeId = actionEl.dataset.nodeId || "";
@@ -3511,6 +3536,131 @@ function openProcessModal(processId) {
   });
 }
 
+function renderDetectTargetOption({ checked, processId, categoryKey = "", categoryLabel = "", value, text }) {
+  return `
+    <label class="detect-selection-item ${checked ? "is-selected" : ""}">
+      <input
+        class="selection-item-check detect-selection-input"
+        type="checkbox"
+        data-process-checkbox
+        data-process-id="${escapeAttribute(processId)}"
+        data-category-key="${escapeAttribute(categoryKey)}"
+        data-category-label="${escapeAttribute(categoryLabel)}"
+        value="${escapeAttribute(value)}"
+        ${checked ? "checked" : ""}
+      />
+      <span>${escapeHtml(text)}</span>
+    </label>
+  `;
+}
+
+function renderDetectTargetGroups(tool, existing) {
+  const targets = getDetectTargets(existing);
+  return tool.acquire
+    .map((acquire) => {
+      const processList = tool.process.filter((item) => item.inputId === acquire.id);
+      return `
+        <div class="detect-process-group">
+          <div class="detect-process-group-title">${escapeHtml(acquire.name)}</div>
+          ${
+            processList.length
+              ? `
+                <div class="detect-selection-list">
+                  ${processList
+                    .map((item) => {
+                      const mode = normalizeProcessMode(item.mode);
+                      const selectedTargets = targets.filter((target) => target.processId === item.id);
+                      if (mode === "model-roi") {
+                        const categories = getProcessCategoryOptions(item);
+                        return `
+                          <div class="detect-target-subgroup">
+                            <div class="detect-target-subtitle">${escapeHtml(item.name)}</div>
+                            ${
+                              categories.length
+                                ? `
+                                  <div class="detect-selection-list detect-selection-list-nested">
+                                    ${categories
+                                      .map((category) =>
+                                        renderDetectTargetOption({
+                                          checked: selectedTargets.some((target) => target.categoryKey === category),
+                                          processId: item.id,
+                                          categoryKey: category,
+                                          categoryLabel: category,
+                                          value: `${item.id}::${category}`,
+                                          text: category,
+                                        }),
+                                      )
+                                      .join("")}
+                                  </div>
+                                `
+                                : `<div class="builder-empty builder-empty-compact">当前 ROI 模型未提供可选类别</div>`
+                            }
+                          </div>
+                        `;
+                      }
+                      return renderDetectTargetOption({
+                        checked: selectedTargets.some((target) => !target.categoryKey),
+                        processId: item.id,
+                        value: item.id,
+                        text: item.name,
+                      });
+                    })
+                    .join("")}
+                </div>
+              `
+              : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderDetectParameterSection(detect, modelId) {
+  if (getModelSceneTypeById(modelId) !== "尺寸") {
+    return `<div class="detect-param-empty">当前模型暂无可配置参数</div>`;
+  }
+  const draftDetect = {
+    ...(detect || {}),
+    modelId,
+    modelSceneType: "尺寸",
+  };
+  const rows = getDimensionOutputParamRows(draftDetect);
+  return `
+    <div class="detect-param-table">
+      <div class="detect-param-table-head">
+        <span>尺寸项</span>
+        <span>偏移量</span>
+      </div>
+      ${rows
+        .map(
+          (item) => `
+            <label class="detect-param-row">
+              <span>${escapeHtml(item.label)}</span>
+              <input
+                type="number"
+                step="any"
+                value="${escapeAttribute(String(item.offset ?? "0"))}"
+                data-detect-dimension-label="${escapeAttribute(item.label)}"
+                data-detect-dimension-offset
+              />
+            </label>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function canScrollElementByDelta(element, deltaY) {
+  if (!element) return false;
+  const maxScrollTop = element.scrollHeight - element.clientHeight;
+  if (maxScrollTop <= 0) return false;
+  if (deltaY < 0) return element.scrollTop > 0;
+  if (deltaY > 0) return element.scrollTop < maxScrollTop - 1;
+  return true;
+}
+
 function openDetectModal(detectId) {
   if (!ensureToolItemCapacity("detect", detectId)) return;
   const tool = getActiveTool();
@@ -3520,134 +3670,54 @@ function openDetectModal(detectId) {
   }
   const existing = tool.detect.find((item) => item.id === detectId);
   openSharedModal({
-    title: existing ? "编辑检测步骤" : "新建检测步骤",
-    panelClass: "modal-param",
+    title: existing ? "编辑图像检测项" : "新建图像检测项",
+    panelClass: "modal-detect-instance",
+    bodyClass: "modal-body-detect-instance",
     body: `
-      <label class="field">
-        <span>检测项名称</span>
-        <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测项名称" />
-      </label>
-      <div class="field">
-        <span>关联输入目标</span>
-        <div class="detect-process-group-list">
-          ${tool.acquire
-            .map((acquire) => {
-              const processList = tool.process.filter((item) => item.inputId === acquire.id);
-              return `
-                <div class="detect-process-group">
-                  <div class="detect-process-group-title">
-                    <strong>${escapeHtml(acquire.name)}</strong>
-                  </div>
-                  ${
-                    processList.length
-                      ? `
-                        <div class="selection-list detect-selection-list">
-                          ${processList
-                            .map((item) => {
-                              const mode = normalizeProcessMode(item.mode);
-                              const selectedTargets = getDetectTargets(existing).filter((target) => target.processId === item.id);
-                              if (mode === "model-roi") {
-                                const categories = getProcessCategoryOptions(item);
-                                return `
-                                  <div class="detect-process-group">
-                                    <div class="detect-process-group-title">
-                                      <strong>${escapeHtml(item.name)}</strong>
-                                      <span class="chip">${escapeHtml(getProcessModeLabel(mode))}</span>
-                                    </div>
-                                    ${
-                                      categories.length
-                                        ? `
-                                          <div class="selection-list detect-selection-list">
-                                            ${categories
-                                              .map((category) => {
-                                                const checked = selectedTargets.some((target) => target.categoryKey === category);
-                                                return `
-                                                  <label class="selection-item detect-selection-item ${checked ? "is-selected" : ""}">
-                                                    <div class="selection-item-copy">
-                                                      <strong>${escapeHtml(category)}</strong>
-                                                      <p>${escapeHtml(Demo.getModelLabel(state, item.modelId))}</p>
-                                                    </div>
-                                                    <input
-                                                      class="selection-item-check"
-                                                      type="checkbox"
-                                                      data-process-checkbox
-                                                      data-process-id="${item.id}"
-                                                      data-category-key="${escapeAttribute(category)}"
-                                                      data-category-label="${escapeAttribute(category)}"
-                                                      value="${item.id}::${escapeAttribute(category)}"
-                                                      ${checked ? "checked" : ""}
-                                                    />
-                                                  </label>
-                                                `;
-                                              })
-                                              .join("")}
-                                          </div>
-                                        `
-                                        : `<div class="builder-empty builder-empty-compact">当前 ROI 模型未提供可选类别</div>`
-                                    }
-                                  </div>
-                                `;
-                              }
-                              const checked = selectedTargets.some((target) => !target.categoryKey);
-                              const desc = mode === "manual-roi" ? getProcessRoiSummary(item) : "输出整图结果";
-                              return `
-                                <label class="selection-item detect-selection-item ${checked ? "is-selected" : ""}">
-                                  <div class="selection-item-copy">
-                                    <strong>${escapeHtml(item.name)}</strong>
-                                    <p>${escapeHtml(desc)}</p>
-                                  </div>
-                                  <input
-                                    class="selection-item-check"
-                                    type="checkbox"
-                                    data-process-checkbox
-                                    data-process-id="${item.id}"
-                                    data-category-key=""
-                                    data-category-label=""
-                                    value="${item.id}"
-                                    ${checked ? "checked" : ""}
-                                  />
-                                </label>
-                              `;
-                            })
-                            .join("")}
-                        </div>
-                      `
-                      : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
-                  }
-                </div>
-              `;
-            })
-            .join("")}
+      <div class="detect-instance-form">
+        <label class="detect-instance-field">
+          <span class="detect-instance-label">检测项名称</span>
+          <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测项名称" />
+        </label>
+        <div class="detect-instance-field detect-instance-field-grow">
+          <span class="detect-instance-label">关联输入目标</span>
+          <div class="detect-process-group-list">
+            ${renderDetectTargetGroups(tool, existing)}
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <span>引用对象</span>
-        <div class="model-picker-row">
-          <div class="model-picker-value" id="detectModelSummary">${escapeHtml(Demo.getModelLabel(state, existing?.modelId) || "未选择模型")}</div>
-          <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择模型</button>
+        <div class="detect-instance-field">
+          <span class="detect-instance-label">模型</span>
+          <div class="model-picker-row detect-model-picker-row">
+            <div class="model-picker-value" id="detectModelSummary">${escapeHtml(Demo.getModelLabel(state, existing?.modelId) || "未选择模型")}</div>
+            <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择模型</button>
+          </div>
+          <input id="detectModelValue" type="hidden" value="${escapeAttribute(existing?.modelId || "")}" />
         </div>
-        <input id="detectModelValue" type="hidden" value="${escapeAttribute(existing?.modelId || "")}" />
       </div>
     `,
     confirmText: existing ? "保存" : "创建",
     onOpen() {
       const button = document.getElementById("openDetectModelDrawer");
       const groupList = document.querySelector(".detect-process-group-list");
+      const modelValueInput = document.getElementById("detectModelValue");
       button.addEventListener("click", () => {
-        const select = document.getElementById("detectModelValue");
         openModelSelector({
           valueId: "detectModelValue",
           summaryId: "detectModelSummary",
-          selectedModelId: select.value || existing?.modelId || null,
+          selectedModelId: modelValueInput.value || existing?.modelId || null,
         });
       });
-      modelValueInput?.addEventListener("change", syncDimensionPanel);
       groupList?.addEventListener("change", (event) => {
         const checkbox = getClosestEventTarget(event, "[data-process-checkbox]");
         if (!checkbox) return;
         const item = checkbox.closest(".detect-selection-item");
         item?.classList.toggle("is-selected", checkbox.checked);
       });
+      els.sharedModal.onwheel = (event) => {
+        const scrollArea = getClosestEventTarget(event, ".detect-process-group-list");
+        if (scrollArea && canScrollElementByDelta(scrollArea, event.deltaY)) return;
+        event.preventDefault();
+      };
     },
     onConfirm() {
       const name = document.getElementById("detectNameInput").value.trim();
@@ -3683,6 +3753,7 @@ function openDetectModal(detectId) {
           precheckMode: previousConfig?.precheckMode || "recalibration_required",
           calibrationStatus: previousConfig?.calibrationStatus || "需重新标定",
           calibrationRecordId: previousConfig?.calibrationRecordId || "",
+          outputOffsets: previousConfig?.outputOffsets || getDimensionOutputParamRows(next),
         };
       } else {
         delete next.dimensionConfig;
@@ -3690,6 +3761,48 @@ function openDetectModal(detectId) {
       upsertToolItem("detect", next);
       closeSharedModal();
       persistState(existing ? "检测步骤已更新" : "检测步骤已添加");
+      return true;
+    },
+  });
+}
+
+function openDetectParamModal(detectId) {
+  const tool = getActiveTool();
+  const detect = tool?.detect?.find((item) => item.id === detectId);
+  if (!tool || !detect) return;
+  if (!isDimensionDetect(detect)) {
+    showToast("当前类型暂无可配置参数");
+    return;
+  }
+  openSharedModal({
+    title: "参数配置",
+    panelClass: "modal-detect-params",
+    body: `
+      <div class="detect-param-modal">
+        <div class="detect-param-summary">
+          <span>检测项</span>
+          <strong>${escapeHtml(detect.name || "-")}</strong>
+        </div>
+        <div class="detect-param-summary">
+          <span>模型</span>
+          <strong>${escapeHtml(Demo.getModelLabel(state, detect.modelId) || "-")}</strong>
+        </div>
+        ${renderDetectParameterSection(detect, detect.modelId)}
+      </div>
+    `,
+    confirmText: "保存",
+    onConfirm() {
+      const outputOffsets = Array.from(document.querySelectorAll("[data-detect-dimension-offset]")).map((input) => ({
+        label: input.dataset.detectDimensionLabel || "",
+        offset: input.value || "0",
+      }));
+      const previousConfig = getNormalizedDimensionConfig(detect);
+      detect.dimensionConfig = {
+        ...previousConfig,
+        outputOffsets,
+      };
+      closeSharedModal();
+      persistState("参数配置已保存");
       return true;
     },
   });
@@ -6191,6 +6304,7 @@ function showLoginError(message) {
 function openSharedModal(config) {
   ui.modalConfig = config;
   els.sharedModal.className = ["modal", config.panelClass].filter(Boolean).join(" ");
+  els.sharedModal.onwheel = null;
   els.sharedModalTitle.textContent = config.title || "提示";
   els.sharedModalBody.className = ["modal-body", config.bodyClass].filter(Boolean).join(" ");
   els.sharedModalBody.innerHTML = config.body || "";
@@ -6218,6 +6332,7 @@ function submitSharedModal() {
 function closeSharedModal() {
   ui.modalConfig = null;
   ui.recordImageViewer = null;
+  els.sharedModal.onwheel = null;
   els.sharedModal.className = "modal";
   els.sharedModalBody.className = "modal-body";
   els.sharedModalFooter.hidden = false;
@@ -6846,17 +6961,16 @@ function getDefaultDimensionRows(tool, node) {
       label,
       min: presetRanges[label]?.min ?? "",
       max: presetRanges[label]?.max ?? "",
-      offset: "0",
     }));
   }
   if (tool?.id === "tool_001") {
     return [
-      { label: "螺杆1", min: "9.0", max: "10.0", offset: "0" },
-      { label: "螺杆2", min: "6.0", max: "7.0", offset: "0" },
+      { label: "螺杆1", min: "9.0", max: "10.0" },
+      { label: "螺杆2", min: "6.0", max: "7.0" },
     ];
   }
   return [
-    { label: "尺寸项1", min: "", max: "", offset: "0" },
+    { label: "尺寸项1", min: "", max: "" },
   ];
 }
 
@@ -7029,7 +7143,7 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
       rule.template = "dimension-conditions";
       rule.dimensions = legacyRows.flatMap((item) => {
         if (item.min !== undefined || item.max !== undefined) {
-          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "", offset: item.offset ?? "0" }];
+          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "" }];
         }
         return [];
       });
@@ -7039,7 +7153,7 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
       if (legacyConditions.length) {
         const grouped = {};
         legacyConditions.forEach((item) => {
-          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "", offset: "0" };
+          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "" };
           if (item.operator === "ge" || item.operator === "gt") grouped[item.label].min = item.value ?? "";
           if (item.operator === "le" || item.operator === "lt") grouped[item.label].max = item.value ?? "";
         });
@@ -7058,7 +7172,6 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
           label: item.label,
           min: previous?.min ?? item.min ?? "",
           max: previous?.max ?? item.max ?? "",
-          offset: previous?.offset ?? item.offset ?? "0",
         };
       });
     }
@@ -7121,7 +7234,7 @@ function getJudgmentRuleSummary(rule, node, tool) {
   if (rule.template === "dimension-conditions") {
     const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
     const conditions = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
-      .map((item) => `${item.label || "尺寸项"} 偏移 ${item.offset || "0"} 后 ${item.min || "-"} ~ ${item.max || "-"}`)
+      .map((item) => `${item.label || "尺寸项"} ${item.min || "-"} ~ ${item.max || "-"}`)
       .join("；");
     return `${relationText}：${conditions}`;
   }
@@ -7147,9 +7260,8 @@ function getJudgmentRuleExpression(rule, node, tool) {
     const relationFn = rule.conditionRelation === "any" ? "any" : "all";
     const items = (Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => {
       const checks = [`eq(label,'${item.label || ""}')`];
-      const valueRef = item.offset !== "" && item.offset !== undefined && Number(item.offset) !== 0 ? `add(data.value,'${item.offset}')` : "data.value";
-      if (item.min !== "" && item.min !== undefined) checks.push(`ge(${valueRef},'${item.min}')`);
-      if (item.max !== "" && item.max !== undefined) checks.push(`le(${valueRef},'${item.max}')`);
+      if (item.min !== "" && item.min !== undefined) checks.push(`ge(data.value,'${item.min}')`);
+      if (item.max !== "" && item.max !== undefined) checks.push(`le(data.value,'${item.max}')`);
       return `all(${checks.join(",")})`;
     });
     return `${relationFn}(${items.join(",")})`;
@@ -7200,7 +7312,7 @@ function validateJudgmentExpression(expression) {
     return ["表达式不能为空"];
   }
 
-  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray", "add"];
+  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray"];
   const lines = text.split("\n");
   const stack = [];
   let quoteOpen = null;
@@ -7311,9 +7423,7 @@ function getJudgmentDetailSummaryHtml(rule) {
   if (rule.template === "dimension-conditions") {
     const items = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
       .map((item) => {
-        const offset = item.offset || "0";
-        const offsetCopy = Number(offset) === 0 ? "" : `，偏移 <span class="judgment-copy-value">${escapeHtml(String(offset))}</span> 后`;
-        return `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span>${offsetCopy} 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`;
+        return `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span> 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`;
       })
       .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
     return items;
@@ -7392,11 +7502,6 @@ function renderJudgmentRuleBuilder(tool) {
           <button class="secondary-btn" type="button" data-action="reset-default-rules">恢复默认</button>
         </div>
       </div>
-      ${
-        isStale
-          ? `<div class="judgment-structure-alert" role="alert">前面的配置已经变更，请先恢复默认后再检查OK判定条件。</div>`
-          : ""
-      }
       ${
         isJudgmentExpressionMode(tool)
           ? renderJudgmentExpressionPanel(tool)
@@ -7634,7 +7739,6 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
               <th>尺寸项</th>
               <th>下限</th>
               <th>上限</th>
-              <th>偏移量</th>
             </tr>
           </thead>
           <tbody>
@@ -7645,7 +7749,6 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
                     <td><div class="judgment-fixed-field">${escapeHtml(item.label || "尺寸项")}</div></td>
                     <td><input type="number" step="any" value="${escapeAttribute(String(item.min ?? ""))}" data-dimension-index="${index}" data-dimension-field="min" /></td>
                     <td><input type="number" step="any" value="${escapeAttribute(String(item.max ?? ""))}" data-dimension-index="${index}" data-dimension-field="max" /></td>
-                    <td><input type="number" step="any" value="${escapeAttribute(String(item.offset ?? "0"))}" data-dimension-index="${index}" data-dimension-field="offset" /></td>
                   </tr>
                 `,
               )
@@ -7829,6 +7932,7 @@ function renderDetectItem(tool, item) {
   const hasInvalidTarget = getInvalidDetectTargetCount(tool, item) > 0;
   const sceneType = getDetectSceneType(item);
   const dimensionConfig = getNormalizedDimensionConfig(item);
+  const dimensionOffsetCount = (dimensionConfig?.outputOffsets || []).filter((row) => Number(row.offset || 0) !== 0).length;
   return `
     <article class="builder-item">
       <div class="builder-item-main">
@@ -7838,13 +7942,14 @@ function renderDetectItem(tool, item) {
         </div>
         <div class="builder-meta">
           <span>关联输入目标：${escapeHtml(targetLabels.join(" / ") || "-")}</span>
-          <span>引用对象：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span>
-          ${sceneType === "尺寸" && dimensionConfig ? `<span>对象类型：尺寸包</span>` : ""}
+          <span>模型：${escapeHtml(Demo.getModelLabel(state, item.modelId))}</span>
+          ${sceneType === "尺寸" && dimensionConfig ? `<span>参数配置：${dimensionOffsetCount ? `${dimensionOffsetCount} 个尺寸项已设偏移` : "未设置偏移"}</span>` : ""}
         </div>
       </div>
       <div class="builder-actions">
         ${hasInvalidTarget ? `<span class="config-error-mark" title="配置失效" aria-label="配置失效">!</span>` : ""}
         <button class="table-btn table-btn-primary" data-action="edit-detect" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
+        <button class="table-btn" data-action="edit-detect-params" data-id="${item.id}" ${editingLocked || sceneType !== "尺寸" ? "disabled" : ""}>参数配置</button>
         <button class="table-btn table-btn-danger" data-action="delete-detect" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
       </div>
     </article>

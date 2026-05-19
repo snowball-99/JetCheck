@@ -1,10 +1,10 @@
 {
   "group": "main",
   "status": {
-    "label": "设计中",
-    "tone": "design"
+    "label": "存档",
+    "tone": "archived"
   },
-  "title": "捷检 1.4",
+  "title": "捷检 1.4.0",
   "summary": "新增支持尺寸测量场景，包含尺寸检测工具、客户端面向检测模版适配的方案。",
   "buttons": [
     {

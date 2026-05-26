@@ -4,17 +4,14 @@ setlocal
 cd /d "%~dp0"
 
 set PORT=8789
-set URL=http://127.0.0.1:%PORT%/admin/
+set URL=http://127.0.0.1:%PORT%/admin/?t=%RANDOM%%RANDOM%
+
+python publish-site\build_site.py >nul 2>nul
 
 netstat -ano | findstr ":%PORT%" | findstr "LISTENING" >nul
 if not errorlevel 1 (
-  start "" "%URL%"
-  echo.
-  echo JetCheck 发布站已经在运行：%URL%
-  echo 已直接帮你打开浏览器。
-  echo.
-  pause
-  exit /b
+  for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>nul
+  timeout /t 1 >nul
 )
 
 start "JetCheck 发布站本地服务" cmd /k "cd /d ""%~dp0"" && python publish-site\admin_console.py"

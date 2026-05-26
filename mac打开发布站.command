@@ -6,16 +6,15 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_ROOT"
 
 PORT=8789
-URL="http://127.0.0.1:$PORT/admin/"
+STAMP="$(date +%s)"
+URL="http://127.0.0.1:$PORT/admin/?t=$STAMP"
+
+python3 publish-site/build_site.py >/dev/null
 
 EXISTING_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
 if [[ -n "$EXISTING_PID" ]]; then
-  open "$URL"
-  echo
-  echo "JetCheck 发布站已经在运行：$URL"
-  echo "已直接帮你打开浏览器。"
-  echo
-  exit 0
+  kill "$EXISTING_PID" 2>/dev/null || true
+  sleep 1
 fi
 
 python3 publish-site/admin_console.py &

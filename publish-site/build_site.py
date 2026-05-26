@@ -671,15 +671,15 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
     <style>
       :root {{
         color-scheme: light;
-        --bg: #f3eadb;
-        --panel: rgba(255, 251, 244, 0.9);
-        --panel-strong: rgba(255, 255, 255, 0.96);
-        --text: #182433;
-        --muted: #5d6d7c;
-        --line: rgba(24, 36, 51, 0.12);
-        --accent: #0f766e;
+        --bg: #eef4ff;
+        --panel: rgba(255, 255, 255, 0.92);
+        --panel-strong: rgba(255, 255, 255, 0.98);
+        --text: #16233b;
+        --muted: #6b7a90;
+        --line: rgba(22, 35, 59, 0.12);
+        --accent: #2563eb;
         --accent-2: #1d4ed8;
-        --shadow: 0 24px 80px rgba(85, 59, 16, 0.14);
+        --shadow: 0 18px 54px rgba(41, 72, 152, 0.12);
       }}
 
       * {{
@@ -692,9 +692,9 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
         font-family: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(15, 118, 110, 0.15), transparent 36%),
-          radial-gradient(circle at top right, rgba(29, 78, 216, 0.12), transparent 34%),
-          linear-gradient(180deg, #fdfaf4 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 34%),
+          radial-gradient(circle at top right, rgba(148, 163, 184, 0.18), transparent 32%),
+          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
       }}
 
       main {{
@@ -742,10 +742,11 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
         gap: 8px;
         padding: 10px 14px;
         border-radius: 999px;
-        border: 1px solid rgba(24, 36, 51, 0.1);
+        border: 1px solid rgba(22, 35, 59, 0.1);
         color: var(--text);
         text-decoration: none;
-        background: rgba(255, 255, 255, 0.72);
+        background: rgba(255, 255, 255, 0.88);
+        font-weight: 600;
       }}
 
       .section-block {{
@@ -765,11 +766,11 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
 
       .tabs {{
         display: inline-flex;
-        gap: 10px;
-        padding: 6px;
+        gap: 6px;
+        padding: 5px;
         border-radius: 999px;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.56);
+        background: rgba(244, 248, 255, 0.92);
       }}
 
       .tab-button {{
@@ -778,15 +779,16 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
         background: transparent;
         color: var(--muted);
         border-radius: 999px;
-        padding: 10px 16px;
+        padding: 10px 18px;
         font: inherit;
+        font-weight: 600;
         cursor: pointer;
       }}
 
       .tab-button.is-active {{
         color: white;
         background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-        box-shadow: 0 10px 24px rgba(15, 118, 110, 0.18);
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.2);
       }}
 
       .demo-card {{
@@ -820,7 +822,7 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
         width: 220px;
         height: 220px;
         border-radius: 999px;
-        background: radial-gradient(circle, rgba(15, 118, 110, 0.12), transparent 68%);
+        background: radial-gradient(circle, rgba(37, 99, 235, 0.1), transparent 68%);
         pointer-events: none;
       }}
 
@@ -851,8 +853,8 @@ def write_landing_page(demos: list[dict[str, object]], site_config: dict[str, ob
       }}
 
       .status-badge[data-tone="active"] {{
-        background: rgba(15, 118, 110, 0.12);
-        color: #0f766e;
+        background: rgba(16, 185, 129, 0.12);
+        color: #0f9b71;
       }}
 
       .status-badge[data-tone="archived"] {{
@@ -1372,17 +1374,21 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
     <style>
       :root {{
         color-scheme: light;
-        --bg: #f4efe5;
-        --panel: rgba(255, 251, 245, 0.94);
+        --bg: #eef4ff;
+        --panel: rgba(255, 255, 255, 0.92);
         --panel-strong: rgba(255, 255, 255, 0.98);
-        --text: #182433;
-        --muted: #5d6d7c;
-        --line: rgba(24, 36, 51, 0.1);
-        --accent: #0f766e;
+        --text: #16233b;
+        --muted: #6b7a90;
+        --line: rgba(22, 35, 59, 0.1);
+        --accent: #2563eb;
         --accent-2: #1d4ed8;
-        --warning: #9a5b00;
-        --danger: #b42318;
-        --shadow: 0 24px 70px rgba(85, 59, 16, 0.12);
+        --accent-soft: rgba(37, 99, 235, 0.1);
+        --warning: #c67b14;
+        --warning-soft: rgba(198, 123, 20, 0.14);
+        --danger: #e23b2e;
+        --danger-soft: rgba(226, 59, 46, 0.1);
+        --ok-soft: rgba(37, 99, 235, 0.08);
+        --shadow: 0 16px 40px rgba(41, 72, 152, 0.1);
       }}
 
       * {{
@@ -1395,9 +1401,9 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         font-family: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 36%),
-          radial-gradient(circle at top right, rgba(29, 78, 216, 0.1), transparent 34%),
-          linear-gradient(180deg, #fdfaf4 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 34%),
+          radial-gradient(circle at top right, rgba(148, 163, 184, 0.18), transparent 32%),
+          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
       }}
 
       .page {{
@@ -1411,8 +1417,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .hero {{
-        padding: 16px 22px;
-        border-radius: 20px;
+        padding: 18px 24px;
+        border-radius: 14px;
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
@@ -1425,21 +1431,40 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         gap: 16px;
       }}
 
+      .hero-brand {{
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }}
+
+      .hero-badge {{
+        width: 52px;
+        height: 52px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        color: white;
+        font-size: 30px;
+        background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
+        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.28);
+      }}
+
       .hero h1 {{
         margin: 0;
-        font-size: clamp(24px, 3.2vw, 34px);
+        font-size: clamp(24px, 2.8vw, 30px);
+        letter-spacing: -0.03em;
       }}
 
       .layout {{
         display: grid;
-        grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-        gap: 14px;
+        grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+        gap: 12px;
         min-height: 0;
       }}
 
       .panel {{
-        padding: 18px;
-        border-radius: 20px;
+        padding: 16px;
+        border-radius: 14px;
         background: var(--panel);
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
@@ -1450,7 +1475,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .panel h2, .panel h3 {{
-        margin: 0 0 12px;
+        margin: 0 0 10px;
       }}
 
       .hint {{
@@ -1462,12 +1487,12 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .tabs {{
         display: inline-flex;
-        gap: 8px;
-        padding: 5px;
-        border-radius: 999px;
+        gap: 6px;
+        padding: 4px;
+        border-radius: 14px;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.56);
-        margin: 10px 0 14px;
+        background: rgba(244, 248, 255, 0.92);
+        margin: 8px 0 12px;
         width: fit-content;
         flex-wrap: wrap;
       }}
@@ -1477,7 +1502,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
       }}
 
       .tab {{
@@ -1485,20 +1510,22 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         border: 0;
         background: transparent;
         color: var(--muted);
-        border-radius: 999px;
-        padding: 10px 16px;
+        border-radius: 10px;
+        padding: 10px 18px;
         font: inherit;
+        font-weight: 600;
         cursor: pointer;
       }}
 
       .tab.is-active {{
         color: white;
         background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.22);
       }}
 
       .workspace-list {{
         display: grid;
-        gap: 12px;
+        gap: 10px;
         overflow: auto;
         padding-right: 4px;
       }}
@@ -1520,11 +1547,12 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .overview-entry {{
         appearance: none;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.82);
+        background: rgba(255, 255, 255, 0.88);
         color: var(--text);
-        border-radius: 999px;
-        padding: 8px 13px;
+        border-radius: 10px;
+        padding: 10px 14px;
         font: inherit;
+        font-weight: 600;
         cursor: pointer;
         white-space: nowrap;
       }}
@@ -1543,103 +1571,133 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         min-height: 0;
         overflow: auto;
         padding-right: 4px;
+        display: grid;
+        gap: 12px;
+        align-content: start;
       }}
 
       .workspace-card {{
         width: 100%;
-        padding: 12px 14px;
+        padding: 13px 14px;
         border-radius: 14px;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.72);
+        background: rgba(255, 255, 255, 0.88);
         text-align: left;
         cursor: pointer;
         display: grid;
-        gap: 6px;
+        gap: 8px;
+        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
       }}
 
       .workspace-card.is-active {{
-        border-color: rgba(15, 118, 110, 0.28);
-        box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
+        border-color: rgba(37, 99, 235, 0.42);
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08), inset 0 0 0 1px rgba(37, 99, 235, 0.16);
+      }}
+
+      .workspace-card:hover {{
+        transform: translateY(-1px);
       }}
 
       .workspace-card h3 {{
         margin: 0;
-        font-size: 17px;
+        font-size: 16px;
+        line-height: 1.15;
+      }}
+
+      .workspace-card-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }}
+
+      .workspace-card-arrow {{
+        color: #94a3b8;
+        font-size: 28px;
+        line-height: 1;
       }}
 
       .workspace-meta {{
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
       }}
 
       .badge {{
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 7px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        background: rgba(24, 36, 51, 0.08);
+        padding: 5px 9px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+        background: rgba(22, 35, 59, 0.06);
       }}
 
       .badge[data-tone="design"] {{
-        background: rgba(217, 119, 6, 0.12);
+        background: var(--warning-soft);
         color: var(--warning);
       }}
 
       .badge[data-tone="active"] {{
-        background: rgba(15, 118, 110, 0.12);
-        color: var(--accent);
+        background: rgba(16, 185, 129, 0.12);
+        color: #0f9b71;
       }}
 
       .badge[data-tone="archived"] {{
-        background: rgba(71, 85, 105, 0.12);
+        background: rgba(148, 163, 184, 0.18);
         color: #475569;
       }}
 
       .detail-head {{
         display: flex;
         justify-content: space-between;
-        gap: 12px;
-        align-items: flex-start;
-        margin-bottom: 12px;
+        gap: 16px;
+        align-items: center;
+        margin-bottom: 10px;
         padding-bottom: 12px;
         border-bottom: 1px solid rgba(24, 36, 51, 0.08);
       }}
 
       .detail-head-main {{
         min-width: 0;
+        display: grid;
+        gap: 2px;
       }}
 
       .detail-head-side {{
         display: grid;
         justify-items: end;
-        gap: 8px;
-        min-width: 260px;
+        gap: 6px;
+        min-width: 280px;
       }}
 
       .detail-title {{
         margin: 0;
-        font-size: clamp(22px, 3vw, 30px);
+        font-size: clamp(24px, 2.5vw, 28px);
+        letter-spacing: -0.03em;
+      }}
+
+      .detail-caption {{
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
       }}
 
       .detail-subtitle {{
-        margin: 4px 0 0;
-        color: var(--muted);
-        line-height: 1.5;
-        font-size: 13px;
+        display: none;
       }}
 
       .field-grid {{
         display: grid;
-        grid-template-columns: minmax(240px, 1.2fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr);
-        gap: 14px;
+        grid-template-columns: minmax(220px, 1.05fr) minmax(160px, 0.78fr) minmax(160px, 0.78fr);
+        gap: 12px;
+        align-items: end;
       }}
 
       .field {{
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }}
 
       .field.wide {{
@@ -1651,7 +1709,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .field label {{
-        font-size: 13px;
+        font-size: 14px;
+        font-weight: 600;
         color: var(--muted);
       }}
 
@@ -1660,46 +1719,47 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .field select {{
         width: 100%;
         border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 10px 12px;
+        border-radius: 8px;
+        padding: 12px 13px;
         font: inherit;
         background: var(--panel-strong);
         color: var(--text);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
       }}
 
       .field textarea {{
-        min-height: 96px;
+        min-height: 88px;
         resize: vertical;
       }}
 
       .section {{
-        margin-top: 18px;
-        padding-top: 18px;
-        border-top: 1px solid rgba(24, 36, 51, 0.08);
+        margin-top: 0;
+        padding: 14px;
+        border: 1px solid rgba(24, 36, 51, 0.08);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.62);
       }}
 
       .section:first-of-type {{
         margin-top: 0;
-        padding-top: 0;
-        border-top: 0;
       }}
 
       .section-title {{
-        margin: 0 0 10px;
+        margin: 0 0 6px;
         font-size: 16px;
       }}
 
       .table {{
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }}
 
       .section-head {{
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 10px;
+        gap: 10px;
+        margin-bottom: 6px;
       }}
 
       .section-head .section-title {{
@@ -1709,20 +1769,20 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .row {{
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto;
-        gap: 8px;
+        gap: 12px;
         align-items: start;
-        padding: 10px;
-        border: 1px solid rgba(24, 36, 51, 0.06);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.72);
+        padding: 12px;
+        border: 1px solid rgba(24, 36, 51, 0.07);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.88);
       }}
 
       .row.updates {{
-        grid-template-columns: 150px minmax(0, 1fr);
+        grid-template-columns: 140px minmax(0, 1fr) auto;
       }}
 
       .row.compact {{
-        grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.5fr) auto;
+        grid-template-columns: minmax(180px, 0.72fr) minmax(0, 1.68fr) auto;
       }}
 
       .row h4 {{
@@ -1758,25 +1818,41 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       .change-item {{
-        display: grid;
-        gap: 6px;
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid rgba(24, 36, 51, 0.08);
+        display: block;
+        padding: 12px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.88);
+        border: 1px solid rgba(24, 36, 51, 0.07);
+      }}
+
+      .change-main {{
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+      }}
+
+      .change-path {{
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text);
+        word-break: break-all;
       }}
 
       .change-meta {{
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
       }}
 
       .change-chip {{
         display: inline-flex;
         align-items: center;
         padding: 4px 8px;
-        border-radius: 999px;
+        border-radius: 10px;
         font-size: 12px;
       }}
 
@@ -1792,7 +1868,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .actions {{
         display: flex;
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
       }}
 
@@ -1803,9 +1879,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .action-button {{
         appearance: none;
         border: 0;
-        border-radius: 999px;
-        padding: 9px 14px;
+        border-radius: 10px;
+        padding: 11px 16px;
         font: inherit;
+        font-weight: 700;
         cursor: pointer;
         color: white;
         background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
@@ -1835,21 +1912,29 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         display: none !important;
       }}
 
+      .action-button .icon,
+      .overview-entry .icon,
+      .hero-link .icon {{
+        font-size: 20px;
+        line-height: 1;
+      }}
+
       .row-fields {{
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }}
 
       .row-fields label {{
         font-size: 12px;
+        font-weight: 600;
         color: var(--muted);
       }}
 
       .row-fields input {{
         width: 100%;
         border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 9px 10px;
+        border-radius: 8px;
+        padding: 11px 12px;
         font: inherit;
         background: var(--panel-strong);
         color: var(--text);
@@ -1858,8 +1943,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       .row-fields textarea {{
         width: 100%;
         border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 9px 10px;
+        border-radius: 8px;
+        padding: 11px 12px;
         font: inherit;
         background: var(--panel-strong);
         color: var(--text);
@@ -1878,10 +1963,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         border: 1px solid rgba(24, 36, 51, 0.1);
         background: white;
         color: var(--text);
-        border-radius: 999px;
-        padding: 7px 12px;
+        border-radius: 10px;
+        padding: 8px 14px;
         font: inherit;
         font-size: 12px;
+        font-weight: 700;
         cursor: pointer;
       }}
 
@@ -1892,11 +1978,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .section-actions {{
         margin-top: 10px;
-      }}
-
-      .status-line {{
-        display: flex;
-        justify-content: flex-end;
       }}
 
       .head-status-note {{
@@ -1930,13 +2011,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .publish-dialog {{
         width: min(620px, calc(100vw - 24px));
-        border-radius: 20px;
+        border-radius: 12px;
         border: 1px solid rgba(24, 36, 51, 0.08);
         background: rgba(255, 252, 247, 0.98);
         box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
         padding: 20px;
         display: grid;
-        gap: 14px;
+        gap: 12px;
       }}
 
       .publish-dialog-head {{
@@ -1963,7 +2044,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         align-items: center;
         gap: 6px;
         padding: 7px 10px;
-        border-radius: 999px;
+        border-radius: 10px;
         background: rgba(15, 118, 110, 0.08);
         color: var(--accent);
         font-size: 12px;
@@ -1979,7 +2060,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
       .publish-item {{
         padding: 9px 12px;
-        border-radius: 10px;
+        border-radius: 8px;
         border: 1px solid rgba(24, 36, 51, 0.08);
         background: rgba(255, 255, 255, 0.72);
         font-size: 14px;
@@ -2013,7 +2094,6 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           justify-items: stretch;
         }}
 
-        .status-line,
         .detail-actions {{
           justify-content: flex-start;
         }}
@@ -2037,8 +2117,11 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
     <main class="page">
       <section class="hero">
         <div class="hero-head">
-          <h1>JetCheck 管理台</h1>
-          <a class="hero-link" href="../index.html" target="_blank" rel="noreferrer">发布站</a>
+          <div class="hero-brand">
+            <div class="hero-badge">✓</div>
+            <h1>JetCheck 管理台</h1>
+          </div>
+          <a class="hero-link" href="../index.html" target="_blank" rel="noreferrer"><span class="icon">↗</span> 发布站</a>
         </div>
       </section>
 
@@ -2046,7 +2129,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         <section class="panel">
           <div class="panel-head">
             <h2>工作区总览</h2>
-            <button class="overview-entry" id="global-entry-button" type="button">全局配置</button>
+            <button class="overview-entry" id="global-entry-button" type="button"><span class="icon">⚙</span> 全局配置</button>
           </div>
           <div class="tabs" id="workspace-tabs"></div>
           <div class="workspace-list" id="workspace-list"></div>
@@ -2056,18 +2139,15 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           <div class="detail-head">
             <div class="detail-head-main">
               <h2 class="detail-title" id="detail-title">选择一个工作区</h2>
-              <p class="detail-subtitle" id="detail-subtitle">这里会显示该工作区的当前展示信息和最近本地改动。</p>
+              <p class="detail-caption" id="detail-caption">在这里管理当前工作区的基础信息、入口按钮和更新记录。</p>
             </div>
             <div class="detail-head-side">
-              <div class="status-line">
-                <span class="badge" id="detail-status">未选择</span>
-              </div>
               <div class="actions detail-actions">
-                <button class="action-button secondary" id="reload-button" type="button">刷新</button>
-                <button class="action-button secondary" id="save-button" type="button" disabled>保存</button>
-                <button class="action-button" id="publish-button" type="button" disabled>发布</button>
-                <button class="action-button secondary" id="global-save-button" type="button" disabled hidden>保存</button>
-                <button class="action-button" id="global-publish-button" type="button" disabled hidden>发布</button>
+                <button class="action-button secondary" id="reload-button" type="button"><span class="icon">↻</span> 刷新</button>
+                <button class="action-button secondary" id="save-button" type="button" disabled><span class="icon">◫</span> 保存</button>
+                <button class="action-button" id="publish-button" type="button" disabled><span class="icon">✈</span> 发布</button>
+                <button class="action-button secondary" id="global-save-button" type="button" disabled hidden><span class="icon">◫</span> 保存</button>
+                <button class="action-button" id="global-publish-button" type="button" disabled hidden><span class="icon">✈</span> 发布</button>
               </div>
               <p class="head-status-note" id="save-status"></p>
             </div>
@@ -2200,8 +2280,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       const globalPublishButton = document.getElementById('global-publish-button');
 
       const detailTitle = document.getElementById('detail-title');
-      const detailSubtitle = document.getElementById('detail-subtitle');
-      const detailStatus = document.getElementById('detail-status');
+      const detailCaption = document.getElementById('detail-caption');
       const fieldTitle = document.getElementById('field-title');
       const fieldGroup = document.getElementById('field-group');
       const fieldStatusSelect = document.getElementById('field-status-select');
@@ -2306,7 +2385,10 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
           const changeCount = (item.local_changes || []).length;
           return `
             <button class="workspace-card${{active ? ' is-active' : ''}}" type="button" data-workspace="${{escapeHtml(item.workspace)}}">
-              <h3>${{escapeHtml(item.title)}}</h3>
+              <div class="workspace-card-head">
+                <h3>${{escapeHtml(item.title)}}</h3>
+                <span class="workspace-card-arrow">›</span>
+              </div>
               <div class="workspace-meta">
                 <span class="badge" data-tone="${{escapeHtml((item.status || {{}}).tone || 'neutral')}}">${{escapeHtml((item.status || {{}}).label || '未标注')}}</span>
                 <span class="badge">${{changeCount ? `改动 ${{changeCount}}` : '无改动'}}</span>
@@ -2333,11 +2415,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         globalDetails.innerHTML = changes.map((change) => `
           <div class="change-item">
-            <div class="change-meta">
-              <span class="change-chip status-${{escapeHtml(change.status_key || 'modified')}}">${{escapeHtml(change.status_label || '已修改')}}</span>
-              <span class="change-chip category-${{escapeHtml(change.category_key || 'other')}}">${{escapeHtml(change.category_label || '其他')}}</span>
+            <div class="change-main">
+              <p class="change-path">${{escapeHtml(change.path || '')}}</p>
+              <div class="change-meta">
+                <span class="change-chip status-${{escapeHtml(change.status_key || 'modified')}}">${{escapeHtml(change.status_label || '已修改')}}</span>
+                <span class="change-chip category-${{escapeHtml(change.category_key || 'other')}}">${{escapeHtml(change.category_label || '其他')}}</span>
+              </div>
             </div>
-            <p>${{escapeHtml(change.path || '')}}</p>
           </div>
         `).join('');
       }}
@@ -2370,11 +2454,8 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
       }}
 
       function renderGlobalDetail() {{
-        const site = adminData.site || {{}};
         detailTitle.textContent = '全局配置';
-        detailSubtitle.textContent = '管理发布站标题、介绍和分组文案。';
-        detailStatus.textContent = '全局';
-        detailStatus.dataset.tone = 'active';
+        detailCaption.textContent = '统一维护发布站标题、分组文案和全局级改动。';
         saveButton.hidden = true;
         publishButton.hidden = true;
         globalSaveButton.hidden = false;
@@ -2400,9 +2481,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         if (!workspace) {{
           detailTitle.textContent = '当前分组没有工作区';
-          detailSubtitle.textContent = '当前分组下还没有工作区。';
-          detailStatus.textContent = '未选择';
-          detailStatus.dataset.tone = 'neutral';
+          detailCaption.textContent = '当前分组下还没有可编辑的工作区。';
           fieldTitle.value = '';
           fieldGroup.innerHTML = '';
           fieldStatusSelect.value = 'design';
@@ -2414,9 +2493,7 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
         }}
 
         detailTitle.textContent = workspace.title;
-        detailSubtitle.textContent = workspace.summary || '管理当前工作区的展示信息、入口按钮和更新记录。';
-        detailStatus.textContent = (workspace.status || {{}}).label || '未标注';
-        detailStatus.dataset.tone = (workspace.status || {{}}).tone || 'neutral';
+        detailCaption.textContent = '集中维护当前工作区的标题、状态、入口按钮和版本更新记录。';
 
         fieldTitle.value = workspace.title || '';
         const availableGroups = sections.length ? sections : [{{ key: workspace.group || 'main', title: workspace.group_title || workspace.group || '主线版本' }}];
@@ -2515,11 +2592,13 @@ def write_admin_console_page(demos: list[dict[str, object]], site_config: dict[s
 
         return changes.map((change) => `
           <div class="change-item">
-            <div class="change-meta">
-              <span class="change-chip status-${{escapeHtml(change.status_key || 'modified')}}">${{escapeHtml(change.status_label || '已修改')}}</span>
-              <span class="change-chip category-${{escapeHtml(change.category_key || 'other')}}">${{escapeHtml(change.category_label || '其他')}}</span>
+            <div class="change-main">
+              <p class="change-path">${{escapeHtml(change.path || '')}}</p>
+              <div class="change-meta">
+                <span class="change-chip status-${{escapeHtml(change.status_key || 'modified')}}">${{escapeHtml(change.status_label || '已修改')}}</span>
+                <span class="change-chip category-${{escapeHtml(change.category_key || 'other')}}">${{escapeHtml(change.category_label || '其他')}}</span>
+              </div>
             </div>
-            <p>${{escapeHtml(change.path || '')}}</p>
           </div>
         `).join('');
       }}

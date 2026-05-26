@@ -339,12 +339,7 @@
 
             <div class="toolbar-row">
               <div class="toolbar-left">
-                <input id="cameraKeywordInput" type="text" placeholder="搜索相机名称、相机编号、厂商或型号" />
-                <select id="cameraVendorFilter">
-                  <option value="all">全部厂商</option>
-                  <option value="HIK">HIKROBOT</option>
-                  <option value="Basler">Basler</option>
-                </select>
+                <input id="cameraKeywordInput" type="text" placeholder="搜索相机名称、相机编号或型号" />
               </div>
               <div class="toolbar-right">
                 <button class="secondary-btn" id="resetCameraFilterBtn">重置</button>
@@ -422,13 +417,21 @@
                 <h1>检测记录</h1>
               </div>
               <div class="toolbar-right">
-                <button class="primary-btn" id="exportRecordBtn">导出</button>
+                <span class="selection-count" id="recordSelectedCount">已选 0 条</span>
+                <button class="secondary-btn" id="selectFilteredRecordsBtn" disabled>全部选中</button>
+                <button class="danger-btn" id="deleteRecordBatchBtn" disabled>批量删除</button>
+                <button class="primary-btn" id="exportRecordBtn" disabled>批量导出</button>
               </div>
             </div>
 
             <div class="toolbar-row toolbar-row-wrap">
               <div class="toolbar-left">
-                <select id="recordToolFilter"></select>
+                <select id="recordRunModeFilter">
+                  <option value="all">全部运行模式</option>
+                  <option value="acquire">采图模式</option>
+                  <option value="process">图像处理模式</option>
+                  <option value="detect">检测模式</option>
+                </select>
                 <select id="recordBusinessFilter">
                   <option value="all">全部结果</option>
                   <option value="OK">OK</option>
@@ -451,6 +454,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th class="table-select-col"><input id="recordSelectAll" type="checkbox" aria-label="全选检测记录" /></th>
                     <th>记录编号</th>
                     <th>工具名称</th>
                     <th>运行模式</th>
@@ -592,25 +596,28 @@
           <div id="paramGroupList" class="param-group-list"></div>
         </aside>
 
-        <div class="param-editor">
-          <section class="param-preview-panel">
-            <div class="section-head section-head-tight">
-              <div>
-                <h4>相机画面</h4>
-              </div>
+        <section class="param-detail-panel">
+          <div class="section-head section-head-tight">
+            <div>
+              <h4>参数列表</h4>
             </div>
-            <div class="inspection-stage inspection-stage-compact param-preview-stage" id="paramPreviewStage">
-              <div class="stage-overlay"></div>
-              <div class="stage-caption" id="paramPreviewCaption">相机画面</div>
-            </div>
-          </section>
+          </div>
+          <div class="param-form-scroll" id="paramFormScroll">
+            <div id="paramFormFields" class="form-grid double-column param-form-grid"></div>
+          </div>
+        </section>
 
-          <section class="param-detail-panel">
-            <div class="param-form-scroll" id="paramFormScroll">
-              <div id="paramFormFields" class="form-grid double-column param-form-grid"></div>
+        <section class="param-preview-panel">
+          <div class="section-head section-head-tight">
+            <div>
+              <h4>相机画面</h4>
             </div>
-          </section>
-        </div>
+          </div>
+          <div class="inspection-stage inspection-stage-compact param-preview-stage zoomable-preview" id="paramPreviewStage">
+            <div class="stage-overlay"></div>
+            <div class="stage-caption" id="paramPreviewCaption">相机画面</div>
+          </div>
+        </section>
       </div>
     </div>
 

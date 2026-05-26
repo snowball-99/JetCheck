@@ -35,7 +35,8 @@
 html,
 body {
   margin: 0;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 body {
@@ -139,7 +140,8 @@ thead th {
 
 .client-body,
 .platform-body {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .muted,
@@ -271,13 +273,17 @@ thead th {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-layout {
   display: grid;
   grid-template-columns: 178px minmax(0, 1fr);
-  min-height: calc(100vh - 84px);
+  height: calc(100vh - 84px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -285,6 +291,9 @@ thead th {
   display: flex;
   flex-direction: column;
   gap: 28px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .client-sidebar {
@@ -354,15 +363,20 @@ thead th {
 
 .page-shell {
   padding: 30px 30px 36px;
-  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .page {
   display: none;
+  min-height: 0;
+  height: 100%;
 }
 
 .page.is-active {
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header,
@@ -374,6 +388,7 @@ thead th {
 }
 
 .page-header {
+  flex: 0 0 auto;
   margin-bottom: 22px;
 }
 
@@ -419,6 +434,7 @@ thead th {
 }
 
 .toolbar-row {
+  flex: 0 0 auto;
   justify-content: space-between;
   margin-bottom: 18px;
 }
@@ -484,8 +500,7 @@ thead th {
 }
 
 #platformStatusFilter,
-#cameraVendorFilter,
-#recordToolFilter,
+#recordRunModeFilter,
 #recordBusinessFilter,
 #recordSuspiciousFilter,
 #localSceneFilter,
@@ -499,6 +514,19 @@ thead th {
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.94);
   box-shadow: var(--shadow-md);
+}
+
+.page > .card {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.page > .card thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .capture-config-card {
@@ -679,11 +707,15 @@ thead th {
 }
 
 .table-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 16px;
+  padding: 16px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, #fff 42%);
 }
 
 .pagination-summary {
@@ -788,7 +820,9 @@ thead th {
 .login-shell {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) 460px;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: auto;
 }
 
 .login-hero {
@@ -1063,19 +1097,41 @@ thead th {
 }
 
 .tool-card-grid {
+  flex: 1 1 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 6px;
+  overscroll-behavior: contain;
+}
+
+#toolOverviewPanel,
+#toolBuilderPanel,
+#toolRuntimePanel,
+#toolIoConfigPanel {
+  min-height: 0;
+  height: 100%;
+}
+
+#toolOverviewPanel:not([hidden]),
+#toolBuilderPanel:not([hidden]),
+#toolRuntimePanel:not([hidden]),
+#toolIoConfigPanel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
 }
 
 .tool-card {
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 220px;
-  padding: 24px;
+  min-height: 176px;
+  padding: 18px;
   color: #fff;
-  border-radius: 24px;
+  border-radius: 20px;
   overflow: hidden;
   box-shadow: var(--shadow-md);
   text-decoration: none;
@@ -1086,8 +1142,8 @@ thead th {
   content: "";
   position: absolute;
   inset: auto -24px -30px auto;
-  width: 150px;
-  height: 150px;
+  width: 116px;
+  height: 116px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.16);
 }
@@ -1131,7 +1187,7 @@ thead th {
 .tool-card-top {
   position: relative;
   z-index: 1;
-  justify-content: flex-end;
+  justify-content: space-between;
 }
 
 .tool-card-top {
@@ -1141,8 +1197,8 @@ thead th {
 .tool-card h3 {
   position: relative;
   z-index: 1;
-  margin-top: 18px;
-  font-size: 24px;
+  margin-top: 16px;
+  font-size: 21px;
 }
 
 .tool-card-actions {
@@ -1182,6 +1238,42 @@ thead th {
   color: #d8ffea;
 }
 
+.tool-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tool-card-status.is-invalid {
+  color: #d84d3a;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(216, 77, 58, 0.18);
+}
+
+.tool-card-status-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--danger);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.tool-card-action-group {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .tool-action-btn,
 .table-btn {
   padding: 8px 12px;
@@ -1194,6 +1286,27 @@ thead th {
 .tone-gray .tool-action-btn {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
+}
+
+.tool-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #fff;
+  border-radius: 12px;
+}
+
+.tool-icon-action svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .table-btn {
@@ -1996,13 +2109,13 @@ thead th {
 .tool-create-card {
   display: grid;
   place-items: center;
-  min-height: 220px;
-  border-radius: 24px;
+  min-height: 176px;
+  border-radius: 20px;
   color: var(--primary);
   background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
   border: 2px dashed #d2deef;
   box-shadow: none;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
 }
 
@@ -2057,7 +2170,8 @@ thead th {
 
 .builder-body {
   min-height: 360px;
-  height: calc(100vh - 280px);
+  flex: 1 1 auto;
+  height: auto;
   overflow: hidden;
 }
 
@@ -2985,7 +3099,8 @@ thead th {
 
 .runtime-grid {
   grid-template-columns: 320px minmax(0, 1fr) 340px;
-  height: calc(100vh - 260px);
+  flex: 1 1 auto;
+  height: auto;
   min-height: 0;
   align-items: stretch;
 }
@@ -3005,7 +3120,20 @@ thead th {
 }
 
 .settings-layout {
+  flex: 1 1 auto;
+  min-height: 0;
   grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.settings-tabs,
+.settings-panels,
+.settings-panel.is-active {
+  min-height: 0;
+}
+
+.settings-panels {
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .records-layout {
@@ -3813,12 +3941,14 @@ thead th {
 .storage-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
+  align-items: stretch;
+  max-width: 980px;
 }
 
 .storage-panel .summary-grid {
   margin-bottom: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .storage-card {
@@ -3859,6 +3989,15 @@ thead th {
   line-height: 1.6;
 }
 
+.selection-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .settings-tabs {
   display: flex;
   flex-direction: column;
@@ -3888,6 +4027,10 @@ thead th {
   display: block;
 }
 
+.settings-panel.storage-panel.is-active {
+  display: flex;
+}
+
 .settings-actions {
   margin-top: 20px;
   display: flex;
@@ -3897,6 +4040,57 @@ thead th {
 
 .record-export-section + .record-export-section {
   margin-top: 12px;
+}
+
+.table-select-col {
+  width: 48px;
+  text-align: center;
+}
+
+.table-select-col input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.reference-confirm-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  line-height: 1.8;
+}
+
+.modal-prompt {
+  color: var(--text);
+  line-height: 1.8;
+  font-weight: 700;
+}
+
+.modal-prompt-danger {
+  color: var(--text);
+}
+
+.modal .banner {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal .banner-danger {
+  color: var(--danger);
+}
+
+.modal .banner-warning {
+  color: var(--warning);
+}
+
+.modal .banner-success {
+  color: var(--success);
+}
+
+.modal .banner-primary {
+  color: var(--primary);
 }
 
 .selection-list-inline {
@@ -4030,12 +4224,18 @@ thead th {
 }
 
 .camera-row-actions {
+  display: inline-flex;
+  width: auto;
+  max-width: max-content;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .modal-body.param-layout {
   display: grid;
-  grid-template-columns: 420px minmax(0, 1fr);
+  grid-template-columns: 260px 330px minmax(460px, 1fr);
   gap: 20px;
   height: min(78vh, 820px);
   max-height: none;
@@ -4044,7 +4244,8 @@ thead th {
 }
 
 .param-sidebar,
-.param-editor {
+.param-detail-panel,
+.param-preview-panel {
   min-width: 0;
   min-height: 0;
 }
@@ -4094,12 +4295,6 @@ thead th {
 
 .param-sidebar .secondary-btn {
   white-space: nowrap;
-}
-
-.param-editor {
-  display: grid;
-  grid-template-rows: minmax(280px, 328px) minmax(0, 1fr);
-  gap: 18px;
 }
 
 .param-preview-panel,
@@ -4152,16 +4347,33 @@ thead th {
 .param-preview-panel {
   display: flex;
   flex-direction: column;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .param-preview-stage {
-  width: min(100%, 520px);
+  width: min(100%, 720px);
   min-height: 0;
   height: auto;
   aspect-ratio: 2448 / 2048;
   margin-top: 0;
   margin-left: auto;
   margin-right: auto;
+  cursor: zoom-in;
+}
+
+.zoomable-preview {
+  overscroll-behavior: contain;
+  cursor: zoom-in;
+}
+
+.zoomable-preview img,
+.zoomable-preview .stage-overlay,
+.zoomable-preview .sample-preview-grid {
+  transform: scale(var(--preview-zoom, 1));
+  transform-origin: center center;
+  transition: transform 0.08s ease;
 }
 
 .param-detail-panel {
@@ -4179,9 +4391,9 @@ thead th {
 }
 
 .param-form-grid {
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: 1fr;
   justify-content: stretch;
-  gap: 16px 20px;
+  gap: 14px;
 }
 
 .param-form-grid .field-span-full {
@@ -4192,6 +4404,33 @@ thead th {
 .param-form-grid .field select {
   width: 100%;
   max-width: none;
+}
+
+.number-stepper {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.number-stepper input {
+  height: 42px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  text-align: center;
+}
+
+.number-stepper button {
+  height: 42px;
+  border: 0;
+  color: var(--muted);
+  background: #f5f7fb;
+  font-size: 20px;
 }
 
 .param-form-grid .field-span-full input {
@@ -5100,10 +5339,6 @@ thead th {
     height: auto;
     max-height: min(76vh, 820px);
     overflow: auto;
-  }
-
-  .param-editor {
-    grid-template-rows: 240px minmax(0, 1fr);
   }
 
   .param-group-list,

@@ -16,7 +16,6 @@ const ui = {
   activeParamGroupId: state.cameras[0]?.paramGroups?.[0]?.id || null,
   cameraFilters: {
     keyword: "",
-    vendor: "all",
   },
   ioFilters: {
     keyword: "",
@@ -24,12 +23,13 @@ const ui = {
   activeIoConfigTab: "input",
   activeToolIoModuleId: "",
   recordFilters: {
-    toolId: "all",
+    runMode: "all",
     business: "all",
     startAt: "",
     endAt: "",
     keyword: "",
   },
+  selectedRecordIds: new Set(),
   recordPagination: {
     page: 1,
     pageSize: 10,
@@ -57,6 +57,7 @@ const ui = {
   pendingDetectionStartedAt: 0,
   runtimePlaybackRecordId: null,
   runtimeInitialToolId: null,
+  paramPreviewZoom: 1,
   judgmentScroll: {
     tree: 0,
     editor: 0,
@@ -182,7 +183,6 @@ const els = {
   ioModuleEmptyState: document.getElementById("ioModuleEmptyState"),
 
   cameraKeywordInput: document.getElementById("cameraKeywordInput"),
-  cameraVendorFilter: document.getElementById("cameraVendorFilter"),
   searchCameraBtn: document.getElementById("searchCameraBtn"),
   resetCameraFilterBtn: document.getElementById("resetCameraFilterBtn"),
   refreshCameraBtn: document.getElementById("refreshCameraBtn"),
@@ -190,14 +190,18 @@ const els = {
   cameraTableBody: document.getElementById("cameraTableBody"),
   cameraEmptyState: document.getElementById("cameraEmptyState"),
 
-  recordToolFilter: document.getElementById("recordToolFilter"),
+  recordRunModeFilter: document.getElementById("recordRunModeFilter"),
   recordBusinessFilter: document.getElementById("recordBusinessFilter"),
   recordStartTimeInput: document.getElementById("recordStartTimeInput"),
   recordEndTimeInput: document.getElementById("recordEndTimeInput"),
   recordKeywordInput: document.getElementById("recordKeywordInput"),
   resetRecordFilterBtn: document.getElementById("resetRecordFilterBtn"),
   searchRecordBtn: document.getElementById("searchRecordBtn"),
+  deleteRecordBatchBtn: document.getElementById("deleteRecordBatchBtn"),
   exportRecordBtn: document.getElementById("exportRecordBtn"),
+  selectFilteredRecordsBtn: document.getElementById("selectFilteredRecordsBtn"),
+  recordSelectedCount: document.getElementById("recordSelectedCount"),
+  recordSelectAll: document.getElementById("recordSelectAll"),
   recordTableBody: document.getElementById("recordTableBody"),
   recordEmptyState: document.getElementById("recordEmptyState"),
   recordTableFooter: document.getElementById("recordTableFooter"),
@@ -336,8 +340,12 @@ function bindStaticEvents() {
 
   els.resetRecordFilterBtn.addEventListener("click", resetRecordFilters);
   els.searchRecordBtn.addEventListener("click", applyRecordFilters);
-  els.exportRecordBtn.addEventListener("click", openRecordExportModal);
+  els.selectFilteredRecordsBtn.addEventListener("click", selectAllFilteredRecords);
+  els.deleteRecordBatchBtn.addEventListener("click", () => confirmDeleteRecords(Array.from(ui.selectedRecordIds)));
+  els.exportRecordBtn.addEventListener("click", () => openRecordExportModal(Array.from(ui.selectedRecordIds)));
   els.recordTableBody.addEventListener("click", handleRecordTableClick);
+  els.recordTableBody.addEventListener("change", handleRecordTableChange);
+  els.recordSelectAll.addEventListener("change", handleRecordSelectAllChange);
   els.recordPaginationControls.addEventListener("click", handleRecordPaginationClick);
 
   els.settingsTabs.forEach((tab) => {
@@ -366,6 +374,8 @@ function bindStaticEvents() {
   els.closeParamModal.addEventListener("click", closeParamModal);
   els.addParamGroupBtn.addEventListener("click", addParamGroup);
   els.paramGroupList.addEventListener("click", handleParamGroupClick);
+  els.paramPreviewStage.addEventListener("wheel", handleParamPreviewWheel, { passive: false });
+  els.paramFormFields.addEventListener("click", handleParamStepperClick);
   els.paramFormFields.addEventListener("input", handleParamFieldChange);
   els.paramFormFields.addEventListener("change", handleParamFieldChange);
   els.paramFormFields.addEventListener("wheel", handleParamFieldWheel);
@@ -416,11 +426,12 @@ function resetDemoState() {
   ui.runtimeInitialToolId = null;
   ui.activeCameraId = state.cameras[0]?.id || null;
   ui.activeParamGroupId = state.cameras[0]?.paramGroups?.[0]?.id || null;
-  ui.cameraFilters = { keyword: "", vendor: "all" };
+  ui.cameraFilters = { keyword: "" };
   ui.ioFilters = { keyword: "" };
   ui.activeIoConfigTab = "input";
   ui.activeToolIoModuleId = "";
-  ui.recordFilters = { toolId: "all", business: "all", startAt: "", endAt: "", keyword: "" };
+  ui.recordFilters = { runMode: "all", business: "all", startAt: "", endAt: "", keyword: "" };
+  ui.selectedRecordIds.clear();
   ui.discoveryKeyword = "";
   ui.localFilters = { keyword: "", scene: "all" };
   ui.cloudFilters = { keyword: "", scene: "all" };
@@ -709,22 +720,44 @@ function renderTools() {
 
 function renderToolCardGrid() {
   els.toolCardGrid.innerHTML =
+    `<button class="tool-create-card" data-action="create-tool">+ 新建工具</button>` +
     state.tools
       .map((tool) => {
         const isRunning = isToolSessionRunning(tool) && tool.runtime?.status !== "未运行";
+        const card = getToolCardPresentation(tool);
         return `
-          <article class="tool-card ${tool.tone || "tone-blue"}" data-action="open-tool-runtime" data-id="${tool.id}">
+          <article class="tool-card ${card.tone}" data-action="open-tool-runtime" data-id="${tool.id}">
             <div class="tool-card-top">
-              <button class="tool-action-btn" data-action="open-io-config" data-id="${tool.id}" ${isRunning ? "disabled" : ""}>IO配置</button>
-              <button class="tool-action-btn" data-action="edit-tool" data-id="${tool.id}" ${isRunning ? "disabled" : ""}>编辑</button>
+              ${card.statusText ? `<span class="tool-card-status ${card.statusClass}">${card.statusIcon ? `<span class="tool-card-status-icon">${card.statusIcon}</span>` : ""}${escapeHtml(card.statusText)}</span>` : "<span></span>"}
+              <div class="tool-card-action-group">
+                <button class="tool-action-btn tool-icon-action" data-action="open-io-config" data-id="${tool.id}" title="IO配置" aria-label="IO配置" ${isRunning ? "disabled" : ""}>${getIconSvg("io")}</button>
+                <button class="tool-action-btn tool-icon-action" data-action="edit-tool" data-id="${tool.id}" title="编辑" aria-label="编辑" ${isRunning ? "disabled" : ""}>${getIconSvg("edit")}</button>
+              </div>
             </div>
             <h3>${escapeHtml(tool.name)}</h3>
-            ${isRunning ? `<div class="tool-card-runtime-row"><span class="tool-card-runtime-state">运行中</span></div>` : ""}
           </article>
         `;
       })
-      .join("") +
-    `<button class="tool-create-card" data-action="create-tool">+ 新建工具</button>`;
+      .join("");
+}
+
+function getToolCardPresentation(tool) {
+  const isRunning = isToolSessionRunning(tool) && tool.runtime?.status !== "未运行";
+  if (isRunning) return { tone: "tone-green", statusText: "运行中", statusClass: "is-running", statusIcon: "" };
+  if (tool.configInvalid || tool.runtime?.status === "配置异常") {
+    return { tone: "tone-blue", statusText: "配置异常", statusClass: "is-invalid", statusIcon: "!" };
+  }
+  if (tool.runtime?.status === "未配置" || !RUN_MODE_OPTIONS.some((item) => evaluateToolRunModeAvailability(tool, item.value))) {
+    return { tone: "tone-gray", statusText: "未配置", statusClass: "is-unconfigured", statusIcon: "" };
+  }
+  return { tone: "tone-blue", statusText: "" };
+}
+
+function getIconSvg(type) {
+  if (type === "io") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/><path d="M3 9h4M3 15h4M17 9h4M17 15h4M9 3v4M15 3v4M9 17v4M15 17v4"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11a2.1 2.1 0 0 0-3-3L5 17l-1 3z"/><path d="M14 6l4 4"/></svg>`;
 }
 
 function renderToolBuilder() {
@@ -1732,24 +1765,21 @@ function updateSelectOptions(selectEl, options, selectedValue, emptyLabel) {
 
 function renderCameraPage() {
   els.cameraKeywordInput.value = ui.cameraFilters.keyword;
-  els.cameraVendorFilter.value = ui.cameraFilters.vendor;
-  const referencedCameras = Demo.getReferencedCameraIds(state);
   const rows = getFilteredCameras();
   els.cameraTableBody.innerHTML = rows
     .map((camera) => {
-      const canDelete = !referencedCameras.has(camera.id);
-      const canManageParam = camera.status === "空闲";
+      const canManageParam = camera.status !== "离线";
       return `
         <tr>
           <td>${escapeHtml(Demo.getCameraLabel(camera))}</td>
           <td>${escapeHtml(camera.id || camera.serial)}</td>
           <td>${escapeHtml(camera.vendor)}</td>
           <td>${escapeHtml(camera.model)}</td>
-          <td>${renderStatusBadgeHtml(camera.status)}</td>
+          <td>${renderStatusBadgeHtml(getCameraConnectionStatus(camera))}</td>
           <td>
             <div class="camera-row-actions">
               <button class="table-btn table-btn-primary" data-action="manage-param" data-id="${camera.id}" ${canManageParam ? "" : "disabled"}>参数组管理</button>
-              <button class="table-btn table-btn-danger" data-action="delete-camera" data-id="${camera.id}" ${canDelete ? "" : "disabled"}>删除</button>
+              <button class="table-btn table-btn-danger" data-action="delete-camera" data-id="${camera.id}">删除</button>
             </div>
           </td>
         </tr>
@@ -1792,11 +1822,7 @@ function renderRecords() {
 }
 
 function renderRecordFilters() {
-  const toolOptions = [`<option value="all">全部工具</option>`]
-    .concat(state.tools.map((tool) => `<option value="${tool.id}">${escapeHtml(tool.name)}</option>`))
-    .join("");
-  els.recordToolFilter.innerHTML = toolOptions;
-  els.recordToolFilter.value = ui.recordFilters.toolId;
+  els.recordRunModeFilter.value = ui.recordFilters.runMode;
   els.recordBusinessFilter.value = ui.recordFilters.business;
   els.recordStartTimeInput.value = ui.recordFilters.startAt;
   els.recordEndTimeInput.value = ui.recordFilters.endAt;
@@ -1805,20 +1831,39 @@ function renderRecordFilters() {
 
 function renderRecordTable() {
   const rows = getFilteredRecords();
+  syncSelectedRecordsWithRows(rows);
   const pagination = getRecordPaginationState(rows);
   const pageRows = rows.slice(pagination.startIndex, pagination.endIndex);
+  const selectedCount = ui.selectedRecordIds.size;
+  const allFilteredSelected = rows.length > 0 && rows.every((record) => ui.selectedRecordIds.has(record.id));
+  els.exportRecordBtn.disabled = selectedCount === 0;
+  els.deleteRecordBatchBtn.disabled = selectedCount === 0;
+  els.selectFilteredRecordsBtn.disabled = rows.length === 0;
+  els.selectFilteredRecordsBtn.textContent = allFilteredSelected ? "全部清除勾选" : "全部选中";
+  els.recordSelectedCount.textContent = `已选 ${selectedCount} 条`;
+  els.recordSelectAll.disabled = pageRows.length === 0;
+  els.recordSelectAll.checked = pageRows.length > 0 && pageRows.every((record) => ui.selectedRecordIds.has(record.id));
+  els.recordSelectAll.indeterminate =
+    pageRows.some((record) => ui.selectedRecordIds.has(record.id)) && !els.recordSelectAll.checked;
 
   els.recordTableBody.innerHTML = pageRows
     .map((record) => {
+      const checked = ui.selectedRecordIds.has(record.id) ? "checked" : "";
       return `
         <tr>
+          <td class="table-select-col"><input type="checkbox" data-action="select-record" data-id="${record.id}" aria-label="选择检测记录 ${escapeAttribute(record.id)}" ${checked} /></td>
           <td>${escapeHtml(record.id)}</td>
           <td>${escapeHtml(record.toolName)}</td>
           <td>${escapeHtml(getRunModeLabel(record.runMode || "detect"))}</td>
           <td>${Demo.formatDateTime(record.triggeredAt)}</td>
           <td>${renderBusinessBadge(record.businessResult || record.totalResult || "-")}</td>
           <td>${renderRecordTagSummary(record)}</td>
-          <td><button class="table-btn table-btn-primary" data-action="view-record-detail" data-id="${record.id}">查看详情</button></td>
+          <td>
+            <div class="camera-row-actions">
+              <button class="table-btn table-btn-primary" data-action="view-record-detail" data-id="${record.id}">查看详情</button>
+              <button class="table-btn table-btn-danger" data-action="delete-record" data-id="${record.id}">删除</button>
+            </div>
+          </td>
         </tr>
       `;
     })
@@ -2062,6 +2107,7 @@ function renderParamGroupList(camera, referencedParamIds) {
 function syncParamPreview(camera, group) {
   els.paramPreviewStage.style.aspectRatio = getParamPreviewAspectRatio(group);
   els.paramPreviewCaption.textContent = getParamPreviewCaption(camera, group);
+  els.paramPreviewStage.style.setProperty("--preview-zoom", ui.paramPreviewZoom);
 }
 
 function renderModelDrawer() {
@@ -2108,7 +2154,7 @@ function renderLocalModels() {
               <td>${escapeHtml(model.source)}</td>
               <td>${Demo.formatDateTime(model.addedAt)}</td>
               <td>${renderReferenceStatusHtml(referenceCount)}</td>
-              <td><button class="table-btn table-btn-danger" data-action="delete-local-model" data-model-id="${model.id}" ${referenceCount ? "disabled" : ""}>删除</button></td>
+              <td><button class="table-btn table-btn-danger" data-action="delete-local-model" data-model-id="${model.id}">删除</button></td>
             </tr>
           `;
         })
@@ -2882,19 +2928,12 @@ function addClassifyCondition() {
   if (!rule) return;
   if (!Array.isArray(rule.conditions)) rule.conditions = [];
   const sceneType = getDetectSceneType(getDetectByNode(tool, findJudgmentRuleNode(tool, ui.builderRuleNodeId)));
-  if (sceneType === "缺陷" || rule.template === "defect-conditions") {
-    rule.conditions.push({
-      label: "缺陷",
-      operator: "eq",
-      expectedCount: 0,
-    });
-  } else {
-    rule.conditions.push({
-      label: rule.conditions[0]?.label || "目标",
-      operator: "eq",
-      expectedCount: 1,
-    });
-  }
+  if (sceneType === "缺陷" || rule.template === "defect-conditions") return;
+  rule.conditions.push({
+    label: rule.conditions[0]?.label || "目标",
+    operator: "eq",
+    expectedCount: 1,
+  });
   saveStateSilently();
   renderToolBuilder();
 }
@@ -4198,13 +4237,11 @@ function stopToolRunSession() {
 
 function applyCameraFilters() {
   ui.cameraFilters.keyword = els.cameraKeywordInput.value.trim();
-  ui.cameraFilters.vendor = els.cameraVendorFilter.value;
   renderCameraPage();
 }
 
 function resetCameraFilters() {
   ui.cameraFilters.keyword = "";
-  ui.cameraFilters.vendor = "all";
   renderCameraPage();
 }
 
@@ -4419,7 +4456,7 @@ function openRuntimeCameraPreview(acquireId) {
     panelClass: "modal-xl",
     body: `
       <div class="runtime-camera-preview-dialog">
-        <div class="sample-preview-frame runtime-camera-preview-frame ${getAcquireSampleUrl(acquire) ? "" : "is-placeholder"}">
+        <div class="sample-preview-frame runtime-camera-preview-frame zoomable-preview ${getAcquireSampleUrl(acquire) ? "" : "is-placeholder"}">
           ${
             getAcquireSampleUrl(acquire)
               ? `<img src="${escapeAttribute(getAcquireSampleUrl(acquire))}" alt="${escapeAttribute(getAcquireSampleName(acquire))}" />`
@@ -4460,27 +4497,58 @@ function openRuntimeCameraPreview(acquireId) {
       return true;
     },
   });
+  window.requestAnimationFrame(() => {
+    const frame = document.querySelector(".runtime-camera-preview-frame");
+    frame?.addEventListener("wheel", handleZoomablePreviewWheel, { passive: false });
+  });
 }
 
 function deleteCamera(cameraId) {
-  const referenced = Demo.getReferencedCameraIds(state);
-  if (referenced.has(cameraId)) {
-    showToast("当前相机已被检测工具引用，无法删除");
-    return;
-  }
   const camera = state.cameras.find((item) => item.id === cameraId);
   if (!camera) return;
+  const referencedTools = getCameraReferencedToolNames(cameraId);
+  const referenceNotice = referencedTools.length
+    ? `
+      <p>当前相机被以下工具引用。删除后，这些工具的相机配置会被清空。</p>
+      <ul class="reference-confirm-list">
+        ${referencedTools.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}
+      </ul>
+    `
+    : `<p>确定删除相机“${escapeHtml(Demo.getCameraLabel(camera))}”吗？</p>`;
   openSharedModal({
     title: "删除相机",
-    body: `<p class="banner banner-danger">确定删除相机“${escapeHtml(Demo.getCameraLabel(camera))}”吗？未被引用的相机才允许删除。</p>`,
+    body: `<div class="modal-prompt">${referenceNotice}</div>`,
     confirmText: "确认删除",
     confirmClass: "danger-btn",
     onConfirm() {
+      clearCameraReferences(cameraId);
       state.cameras = state.cameras.filter((item) => item.id !== cameraId);
       closeSharedModal();
       persistState("相机已删除");
       return true;
     },
+  });
+}
+
+function getCameraReferencedToolNames(cameraId) {
+  return state.tools
+    .filter((tool) => Array.isArray(tool.acquire) && tool.acquire.some((item) => item.type === "camera" && item.cameraId === cameraId))
+    .map((tool) => tool.name);
+}
+
+function clearCameraReferences(cameraId) {
+  state.tools.forEach((tool) => {
+    let affected = false;
+    if (Array.isArray(tool.acquire)) {
+      tool.acquire.forEach((item) => {
+        if (item.type !== "camera" || item.cameraId !== cameraId) return;
+        item.cameraId = "";
+        item.paramGroupId = "";
+        item.sampleImageUrl = "";
+        affected = true;
+      });
+    }
+    if (affected) markToolConfigInvalid(tool);
   });
 }
 
@@ -4528,7 +4596,7 @@ function confirmAddCamera() {
       paramGroups: [
         {
           id: Demo.makeId("pg"),
-          name: "默认参数组",
+          name: "默认参数组1",
           settings: getDefaultParamSettings(source.brand),
         },
       ],
@@ -4541,12 +4609,13 @@ function confirmAddCamera() {
 function openParamModal(cameraId) {
   const camera = state.cameras.find((item) => item.id === cameraId);
   if (!camera) return;
-  if (camera.status !== "空闲") {
-    showToast("仅空闲相机支持参数组管理");
+  if (camera.status === "离线") {
+    showToast("未连接相机暂不支持参数组管理");
     return;
   }
   ui.activeCameraId = cameraId;
   ui.activeParamGroupId = camera.paramGroups?.[0]?.id || null;
+  ui.paramPreviewZoom = 1;
   openPanel(els.paramModal);
   renderParamModal();
 }
@@ -4569,12 +4638,45 @@ function handleParamGroupClick(event) {
   renderParamModal();
 }
 
+function handleParamStepperClick(event) {
+  const button = getClosestEventTarget(event, "[data-action='param-step']");
+  if (!button) return;
+  const fieldKey = button.dataset.field;
+  const input = document.getElementById(`param_field_${fieldKey}`);
+  if (!input) return;
+  const delta = Number(button.dataset.delta || 0);
+  const current = Number(input.value || 0);
+  input.value = String(current + delta);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function handleParamPreviewWheel(event) {
+  ui.paramPreviewZoom = applyPreviewWheelZoom(event, els.paramPreviewStage, ui.paramPreviewZoom);
+  syncParamPreview(getActiveCamera(), getActiveParamGroup());
+}
+
+function handleZoomablePreviewWheel(event) {
+  const target = getClosestEventTarget(event, ".zoomable-preview");
+  if (!target) return;
+  const current = Number(target.dataset.zoom || 1);
+  const next = applyPreviewWheelZoom(event, target, current);
+  target.dataset.zoom = String(next);
+}
+
+function applyPreviewWheelZoom(event, element, currentZoom = 1) {
+  event.preventDefault();
+  const direction = event.deltaY > 0 ? -1 : 1;
+  const nextZoom = Math.min(3, Math.max(0.6, Number((Number(currentZoom || 1) + direction * 0.12).toFixed(2))));
+  element.style.setProperty("--preview-zoom", nextZoom);
+  return nextZoom;
+}
+
 function addParamGroup() {
   const camera = getActiveCamera();
   if (!camera) return;
   const next = {
     id: Demo.makeId("pg"),
-    name: `新参数组 ${camera.paramGroups.length + 1}`,
+    name: `默认参数组${camera.paramGroups.length + 1}`,
     settings: getDefaultParamSettings(camera.brand),
   };
   camera.paramGroups.push(next);
@@ -4829,15 +4931,80 @@ function buildMockAlgorithmOutput(output, businessResult, modelSceneType = "") {
 }
 
 function deleteLocalModel(modelId) {
-  if (getLocalModelReferenceCount(modelId)) {
-    showToast("当前模型已被检测工具引用，无法删除");
-    return;
-  }
-  state.localModels = state.localModels.filter((item) => item.id !== modelId);
-  if (ui.selectedModelId === modelId) {
-    ui.selectedModelId = state.localModels[0]?.id || null;
-  }
-  persistState("本地模型已删除");
+  const model = state.localModels.find((item) => item.id === modelId);
+  if (!model) return;
+  const referencedTools = getModelReferencedToolNames(modelId);
+  const referenceNotice = referencedTools.length
+    ? `
+      <p>当前模型被以下工具引用。删除后，这些工具的相关配置会被清空。</p>
+      <ul class="reference-confirm-list">
+        ${referencedTools.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}
+      </ul>
+    `
+    : `<p>确定删除模型“${escapeHtml(model.modelName)} / ${escapeHtml(model.version)}”吗？</p>`;
+
+  openSharedModal({
+    title: "删除模型",
+    body: `<div class="modal-prompt">${referenceNotice}</div>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      clearModelReferences(modelId);
+      state.localModels = state.localModels.filter((item) => item.id !== modelId);
+      if (ui.selectedModelId === modelId) {
+        ui.selectedModelId = state.localModels[0]?.id || null;
+      }
+      closeSharedModal();
+      persistState("本地模型已删除");
+      return true;
+    },
+  });
+}
+
+function getModelReferencedToolNames(modelId) {
+  const names = state.tools
+    .filter((tool) => {
+      const processHit = Array.isArray(tool.process) && tool.process.some((item) => item.modelId === modelId);
+      const detectHit = Array.isArray(tool.detect) && tool.detect.some((item) => item.modelId === modelId);
+      return processHit || detectHit;
+    })
+    .map((tool) => tool.name);
+  return Array.from(new Set(names));
+}
+
+function clearModelReferences(modelId) {
+  state.tools.forEach((tool) => {
+    let affected = false;
+    if (Array.isArray(tool.process)) {
+      tool.process.forEach((item) => {
+        if (item.modelId !== modelId) return;
+        item.modelId = null;
+        item.modelSceneType = "";
+        item.categoryOptions = [];
+        affected = true;
+      });
+    }
+    if (Array.isArray(tool.detect)) {
+      tool.detect.forEach((item) => {
+        if (item.modelId !== modelId) return;
+        item.modelId = null;
+        item.modelSceneType = "";
+        item.categoryOptions = [];
+        item.dimensionConfig = null;
+        affected = true;
+      });
+    }
+    if (affected) markToolConfigInvalid(tool);
+  });
+}
+
+function markToolConfigInvalid(tool) {
+  if (!tool) return;
+  tool.configInvalid = true;
+  if (!tool.runtime) tool.runtime = {};
+  tool.runtime.status = "配置异常";
+  tool.runtime.primaryResult = "-";
+  tool.runtime.sessionActive = false;
 }
 
 function confirmModelSelection() {
@@ -4924,7 +5091,7 @@ function applyRecordFilters() {
       return;
     }
   }
-  ui.recordFilters.toolId = els.recordToolFilter.value;
+  ui.recordFilters.runMode = els.recordRunModeFilter.value;
   ui.recordFilters.business = els.recordBusinessFilter.value;
   ui.recordFilters.startAt = startAt;
   ui.recordFilters.endAt = endAt;
@@ -4935,12 +5102,13 @@ function applyRecordFilters() {
 
 function resetRecordFilters() {
   ui.recordFilters = {
-    toolId: "all",
+    runMode: "all",
     business: "all",
     startAt: "",
     endAt: "",
     keyword: "",
   };
+  ui.selectedRecordIds.clear();
   ui.recordPagination.page = 1;
   renderRecords();
 }
@@ -4952,7 +5120,73 @@ function handleRecordTableClick(event) {
   if (!id) return;
   if (action === "view-record-detail") {
     openRecordDetailModal(id);
+    return;
   }
+  if (action === "delete-record") {
+    confirmDeleteRecords([id]);
+  }
+}
+
+function handleRecordTableChange(event) {
+  const checkbox = getClosestEventTarget(event, "[data-action='select-record']");
+  if (!checkbox?.dataset.id) return;
+  if (checkbox.checked) {
+    ui.selectedRecordIds.add(checkbox.dataset.id);
+  } else {
+    ui.selectedRecordIds.delete(checkbox.dataset.id);
+  }
+  renderRecordTable();
+}
+
+function handleRecordSelectAllChange() {
+  const rows = getFilteredRecords();
+  const pagination = getRecordPaginationState(rows);
+  const pageRows = rows.slice(pagination.startIndex, pagination.endIndex);
+  pageRows.forEach((record) => {
+    if (els.recordSelectAll.checked) {
+      ui.selectedRecordIds.add(record.id);
+    } else {
+      ui.selectedRecordIds.delete(record.id);
+    }
+  });
+  renderRecordTable();
+}
+
+function selectAllFilteredRecords() {
+  const rows = getFilteredRecords();
+  const allFilteredSelected = rows.length > 0 && rows.every((record) => ui.selectedRecordIds.has(record.id));
+  rows.forEach((record) => {
+    if (allFilteredSelected) {
+      ui.selectedRecordIds.delete(record.id);
+    } else {
+      ui.selectedRecordIds.add(record.id);
+    }
+  });
+  renderRecordTable();
+}
+
+function confirmDeleteRecords(recordIds) {
+  const ids = Array.from(new Set(recordIds)).filter(Boolean);
+  if (!ids.length) return;
+  const records = state.detectionRecords.filter((record) => ids.includes(record.id));
+  if (!records.length) return;
+  openSharedModal({
+    title: records.length > 1 ? "批量删除检测记录" : "删除检测记录",
+    body: `<p class="modal-prompt">确定删除 ${records.length} 条检测记录吗？删除后不可恢复。</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      const deleteIds = new Set(records.map((record) => record.id));
+      state.detectionRecords = state.detectionRecords.filter((record) => !deleteIds.has(record.id));
+      deleteIds.forEach((id) => ui.selectedRecordIds.delete(id));
+      if (deleteIds.has(ui.activeRecordId)) {
+        ui.activeRecordId = state.detectionRecords[0]?.id || null;
+      }
+      closeSharedModal();
+      persistState(records.length > 1 ? "检测记录已批量删除" : "检测记录已删除");
+      return true;
+    },
+  });
 }
 
 function handleRecordPaginationClick(event) {
@@ -5277,10 +5511,11 @@ function getRecordViewerTool() {
   return state.tools.find((tool) => tool.id === record?.toolId) || getActiveTool();
 }
 
-function openRecordExportModal() {
-  const rows = getFilteredRecords();
+function openRecordExportModal(recordIds = []) {
+  const selectedIds = new Set(recordIds);
+  const rows = state.detectionRecords.filter((record) => selectedIds.has(record.id));
   if (!rows.length) {
-    showToast("当前没有可导出的检测记录");
+    showToast("请先选择要导出的检测记录");
     return;
   }
   const availability = getRecordExportAvailability(rows);
@@ -5290,7 +5525,6 @@ function openRecordExportModal() {
     title: "导出检测记录",
     panelClass: "modal-lg",
     body: `
-      <p class="record-export-note">导出对象为当前筛选范围内的检测记录。</p>
       <section class="record-export-section">
         <div class="section-head section-head-tight">
           <div><h4>检测记录</h4></div>
@@ -6425,9 +6659,12 @@ function getFilteredCameras() {
     const keywordMatch =
       !keyword ||
       [camera.name || "", camera.id, camera.vendor, camera.model, camera.serial].some((value) => value.toLowerCase().includes(keyword));
-    const vendorMatch = ui.cameraFilters.vendor === "all" || camera.brand === ui.cameraFilters.vendor;
-    return keywordMatch && vendorMatch;
+    return keywordMatch;
   });
+}
+
+function getCameraConnectionStatus(camera) {
+  return camera?.status === "离线" ? "未连接" : "已连接";
 }
 
 function getFilteredIoModules() {
@@ -6594,7 +6831,7 @@ function buildIoEventType(scope, action, direction) {
 
 function getFilteredRecords() {
   return state.detectionRecords.filter((record) => {
-    const toolMatch = ui.recordFilters.toolId === "all" || record.toolId === ui.recordFilters.toolId;
+    const runModeMatch = ui.recordFilters.runMode === "all" || (record.runMode || "detect") === ui.recordFilters.runMode;
     const businessMatch = ui.recordFilters.business === "all" || (record.businessResult || record.totalResult) === ui.recordFilters.business;
     const keyword = ui.recordFilters.keyword.toLowerCase();
     const tagKeyword = getRuntimeRecordTags(record).join(" ").toLowerCase();
@@ -6608,7 +6845,14 @@ function getFilteredRecords() {
     const endMs = ui.recordFilters.endAt ? new Date(ui.recordFilters.endAt).getTime() : null;
     const startMatch = !Number.isFinite(startMs) || recordTime >= startMs;
     const endMatch = !Number.isFinite(endMs) || recordTime <= endMs;
-    return toolMatch && businessMatch && keywordMatch && startMatch && endMatch;
+    return runModeMatch && businessMatch && keywordMatch && startMatch && endMatch;
+  });
+}
+
+function syncSelectedRecordsWithRows(rows) {
+  const visibleIds = new Set(rows.map((record) => record.id));
+  Array.from(ui.selectedRecordIds).forEach((id) => {
+    if (!visibleIds.has(id)) ui.selectedRecordIds.delete(id);
   });
 }
 
@@ -6761,6 +7005,15 @@ function syncToolCompletionState(tool) {
   if (!Array.isArray(tool.runtime.activeTags)) tool.runtime.activeTags = [];
   if (typeof tool.runtime.sessionActive !== "boolean") tool.runtime.sessionActive = false;
   tool.runtime.sessionMode = Demo.normalizeRunMode(tool.runtime.sessionMode || "detect");
+
+  if (tool.configInvalid) {
+    tool.runtime.lastRunAt = null;
+    tool.runtime.status = "配置异常";
+    tool.runtime.primaryResult = "-";
+    tool.runtime.cycleTime = "-";
+    tool.runtime.sessionActive = false;
+    return;
+  }
 
   const hasAnyMode = RUN_MODE_OPTIONS.some((item) => evaluateToolRunModeAvailability(tool, item.value));
   if (!hasAnyMode) {
@@ -7216,6 +7469,8 @@ function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
   if (!Array.isArray(rule.conditions) || !rule.conditions.length) {
     rule.conditions = [{ label: "缺陷", operator: "eq", expectedCount: 0 }];
   }
+  rule.conditions = [rule.conditions[0]];
+  rule.conditions[0].label = "缺陷";
   if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
 }
 
@@ -7782,22 +8037,18 @@ function renderJudgmentRuleConditionEditor(rule, node, availableChildren, catego
   }
 
   if (rule.template === "defect-conditions") {
+    const defectCondition = (Array.isArray(rule.conditions) && rule.conditions.length ? rule.conditions[0] : null) || {
+      label: "缺陷",
+      operator: "eq",
+      expectedCount: 0,
+    };
     return `
       <div class="judgment-selection-card">
         <div class="section-head section-head-tight">
           <h4>OK判定条件</h4>
-          <div class="section-head-actions">
-            <label class="field judgment-inline-select">
-              <select data-rule-field="conditionRelation">
-                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
-                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
-              </select>
-            </label>
-            <button class="secondary-btn" type="button" data-action="add-classify-condition">新增条件</button>
-          </div>
         </div>
         <div class="judgment-condition-list">
-          ${renderJudgmentConditionRows(rule.conditions || [], { fixedLabel: "缺陷" })}
+          ${renderJudgmentConditionRows([defectCondition], { fixedLabel: "缺陷", hideRemove: true })}
         </div>
       </div>
     `;
@@ -7858,7 +8109,7 @@ function renderJudgmentConditionRows(conditions = [], options = {}) {
             ${operatorOptions.map((option) => `<option value="${option.value}" ${option.value === item.operator ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
           </select>
           <input type="number" min="0" step="any" value="${escapeAttribute(String(item.value ?? item.expectedCount ?? 1))}" data-condition-index="${index}" data-condition-field="${item.value !== undefined ? "value" : "expectedCount"}" />
-          <button class="ghost-btn judgment-condition-remove" type="button" data-action="remove-classify-condition" data-condition-index="${index}" ${conditions.length <= 1 ? "disabled" : ""}>删除</button>
+          ${options.hideRemove ? "" : `<button class="ghost-btn judgment-condition-remove" type="button" data-action="remove-classify-condition" data-condition-index="${index}" ${conditions.length <= 1 ? "disabled" : ""}>删除</button>`}
         </div>
       `;
     })
@@ -8233,7 +8484,7 @@ function renderParamFields(camera, group) {
     rows.push(`
       <label class="field">
         <span>${field.label}</span>
-        <input id="param_field_${field.key}" type="number" value="${value}" />
+        ${field.stepper ? renderParamStepperField(field, value) : `<input id="param_field_${field.key}" type="number" value="${escapeAttribute(String(value))}" />`}
       </label>
     `);
   });
@@ -8241,25 +8492,26 @@ function renderParamFields(camera, group) {
   return rows.join("");
 }
 
-function getParamFieldSchema(brand) {
-  if (brand === "Basler") {
-    return [
-      { key: "exposure", label: "曝光时间", type: "number", defaultValue: 1600 },
-      { key: "gamma", label: "Gamma", type: "number", defaultValue: 1.2 },
-      { key: "packetSize", label: "网络包大小", type: "number", defaultValue: 1500 },
-      { key: "triggerMode", label: "触发模式", type: "select", options: ["Line1", "Line2", "Software"], defaultValue: "Line1" },
-      { key: "reverseX", label: "水平翻转", type: "boolean", defaultValue: false },
-      { key: "reverseY", label: "垂直翻转", type: "boolean", defaultValue: false },
-    ];
-  }
+function renderParamStepperField(field, value) {
+  return `
+    <div class="number-stepper">
+      <button type="button" data-action="param-step" data-field="${field.key}" data-delta="-${field.step || 1}" aria-label="${escapeAttribute(field.label)}减少">−</button>
+      <input id="param_field_${field.key}" type="number" value="${escapeAttribute(String(value))}" step="${escapeAttribute(String(field.step || 1))}" />
+      <button type="button" data-action="param-step" data-field="${field.key}" data-delta="${field.step || 1}" aria-label="${escapeAttribute(field.label)}增加">＋</button>
+    </div>
+  `;
+}
+
+function getParamFieldSchema() {
   return [
-    { key: "autoExposure", label: "自动曝光", type: "boolean", defaultValue: true },
-    { key: "exposure", label: "曝光时间", type: "number", defaultValue: 1200 },
-    { key: "gain", label: "增益值", type: "number", defaultValue: 3 },
-    { key: "width", label: "图像宽度", type: "number", defaultValue: 2448 },
-    { key: "height", label: "图像高度", type: "number", defaultValue: 2048 },
-    { key: "offsetX", label: "水平偏移", type: "number", defaultValue: 0 },
-    { key: "offsetY", label: "垂直偏移", type: "number", defaultValue: 0 },
+    { key: "autoGain", label: "自动增益:", type: "boolean", defaultValue: false },
+    { key: "exposure", label: "曝光时间 (μs):", type: "number", defaultValue: 10000 },
+    { key: "offsetX", label: "X偏移 (px):", type: "number", defaultValue: 0, stepper: true, step: 1 },
+    { key: "height", label: "高 (px):", type: "number", defaultValue: 1200, stepper: true, step: 1 },
+    { key: "offsetY", label: "Y偏移 (px):", type: "number", defaultValue: 0, stepper: true, step: 1 },
+    { key: "autoExposure", label: "自动曝光:", type: "boolean", defaultValue: false },
+    { key: "width", label: "宽 (px):", type: "number", defaultValue: 1920, stepper: true, step: 1 },
+    { key: "gain", label: "增益 (dB):", type: "number", defaultValue: 0 },
   ];
 }
 
@@ -8617,8 +8869,8 @@ function getStatusClass(text) {
   if (["OK"].includes(text)) return "status-online";
   if (["NG"].includes(text)) return "status-danger";
   if (["在线", "空闲", "可用", "已完成", "已连接"].includes(text)) return "status-online";
-  if (["离线", "待机", "未运行", "未绑定", "已添加", "未配置", "-"].includes(text)) return "status-offline";
-  if (["拦截", "已阻断", "已中断", "异常"].includes(text)) return "status-danger";
+  if (["离线", "未连接", "待机", "未运行", "未绑定", "已添加", "未配置", "-"].includes(text)) return "status-offline";
+  if (["拦截", "已阻断", "已中断", "异常", "配置异常"].includes(text)) return "status-danger";
   if (["放行", "已引用", "运行中", "等待信号", "下载中...", "执行中"].includes(text)) return "status-primary";
   if (["未判定"].includes(text)) return "status-offline";
   return "status-pending";

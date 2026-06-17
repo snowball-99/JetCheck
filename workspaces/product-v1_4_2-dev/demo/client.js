@@ -18,6 +18,7 @@ const ui = {
   activeRuntimeImageId: null,
   activeCaptureItemId: "",
   activeCaptureImageId: "",
+  recentCaptureImageId: "",
   selectedCaptureImageIds: new Set(),
   captureCameraZoom: {},
   captureCameraPan: {},
@@ -79,6 +80,7 @@ const timers = {
   download: null,
   detection: null,
   runtimeCarousel: null,
+  captureFresh: null,
 };
 
 const CLEANUP_CUTOFF_OPTIONS = [
@@ -440,6 +442,7 @@ function resetDemoState() {
   ui.activeRuntimeImageId = null;
   ui.activeCaptureItemId = "";
   ui.activeCaptureImageId = "";
+  ui.recentCaptureImageId = "";
   ui.selectedCaptureImageIds.clear();
   ui.runtimePlaybackRecordId = null;
   ui.runtimeInitialToolId = null;
@@ -472,9 +475,11 @@ function clearPendingTasks() {
   if (timers.download) clearTimeout(timers.download);
   if (timers.detection) clearTimeout(timers.detection);
   if (timers.runtimeCarousel) clearTimeout(timers.runtimeCarousel);
+  if (timers.captureFresh) clearTimeout(timers.captureFresh);
   timers.download = null;
   timers.detection = null;
   timers.runtimeCarousel = null;
+  timers.captureFresh = null;
   ui.pendingDetectionToolId = null;
   ui.pendingDetectionStartedAt = 0;
 }
@@ -786,10 +791,16 @@ function getIconSvg(type) {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h5l2 2h9v12H4z"/><path d="M8 15l2.5-3 2 2 1.5-1.5L17 16H8z"/></svg>`;
   }
   if (type === "settings") {
-    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>`;
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.7 3.2 10.4 2h3.2l.7 1.2c.3.6 1 .8 1.6.6l1.4-.5 2.3 2.3-.5 1.4c-.2.6 0 1.3.6 1.6l1.3.7v3.2l-1.3.7c-.6.3-.8 1-.6 1.6l.5 1.4-2.3 2.3-1.4-.5c-.6-.2-1.3 0-1.6.6l-.7 1.2h-3.2l-.7-1.2c-.3-.6-1-.8-1.6-.6l-1.4.5-2.3-2.3.5-1.4c.2-.6 0-1.3-.6-1.6L3 12.5V9.3l1.3-.7c.6-.3.8-1 .6-1.6l-.5-1.4 2.3-2.3 1.4.5c.6.2 1.3 0 1.6-.6Z"/><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/></svg>`;
+  }
+  if (type === "back") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/><path d="M9 12h12"/></svg>`;
   }
   if (type === "tag-edit") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3.4 13.4a2 2 0 0 1 0-2.8l7.2-7.2A2 2 0 0 1 12 3h6a3 3 0 0 1 3 3v6a2 2 0 0 1-.4 1.4z"/><path d="M16.5 7.5h.01"/><path d="M8.8 14.4l3.6-3.6 1.8 1.8-3.6 3.6H8.8z"/></svg>`;
+  }
+  if (type === "refresh") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M18.2 9A7 7 0 0 0 6.8 6.8L4 9"/><path d="M5.8 15A7 7 0 0 0 17.2 17.2L20 15"/></svg>`;
   }
   if (type === "io") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/><path d="M3 9h4M3 15h4M17 9h4M17 15h4M9 3v4M15 3v4M9 17v4M15 17v4"/></svg>`;
@@ -1089,22 +1100,17 @@ function renderCaptureRuntime(tool) {
   if (!activeItem?.images.some((image) => image.id === ui.activeCaptureImageId)) {
     ui.activeCaptureImageId = activeItem?.images[0]?.id || "";
   }
-  const activeImage = activeItem?.images.find((image) => image.id === ui.activeCaptureImageId) || activeItem?.images[0] || null;
   batch.capturedTotal = getCaptureBatchImages(batch).length;
 
   els.captureRuntimePanel.innerHTML = `
     <div class="capture-runtime-layout">
       <aside class="capture-source-panel">
         <div class="capture-source-summary">
-          <button class="secondary-btn capture-source-back" data-action="back-to-tool-overview" type="button">返回</button>
+          <button class="icon-btn capture-source-back" data-action="back-to-tool-overview" type="button" title="返回检测工具列表" aria-label="返回检测工具列表">${getIconSvg("back")}</button>
           <div>
             <strong>${escapeHtml(tool.name)}</strong>
-            <span>${escapeHtml(getRunModeLabel(tool.runtime?.sessionMode || "acquire"))}</span>
           </div>
-        </div>
-        <div class="capture-panel-head">
-          <h3>图像列表</h3>
-          <button class="secondary-btn capture-config-btn" data-action="open-capture-config" type="button">采图设置</button>
+          <button class="icon-btn capture-config-btn" data-action="open-capture-config" type="button" title="采图设置" aria-label="采图设置">${getIconSvg("settings")}</button>
         </div>
         <div class="capture-source-list">
           ${enabledItems
@@ -1123,9 +1129,14 @@ function renderCaptureRuntime(tool) {
                             .slice(0, 6)
                             .map(
                               (image) => `
-                                <button class="${image.id === activeImage?.id ? "is-active" : ""}" data-action="select-capture-image" data-item-id="${escapeAttribute(item.acquireId)}" data-id="${escapeAttribute(image.id)}">
+                                <button class="${image.id === ui.recentCaptureImageId ? "is-fresh-capture" : ""}" data-action="open-capture-image-detail" data-item-id="${escapeAttribute(item.acquireId)}" data-id="${escapeAttribute(image.id)}">
                                   ${image.imageUrl ? `<img src="${escapeAttribute(image.imageUrl)}" alt="" />` : `<span>无预览</span>`}
-                                  ${image.tags?.length ? `<i>${escapeHtml(image.tags[0])}</i>` : ""}
+                                  ${image.id === ui.recentCaptureImageId ? `<span class="capture-thumb-loading">${getIconSvg("refresh")}</span>` : ""}
+                                  ${
+                                    image.tags?.length
+                                      ? `<span class="capture-source-thumb-tags">${image.tags.slice(0, CAPTURE_TAG_MAX_COUNT).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>`
+                                      : ""
+                                  }
                                 </button>
                               `,
                             )
@@ -1153,9 +1164,12 @@ function renderCaptureRuntime(tool) {
               const acquire = getCaptureItemAcquire(item, tool);
               const cameraZoom = Number(ui.captureCameraZoom[item.acquireId] || 1);
               const cameraPan = ui.captureCameraPan[item.acquireId] || { x: 0, y: 0 };
+              const latestImage = item.images[0] || null;
+              const visibleTags = getCaptureItemVisibleTags(item);
+              const contextText = latestImage ? latestImage.fileName : "";
               return `
                 <article class="capture-multi-live-item ${item.acquireId === activeItem?.acquireId ? "is-active" : ""}">
-                  <button class="capture-camera-preview" data-action="select-capture-item" data-id="${escapeAttribute(item.acquireId)}" type="button" style="--capture-camera-zoom:${cameraZoom};--capture-camera-pan-x:${cameraPan.x || 0}px;--capture-camera-pan-y:${cameraPan.y || 0}px">
+                  <button class="capture-camera-preview" data-id="${escapeAttribute(item.acquireId)}" type="button" style="--capture-camera-zoom:${cameraZoom};--capture-camera-pan-x:${cameraPan.x || 0}px;--capture-camera-pan-y:${cameraPan.y || 0}px">
                     ${
                       getAcquireSampleUrl(acquire)
                         ? `<img src="${escapeAttribute(getAcquireSampleUrl(acquire))}" alt="${escapeAttribute(item.acquireName)} 实时画面" />`
@@ -1170,13 +1184,20 @@ function renderCaptureRuntime(tool) {
                   </div>
                   <div class="capture-multi-live-meta">
                     <div class="capture-camera-controls">
-                      <div class="capture-camera-title"><strong>${escapeHtml(item.acquireName)}</strong></div>
+                      <div class="capture-camera-title ${latestImage?.id === ui.activeCaptureImageId ? "is-editing" : ""}">
+                        <strong>${escapeHtml(item.acquireName)}</strong>
+                        ${
+                          contextText
+                            ? `<span class="capture-camera-file ${latestImage?.id === ui.recentCaptureImageId ? "is-fresh-capture" : ""}"><span>${escapeHtml(contextText)}</span>${latestImage?.id === ui.recentCaptureImageId ? `<i>${getIconSvg("refresh")}</i>` : ""}</span>`
+                            : ""
+                        }
+                      </div>
                       <div class="capture-item-tag-picker">
                         <div class="capture-item-tag-options">
                           ${(item.availableTags || ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT)
                             .map(
                               (tag) =>
-                                `<button class="${isCaptureItemTagSelected(item, tag) ? "is-active" : ""}" data-action="select-capture-item-tag" data-id="${escapeAttribute(item.acquireId)}" data-tag="${escapeAttribute(tag)}" type="button">${escapeHtml(tag)}</button>`,
+                                `<button class="${visibleTags.includes(tag) ? "is-active" : ""}" data-action="select-capture-item-tag" data-id="${escapeAttribute(item.acquireId)}" data-tag="${escapeAttribute(tag)}" type="button">${escapeHtml(tag)}</button>`,
                             )
                             .join("")}
                         </div>
@@ -3012,19 +3033,16 @@ function startDefaultCaptureBatch(toolId) {
   const previous = state.captureRecords.find((record) => record.toolId === toolId);
   const items = tool.acquire.map((acquire) => {
     const previousItem = previous?.items?.find((item) => item.acquireId === acquire.id);
-    const availableTags =
-      Array.isArray(previousItem?.availableTags) && previousItem.availableTags.length
-        ? [...previousItem.availableTags].slice(0, CAPTURE_TAG_MAX_COUNT)
-        : ["OK", "NG"];
-    const selectedTags = normalizeCaptureSelectedTags(previousItem, availableTags);
-    const selectedTag = availableTags.includes(previousItem?.selectedTag) ? previousItem.selectedTag : selectedTags[0] || availableTags[0];
+    const availableTags = Array.isArray(previousItem?.availableTags)
+      ? [...previousItem.availableTags].slice(0, CAPTURE_TAG_MAX_COUNT)
+      : ["OK", "NG"];
     return {
       acquireId: acquire.id,
       acquireName: acquire.name || "图像获取",
       enabled: true,
       availableTags,
-      selectedTag,
-      selectedTags,
+      selectedTag: "",
+      selectedTags: [],
       tagSelectMode: previousItem?.tagSelectMode === "multiple" ? "multiple" : "single",
       images: [],
     };
@@ -3099,14 +3117,14 @@ function readCaptureConfiguration(tool, existingItems = []) {
     items: rows.map((row) => {
       const acquire = tool.acquire.find((entry) => entry.id === row.dataset.acquireId);
       const existingItem = existingItems.find((item) => item.acquireId === acquire?.id);
-      const availableTags = (existingItem?.availableTags || ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT);
+      const availableTags = (Array.isArray(existingItem?.availableTags) ? existingItem.availableTags : ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT);
       const selectedTags = normalizeCaptureSelectedTags(existingItem, availableTags);
       return {
         acquireId: acquire?.id || "",
         acquireName: acquire?.name || "",
         enabled: Boolean(row.querySelector("[data-capture-enabled]")?.checked),
         availableTags,
-        selectedTag: availableTags.includes(existingItem?.selectedTag) ? existingItem.selectedTag : selectedTags[0] || availableTags[0] || "OK",
+        selectedTag: availableTags.includes(existingItem?.selectedTag) ? existingItem.selectedTag : selectedTags[0] || "",
         selectedTags,
         tagSelectMode: existingItem?.tagSelectMode === "multiple" ? "multiple" : "single",
         images: existingItem?.images || [],
@@ -3120,7 +3138,7 @@ function openCaptureRuntimeConfiguration() {
   const batch = getActiveCaptureBatch(tool);
   if (!tool || !batch) return;
   openSharedModal({
-    title: "当前采图设置",
+    title: "采图设置",
     panelClass: "modal-capture-setup",
     body: renderCaptureConfigurationForm(tool, batch),
     confirmText: "保存设置",
@@ -4259,6 +4277,36 @@ function deleteAcquire(id) {
     showToast("当前图像已被引用，无法删除");
     return;
   }
+  const acquire = tool.acquire.find((item) => item.id === id);
+  if (!acquire) return;
+  const capturedImageCount = getAcquireCapturedImageCount(tool.id, id);
+  if (capturedImageCount > 0) {
+    openSharedModal({
+      title: "删除图像获取项",
+      body: `<p class="banner banner-warning">该图像获取项已有 ${capturedImageCount} 张采集图片。删除后，采图记录中对应图片将不再按该获取项展示。确认删除“${escapeHtml(acquire.name || "图像获取项")}”？</p>`,
+      confirmText: "确认删除",
+      confirmClass: "danger-btn",
+      onConfirm() {
+        closeSharedModal();
+        removeAcquireItem(tool, id);
+        return true;
+      },
+    });
+    return;
+  }
+  removeAcquireItem(tool, id);
+}
+
+function getAcquireCapturedImageCount(toolId, acquireId) {
+  return state.captureRecords
+    .filter((record) => record.toolId === toolId)
+    .reduce((sum, record) => {
+      const item = record.items?.find((entry) => entry.acquireId === acquireId);
+      return sum + (item?.images?.length || 0);
+    }, 0);
+}
+
+function removeAcquireItem(tool, id) {
   tool.acquire = tool.acquire.filter((item) => item.id !== id);
   syncToolCompletionState(tool);
   persistState("图像来源已删除");
@@ -4413,7 +4461,7 @@ function stopToolRunSession() {
   openSharedModal({
     title: captureBatch ? "结束采图" : "退出工具",
     body: captureBatch
-      ? `<p class="banner banner-warning">当前已采集 ${captureBatch.capturedTotal} 张。结束后本批次将进入该工具的采图记录，不能继续追加。</p>`
+      ? `<p class="modal-prompt">确认结束采图？</p>`
       : `<p class="banner banner-danger">确认结束运行并退出当前工具？</p>`,
     confirmText: captureBatch ? "确认结束" : "确认退出",
     confirmClass: "danger-btn",
@@ -5442,6 +5490,7 @@ function handleToolRuntimeClick(event) {
       }
       ui.activeCaptureItemId = captureAction.dataset.id || "";
       ui.activeCaptureImageId = "";
+      ui.recentCaptureImageId = "";
       renderToolRuntime();
       return;
     }
@@ -5467,11 +5516,12 @@ function handleToolRuntimeClick(event) {
       renderToolRuntime();
       return;
     }
-    if (action === "select-capture-image") {
-      ui.activeCaptureItemId = captureAction.dataset.itemId || ui.activeCaptureItemId;
-      ui.activeCaptureImageId = captureAction.dataset.id || "";
-      renderToolRuntime();
-      return;
+    if (action === "open-capture-image-detail") {
+      ui.recentCaptureImageId = "";
+      return openCaptureToolLibrary(getActiveTool()?.id, {
+        activeAcquireId: captureAction.dataset.itemId || "",
+        activeImageId: captureAction.dataset.id || "",
+      });
     }
     if (action === "manage-capture-images") {
       return openCaptureBatchDetail(getActiveCaptureBatch()?.id, { activeAcquireId: captureAction.dataset.id || "" });
@@ -5508,7 +5558,7 @@ function getCaptureItemSelectedTags(item) {
   const availableTags = (item?.availableTags || ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT);
   const normalizedTags = normalizeCaptureSelectedTags(item, availableTags);
   if (item?.tagSelectMode === "multiple") return normalizedTags;
-  const selectedTag = availableTags.includes(item?.selectedTag) ? item.selectedTag : normalizedTags[0] || availableTags[0] || "";
+  const selectedTag = availableTags.includes(item?.selectedTag) ? item.selectedTag : normalizedTags[0] || "";
   return selectedTag ? [selectedTag] : [];
 }
 
@@ -5516,19 +5566,30 @@ function isCaptureItemTagSelected(item, tag) {
   return getCaptureItemSelectedTags(item).includes(tag);
 }
 
+function getCaptureItemVisibleTags(item) {
+  return item?.images?.[0] ? (item.images[0].tags || []).slice(0, CAPTURE_TAG_MAX_COUNT) : getCaptureItemSelectedTags(item);
+}
+
 function selectCaptureItemTag(acquireId, tag) {
   const batch = getActiveCaptureBatch();
   const item = batch?.items?.find((entry) => entry.acquireId === acquireId);
   if (!item || !item.availableTags?.includes(tag)) return;
+  const targetImage = item.images[0] || null;
   if (item.tagSelectMode === "multiple") {
-    const current = new Set(getCaptureItemSelectedTags(item));
+    const current = new Set(targetImage ? getCaptureItemVisibleTags(item) : getCaptureItemSelectedTags(item));
     if (current.has(tag)) current.delete(tag);
     else current.add(tag);
     item.selectedTags = Array.from(current).slice(0, CAPTURE_TAG_MAX_COUNT);
-    item.selectedTag = item.selectedTags[0] || item.availableTags[0] || "";
+    item.selectedTag = item.selectedTags[0] || "";
   } else {
-    item.selectedTag = tag;
-    item.selectedTags = [tag];
+    const selected = getCaptureItemSelectedTags(item);
+    const nextTag = selected.includes(tag) ? "" : tag;
+    item.selectedTag = nextTag;
+    item.selectedTags = nextTag ? [nextTag] : [];
+  }
+  if (targetImage) {
+    targetImage.tags = getCaptureItemSelectedTags(item);
+    ui.activeCaptureImageId = targetImage.id;
   }
   saveStateSilently();
   renderToolRuntime();
@@ -5551,6 +5612,10 @@ function openCaptureItemTagSettings(acquireId) {
             <button class="${tagSelectMode === "multiple" ? "is-active" : ""}" data-action="set-capture-tag-mode" data-mode="multiple" type="button">多选</button>
           </div>
         </div>
+        <div class="capture-tag-settings-add">
+          <input id="captureOptionTagInput" maxlength="${CAPTURE_TAG_MAX_LENGTH}" placeholder="输入新标签（最多${CAPTURE_TAG_MAX_LENGTH}字符）" />
+          <button class="secondary-btn" data-action="add-capture-option-tag" type="button" ${tags.length >= CAPTURE_TAG_MAX_COUNT ? "disabled" : ""}>添加</button>
+        </div>
         <div class="capture-tag-settings-list">
           ${tags
             .map(
@@ -5561,10 +5626,6 @@ function openCaptureItemTagSettings(acquireId) {
               `,
             )
             .join("")}
-        </div>
-        <div class="capture-tag-settings-add">
-          <input id="captureOptionTagInput" maxlength="${CAPTURE_TAG_MAX_LENGTH}" placeholder="输入新标签（最多${CAPTURE_TAG_MAX_LENGTH}字符）" />
-          <button class="secondary-btn" data-action="add-capture-option-tag" type="button" ${tags.length >= CAPTURE_TAG_MAX_COUNT ? "disabled" : ""}>添加</button>
         </div>
         <span class="capture-tag-limit">${tags.length} / ${CAPTURE_TAG_MAX_COUNT} 个标签</span>
       </div>
@@ -5578,10 +5639,6 @@ function openCaptureItemTagSettings(acquireId) {
         renderTagSettings();
       }
       if (actionEl.dataset.action === "remove-capture-option-tag") {
-        if (tags.length <= 1) {
-          showToast("至少保留一个可选标签");
-          return;
-        }
         tags = tags.filter((tag) => tag !== actionEl.dataset.tag);
         renderTagSettings();
       }
@@ -5606,7 +5663,7 @@ function openCaptureItemTagSettings(acquireId) {
       item.availableTags = tags;
       item.tagSelectMode = tagSelectMode;
       item.selectedTags = normalizeCaptureSelectedTags(item, tags);
-      if (!tags.includes(item.selectedTag)) item.selectedTag = item.selectedTags[0] || tags[0];
+      if (!tags.includes(item.selectedTag)) item.selectedTag = item.selectedTags[0] || "";
       if (item.tagSelectMode === "single") item.selectedTags = item.selectedTag ? [item.selectedTag] : [];
       closeSharedModal();
       persistState("可选标签已更新");
@@ -5650,7 +5707,16 @@ function captureCaptureItem(acquireId) {
   batch.capturedTotal = getCaptureBatchImages(batch).length;
   ui.activeCaptureItemId = item.acquireId;
   ui.activeCaptureImageId = image.id;
+  ui.recentCaptureImageId = image.id;
   persistState();
+  if (timers.captureFresh) clearTimeout(timers.captureFresh);
+  timers.captureFresh = window.setTimeout(() => {
+    if (ui.recentCaptureImageId === image.id) {
+      ui.recentCaptureImageId = "";
+      renderAll();
+    }
+    timers.captureFresh = null;
+  }, 1100);
 }
 
 function confirmFinishCaptureBatch() {
@@ -6067,6 +6133,7 @@ function openCaptureToolLibrary(toolId, options = {}) {
   const tool = state.tools.find((item) => item.id === toolId);
   if (!tool) return;
   const batches = getToolCaptureBatches(toolId);
+  const initialImageContext = options.activeImageId ? getCaptureImageContextFromBatches(options.activeImageId, batches) : null;
   const acquireSummaries = tool.acquire.map((acquire) => {
     const count = batches.reduce(
       (sum, batch) => sum + (batch.items.find((item) => item.acquireId === acquire.id)?.images.length || 0),
@@ -6075,6 +6142,7 @@ function openCaptureToolLibrary(toolId, options = {}) {
     return { acquireId: acquire.id, acquireName: acquire.name || "图像获取", count };
   });
   let activeAcquireId =
+    initialImageContext?.item.acquireId ||
     acquireSummaries.find((item) => item.acquireId === options.activeAcquireId)?.acquireId ||
     acquireSummaries.find((item) => item.count > 0)?.acquireId ||
     acquireSummaries[0]?.acquireId ||
@@ -6085,6 +6153,10 @@ function openCaptureToolLibrary(toolId, options = {}) {
   let lastSelectedCaptureImageId = "";
   ui.selectedCaptureImageIds.clear();
   ui.captureLibraryZoom = 1;
+  if (initialImageContext) {
+    ui.activeCaptureImageId = initialImageContext.image.id;
+    ui.captureLibraryPan = { x: 0, y: 0 };
+  }
 
   const render = () => {
     const sourceAlbums = batches
@@ -6112,7 +6184,9 @@ function openCaptureToolLibrary(toolId, options = {}) {
       }))
       .filter((album) => album.images.length > 0);
     if (!albumExpansionInitialized) {
-      if (albums[0]) expandedAlbumIds.add(albums[0].id);
+      const targetAlbum = albums.find((album) => album.images.some((image) => image.id === ui.activeCaptureImageId));
+      if (targetAlbum) expandedAlbumIds.add(targetAlbum.id);
+      else if (albums[0]) expandedAlbumIds.add(albums[0].id);
       albumExpansionInitialized = true;
     }
     const allImages = albums.flatMap((album) => album.images);
@@ -6142,20 +6216,19 @@ function openCaptureToolLibrary(toolId, options = {}) {
         </aside>
         <section class="capture-library-main">
           <div class="capture-library-toolbar">
-            <label><input type="checkbox" data-action="select-all-capture-library" ${allSelected ? "checked" : ""} /> 全选</label>
-            <label class="capture-library-tag-filter">
-              <span>标签</span>
-              <select data-action="filter-capture-library-tag" aria-label="按标签筛选">
-                <option value="all" ${activeTagFilter === "all" ? "selected" : ""}>全部标签</option>
-                <option value="untagged" ${activeTagFilter === "untagged" ? "selected" : ""}>未标注</option>
-                ${tagOptions.map((tag) => `<option value="${escapeAttribute(tag)}" ${activeTagFilter === tag ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}
-              </select>
-            </label>
-            <span>已选 ${ui.selectedCaptureImageIds.size} 张</span>
-            <div class="capture-record-toolbar-actions">
-              <button class="table-btn" data-action="open-capture-batch-tag-editor" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>修改标签（${ui.selectedCaptureImageIds.size}）</button>
-              <button class="table-btn table-btn-danger" data-action="delete-capture-library-images" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>删除所选（${ui.selectedCaptureImageIds.size}）</button>
+            <div class="capture-library-toolbar-left">
+              <label><input type="checkbox" data-action="select-all-capture-library" ${allSelected ? "checked" : ""} /> 全选</label>
+              <span>已选 ${ui.selectedCaptureImageIds.size} 张</span>
+              <div class="capture-record-toolbar-actions">
+                <button class="table-btn" data-action="open-capture-batch-tag-editor" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>修改标签（${ui.selectedCaptureImageIds.size}）</button>
+                <button class="table-btn table-btn-danger" data-action="delete-capture-library-images" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>删除所选（${ui.selectedCaptureImageIds.size}）</button>
+              </div>
             </div>
+            <select class="capture-library-tag-filter" data-action="filter-capture-library-tag" aria-label="按标签筛选">
+              <option value="all" ${activeTagFilter === "all" ? "selected" : ""}>全部标签</option>
+              <option value="untagged" ${activeTagFilter === "untagged" ? "selected" : ""}>未标注</option>
+              ${tagOptions.map((tag) => `<option value="${escapeAttribute(tag)}" ${activeTagFilter === tag ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}
+            </select>
           </div>
           <div class="capture-library-batches">
             ${

@@ -23,6 +23,8 @@ JetCheck 当前按“大类先分开、工作区各自独立”的方式整理�
   - JetCheck 1.3 主线
 - `workspaces/product-v1_4-dev/`
   - JetCheck 1.4 主线
+- `workspaces/product-v1_4_2-dev/`
+  - JetCheck 1.4.2 主线
 - `workspaces/project-sanyo-based-on-v1_3-dev/`
   - 三洋定制版本
 

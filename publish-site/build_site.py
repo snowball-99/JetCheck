@@ -111,6 +111,8 @@ def discover_demos(site_config: dict[str, object]) -> list[dict[str, object]]:
 
         visible_entries = build_workspace_links(html_entries, workspace_config)
 
+        updates = build_workspace_updates(workspace_dir, workspace_config)
+
         demos.append(
             {
                 "workspace": workspace_dir.name,
@@ -119,7 +121,8 @@ def discover_demos(site_config: dict[str, object]) -> list[dict[str, object]]:
                 "group": str(workspace_config.get("group") or infer_workspace_group(workspace_dir.name)),
                 "status": normalize_status(workspace_config.get("status")),
                 "links": visible_entries,
-                "updates": build_workspace_updates(workspace_dir, workspace_config),
+                "updates": updates,
+                "created_at": infer_workspace_created_at(workspace_dir, workspace_config, updates),
             }
         )
 
@@ -225,12 +228,10 @@ def entry_sort_key(file_name: str) -> tuple[int, str]:
     return (order, file_name)
 
 
-def workspace_sort_key(demo: dict[str, object]) -> tuple[int, int, int, str]:
+def workspace_sort_key(demo: dict[str, object]) -> tuple[int, int, str]:
     workspace = str(demo["workspace"])
-    version = parse_product_version(workspace)
-    if version is None:
-        return (1, 0, 0, workspace)
-    return (0, -version[0], -version[1], workspace)
+    created_at = date_sort_value(str(demo.get("created_at", "")))
+    return (0 if created_at else 1, -created_at, workspace)
 
 
 def infer_workspace_group(workspace: str) -> str:
@@ -252,11 +253,39 @@ def normalize_status(raw_status: object) -> dict[str, str]:
     return {"label": "未标注", "tone": "neutral"}
 
 
-def parse_product_version(workspace: str) -> tuple[int, int] | None:
-    match = re.match(r"^product-v(\d+)_(\d+)", workspace)
+def infer_workspace_created_at(workspace_dir: Path, workspace_config: dict[str, object], updates: list[dict[str, str]]) -> str:
+    explicit_created_at = str(workspace_config.get("created_at", "")).strip()
+    if is_date_like(explicit_created_at):
+        return explicit_created_at
+
+    update_dates = [str(item.get("date", "")).strip() for item in updates if is_date_like(str(item.get("date", "")).strip())]
+    if update_dates:
+        return min(update_dates)
+
+    try:
+        stat = workspace_dir.stat()
+        timestamp = getattr(stat, "st_birthtime", stat.st_mtime)
+        return format_date_from_timestamp(timestamp)
+    except OSError:
+        return ""
+
+
+def is_date_like(value: str) -> bool:
+    return bool(re.match(r"^\d{4}-\d{2}-\d{2}", value))
+
+
+def date_sort_value(value: str) -> int:
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", value)
     if not match:
-        return None
-    return int(match.group(1)), int(match.group(2))
+        return 0
+    year, month, day = match.groups()
+    return int(f"{year}{month}{day}")
+
+
+def format_date_from_timestamp(timestamp: float) -> str:
+    from datetime import datetime
+
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
 
 
 def extract_title(readme_content: str, fallback: str) -> str:
@@ -3000,6 +3029,7 @@ def build_admin_console_data(demos: list[dict[str, object]], site_config: dict[s
                 "status": demo.get("status", {"label": "未标注", "tone": "neutral"}),
                 "buttons": build_admin_buttons(demo.get("links", [])),
                 "updates": demo.get("updates", []),
+                "created_at": str(demo.get("created_at", "")),
                 "config_path": f"workspaces/{workspace_name}/{WORKSPACE_SITE_CONFIG_NAME}",
                 "updates_path": f"workspaces/{workspace_name}/{WORKSPACE_UPDATES_NAME}",
                 "local_changes": workspace_changes.get(workspace_name, []),

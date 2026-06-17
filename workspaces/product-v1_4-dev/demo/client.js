@@ -1163,7 +1163,6 @@ function getRuntimeCameraStatusText(camera) {
 
 function renderRuntimeCameraInfo(imageResult) {
   const context = getRuntimeAcquireContext(imageResult);
-  const tool = getActiveTool();
   if (!context.acquire) {
     return `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
   }
@@ -1171,7 +1170,6 @@ function renderRuntimeCameraInfo(imageResult) {
     return `<div class="runtime-camera-empty">当前图像来自接口，不显示相机信息。</div>`;
   }
   const cameraStatusText = getRuntimeCameraStatusText(context.camera);
-  const showRecalibration = Boolean(tool && isAcquireUsedByDimensionDetect(tool, context.acquire.id));
   return `
     <div class="runtime-camera-info">
       <div class="runtime-camera-main">
@@ -1184,11 +1182,6 @@ function renderRuntimeCameraInfo(imageResult) {
       </div>
       <div class="runtime-camera-actions">
         <button class="secondary-btn" data-action="preview-runtime-camera" data-acquire-id="${context.acquire.id}" type="button">查看相机画面</button>
-        ${
-          showRecalibration
-            ? `<button class="secondary-btn" data-action="open-runtime-recalibration" data-acquire-id="${context.acquire.id}" type="button">重新标定</button>`
-            : ""
-        }
       </div>
     </div>
   `;
@@ -1515,18 +1508,10 @@ function getNormalizedDimensionConfig(detect) {
   if (!isDimensionDetect(detect)) return null;
   const raw = detect?.dimensionConfig && typeof detect.dimensionConfig === "object" ? detect.dimensionConfig : {};
   const modelMeta = findModelMetaById(detect?.modelId) || null;
-  const defaultPrecheckMode = "recalibration_required";
-  const precheckMode = String(raw.precheckMode || defaultPrecheckMode).trim();
-  const calibrationReady = precheckMode === "pass";
   return {
     publishedSchemeName: String(raw.publishedSchemeName || modelMeta?.modelName || detect?.name || "未命名尺寸方案"),
     publishedVersion: String(raw.publishedVersion || modelMeta?.version || "未发布"),
-    calibrationTemplate: String(raw.calibrationTemplate || "标准标定板 A-10mm"),
     calibrationConfigId: String(raw.calibrationConfigId || `cal_cfg_${detect?.id || "dimension"}`),
-    calibrationRecordId: String(raw.calibrationRecordId || (calibrationReady ? "CAL-20260322-01" : "")),
-    calibrationStatus: String(raw.calibrationStatus || (calibrationReady ? "已就绪" : "需重新标定")),
-    lastCalibratedAt: String(raw.lastCalibratedAt || ""),
-    precheckMode,
     outputOffsets: getDimensionOutputParamRows(detect, raw),
   };
 }
@@ -3789,9 +3774,6 @@ function openDetectModal(detectId) {
         const previousConfig = getNormalizedDimensionConfig(next);
         next.dimensionConfig = {
           ...previousConfig,
-          precheckMode: previousConfig?.precheckMode || "recalibration_required",
-          calibrationStatus: previousConfig?.calibrationStatus || "需重新标定",
-          calibrationRecordId: previousConfig?.calibrationRecordId || "",
           outputOffsets: previousConfig?.outputOffsets || getDimensionOutputParamRows(next),
         };
       } else {
@@ -3902,19 +3884,6 @@ function startDetectionRun() {
   }
   if (ui.pendingDetectionToolId) return;
 
-  const dimensionPrecheck = evaluateDimensionPrecheck(tool);
-  if (dimensionPrecheck && dimensionPrecheck.status !== "PASS") {
-    tool.runtime.dimensionPrecheck = dimensionPrecheck;
-    tool.runtime.status = "等待信号";
-    renderAll();
-    openDimensionPrecheckFailureModal(tool, dimensionPrecheck);
-    persistState("运行前校验未通过，请先重新标定");
-    return;
-  }
-  if (dimensionPrecheck) {
-    tool.runtime.dimensionPrecheck = dimensionPrecheck;
-  }
-
   const runToolId = tool.id;
   clearRuntimeInitialState(runToolId);
   if (!tool.runtime || typeof tool.runtime !== "object") tool.runtime = {};
@@ -3968,205 +3937,6 @@ function startDetectionRun() {
       persistState("运行异常，已返回待检测状态。");
     }
   }, 1800);
-}
-
-function evaluateDimensionPrecheck(tool) {
-  const dimensionDetects = getDimensionDetectItems(tool);
-  const sessionMode = Demo.normalizeRunMode(tool?.runtime?.sessionMode || "detect");
-  if (!dimensionDetects.length || sessionMode !== "detect") return null;
-  const blockedDetects = dimensionDetects.filter((detect) => getNormalizedDimensionConfig(detect)?.precheckMode === "recalibration_required");
-  if (blockedDetects.length) {
-    return {
-      status: "BLOCK_RECALIBRATION_REQUIRED",
-      detectIds: blockedDetects.map((detect) => detect.id),
-      detail: `${blockedDetects.map((detect) => detect.name).join(" / ")} 依赖的标定记录已失效，需重新标定后再运行。`,
-    };
-  }
-  return {
-    status: "PASS",
-    detectIds: dimensionDetects.map((detect) => detect.id),
-    detail: `${dimensionDetects.map((detect) => detect.name).join(" / ")} 的标定依赖已通过校验。`,
-  };
-}
-
-function openDimensionPrecheckFailureModal(tool, result) {
-  openSharedModal({
-    title: "标定校验失败",
-    body: `
-      <div class="banner banner-warning">当前尺寸包依赖的标定记录不可用，正式检测已被阻断。</div>
-      <div class="dimension-precheck-summary">
-        <p>${escapeHtml(result.detail || "依赖标定记录不可用。")}</p>
-        <p>建议动作：用当前相机重新拍摄标定块，生成标定图后触发自动标定。</p>
-      </div>
-    `,
-    confirmText: "去重新标定",
-    onConfirm() {
-      closeSharedModal();
-      openDimensionRecalibrationModal(tool.id, result.detectIds || [], "", "blocked");
-      return true;
-    },
-  });
-}
-
-function openDimensionRecalibrationModal(toolId, detectIds = [], acquireId = "", entryMode = "blocked") {
-  const tool = state.tools.find((item) => item.id === toolId);
-  if (!tool) return;
-  const targetDetects = detectIds.length
-    ? tool.detect.filter((detect) => detectIds.includes(detect.id) && isDimensionDetect(detect))
-    : getDimensionDetectItems(tool);
-  if (!targetDetects.length) {
-    showToast("当前没有可重新标定的尺寸方案");
-    return;
-  }
-  const primaryAcquire =
-    (acquireId ? tool.acquire.find((item) => item.id === acquireId) || null : null) ||
-    getPreferredRecalibrationAcquire(tool, targetDetects.map((detect) => detect.id));
-  const primaryCamera = primaryAcquire?.cameraId ? state.cameras.find((camera) => camera.id === primaryAcquire.cameraId) || null : null;
-  const captureSourceUrl = "./sample-images/标定板图像.png";
-  const captureSourceName = "标定板图像";
-  let capturedImage = {
-    url: captureSourceUrl,
-    name: captureSourceName,
-  };
-  let autoCalibrationDone = false;
-  let autoCalibrationAttemptCount = 0;
-  const getCalibrationFailureMessage = () => {
-    if (!primaryAcquire) return "自动标定失败，请检查当前设备配置后重试。";
-    if (primaryAcquire.type !== "camera") return "自动标定失败，请检查当前设备配置后重试。";
-    if (!state.runtimeDevice.networkOnline) return "自动标定失败，请检查设备连接并调整设备后重试。";
-    if (!primaryCamera) return "自动标定失败，请检查设备连接并调整设备后重试。";
-    if (primaryCamera.status === "离线") return "自动标定失败，请检查设备连接并调整设备后重试。";
-    if (!capturedImage?.url) return "自动标定失败，请调整设备或标定板位置后重试。";
-    if (autoCalibrationAttemptCount === 0) return "自动标定失败，请调整设备或标定板位置后重试。";
-    return "";
-  };
-  const renderCalibrationStage = () => {
-    const hasImage = Boolean(capturedImage?.url);
-    return `
-      <div class="dimension-calibration-stage-shell">
-        <div class="dimension-calibration-stage-media">
-          ${
-            hasImage
-              ? renderSamplePreviewHtml(capturedImage.url, capturedImage.name || "标定板图像")
-              : renderSamplePreviewHtml("", "等待拍摄标定图")
-          }
-        </div>
-      </div>
-    `;
-  };
-  openSharedModal({
-    title: "重新标定",
-    panelClass: "modal-param",
-    body: `
-      <div class="banner banner-primary">${entryMode === "blocked" ? "请将标定板放入当前相机画面" : "请将标定板放入当前相机画面"}</div>
-      <div class="dimension-recalibration-layout">
-        <section class="dimension-recalibration-stage">
-          <div class="section-head section-head-tight">
-            <div>
-              <h4>标定图</h4>
-            </div>
-          </div>
-          <div id="dimensionCalibrationPreview">${renderCalibrationStage()}</div>
-        </section>
-        <section class="dimension-recalibration-side">
-          <label class="field">
-            <span>标定模板</span>
-            <select id="dimensionRecalibrationTemplate">
-              <option value="标准标定板 A-10mm">标准板 A-10mm</option>
-              <option value="标准标定板 B-5mm">标准板 B-5mm</option>
-            </select>
-          </label>
-          <button class="primary-btn" id="runAutoCalibrationBtn" type="button" disabled>自动标定</button>
-          <div class="dimension-binding-card">
-            <span>像素尺寸</span>
-            <strong id="dimensionPixelSizeValue">--</strong>
-            <small>自动标定完成后输出</small>
-          </div>
-          <div class="banner banner-neutral" id="dimensionCalibrationStatus">等待自动标定</div>
-        </section>
-      </div>
-    `,
-    confirmText: "完成并返回",
-    onOpen() {
-      const preview = document.getElementById("dimensionCalibrationPreview");
-      const status = document.getElementById("dimensionCalibrationStatus");
-      const pixelSizeValue = document.getElementById("dimensionPixelSizeValue");
-      els.sharedModalConfirm.disabled = true;
-
-      const bindStageEvents = () => {
-        const autoBtn = document.getElementById("runAutoCalibrationBtn");
-        if (autoBtn) autoBtn.disabled = false;
-
-        if (autoBtn) {
-          autoBtn.onclick = () => {
-            const failureMessage = getCalibrationFailureMessage();
-            autoCalibrationAttemptCount += 1;
-            if (failureMessage) {
-              autoCalibrationDone = false;
-              if (status) {
-                status.className = "banner banner-danger";
-                status.textContent = failureMessage;
-              }
-              if (pixelSizeValue) {
-                pixelSizeValue.textContent = "--";
-              }
-              els.sharedModalConfirm.disabled = true;
-              return;
-            }
-            autoCalibrationDone = true;
-            if (preview) {
-              preview.innerHTML = renderCalibrationStage();
-            }
-            if (status) {
-              status.className = "banner banner-success";
-              status.textContent = "自动标定完成，已生成新的标定记录。";
-            }
-            if (pixelSizeValue) {
-              pixelSizeValue.textContent = "0.021 mm/px";
-            }
-            els.sharedModalConfirm.disabled = false;
-            bindStageEvents();
-          };
-        }
-      };
-
-      if (preview) {
-        preview.innerHTML = renderCalibrationStage();
-      }
-      bindStageEvents();
-    },
-    onConfirm() {
-      if (!autoCalibrationDone) {
-        showToast("请先完成自动标定");
-        return false;
-      }
-      Demo.advanceDemoClock(state, 1);
-      const calibratedAt = state.meta.now;
-      targetDetects.forEach((detect, index) => {
-        const config = getNormalizedDimensionConfig(detect);
-        detect.modelSceneType = getDetectSceneType(detect);
-        detect.dimensionConfig = {
-          ...config,
-          calibrationTemplate: "标准标定板 A-10mm",
-          precheckMode: "pass",
-          calibrationStatus: "已就绪",
-          calibrationRecordId: `CAL-${calibratedAt.slice(0, 10).replace(/-/g, "")}-${String(index + 1).padStart(2, "0")}`,
-          lastCalibratedAt: calibratedAt,
-        };
-      });
-      if (!tool.runtime || typeof tool.runtime !== "object") tool.runtime = {};
-      tool.runtime.dimensionPrecheck = {
-        status: "PASS",
-        detectIds: targetDetects.map((detect) => detect.id),
-        detail: `已更新 ${targetDetects.length} 个尺寸方案的生效标定记录，可重新发起检测。`,
-      };
-      activateRuntimeInitialState(tool.id);
-      closeSharedModal();
-      renderAll();
-      persistState("重新标定已完成，可重新发起检测");
-      return true;
-    },
-  });
 }
 
 function abortDetectionRun(message, options = {}) {
@@ -5231,13 +5001,6 @@ function handleToolRuntimeClick(event) {
   const previewButton = getClosestEventTarget(event, "[data-action='preview-runtime-camera']");
   if (previewButton?.dataset.acquireId) {
     openRuntimeCameraPreview(previewButton.dataset.acquireId);
-    return;
-  }
-  const recalibrationButton = getClosestEventTarget(event, "[data-action='open-runtime-recalibration']");
-  if (recalibrationButton?.dataset.acquireId) {
-    const tool = getActiveTool();
-    if (!tool) return;
-    openDimensionRecalibrationModal(tool.id, getDimensionDetectIdsForAcquire(tool, recalibrationButton.dataset.acquireId), recalibrationButton.dataset.acquireId, "proactive");
     return;
   }
   if (getClosestEventTarget(event, "[data-action='add-runtime-tag']")) {
@@ -8230,40 +7993,6 @@ function getToolInvalidDetectTargetCount(tool) {
   return tool.detect.reduce((count, detect) => count + getInvalidDetectTargetCount(tool, detect), 0);
 }
 
-function getDimensionDetectIdsForAcquire(tool, acquireId) {
-  if (!tool || !acquireId) return [];
-  const processMap = new Map((Array.isArray(tool.process) ? tool.process : []).map((item) => [item.id, item]));
-  return (Array.isArray(tool.detect) ? tool.detect : [])
-    .filter((detect) => isDimensionDetect(detect))
-    .filter((detect) =>
-      getDetectTargets(detect).some((target) => {
-        const process = processMap.get(target.processId);
-        return process?.inputId === acquireId;
-      }),
-    )
-    .map((detect) => detect.id);
-}
-
-function isAcquireUsedByDimensionDetect(tool, acquireId) {
-  return getDimensionDetectIdsForAcquire(tool, acquireId).length > 0;
-}
-
-function getPreferredRecalibrationAcquire(tool, detectIds = []) {
-  if (!tool) return null;
-  const preferredIds = new Set(detectIds);
-  const processMap = new Map((Array.isArray(tool.process) ? tool.process : []).map((item) => [item.id, item]));
-  for (const detect of Array.isArray(tool.detect) ? tool.detect : []) {
-    if (!isDimensionDetect(detect)) continue;
-    if (preferredIds.size && !preferredIds.has(detect.id)) continue;
-    for (const target of getDetectTargets(detect)) {
-      const process = processMap.get(target.processId);
-      const acquire = tool.acquire.find((item) => item.id === process?.inputId) || null;
-      if (acquire?.type === "camera") return acquire;
-    }
-  }
-  return tool.acquire.find((item) => item.type === "camera") || tool.acquire[0] || null;
-}
-
 function getAcquireSampleName(item) {
   return String(item?.sampleImageName || item?.sampleImage || "").trim() || "未上传";
 }
@@ -8713,7 +8442,6 @@ function buildDetectionRecord(tool, runMode = "detect") {
     totalResult,
     businessResult: totalResult,
     customTags: getRuntimeActiveTags(tool).length ? getRuntimeActiveTags(tool) : getRuntimeDraftTags(tool),
-    runtimePrecheckStatus: tool?.runtime?.dimensionPrecheck?.status || "",
     dimensionBindings: dimensionDetects.map((detect) => {
       const config = getNormalizedDimensionConfig(detect);
       return {
@@ -8722,7 +8450,6 @@ function buildDetectionRecord(tool, runMode = "detect") {
         publishedSchemeName: config?.publishedSchemeName || "",
         publishedVersion: config?.publishedVersion || "",
         calibrationConfigId: config?.calibrationConfigId || "",
-        calibrationRecordId: config?.calibrationRecordId || "",
       };
     }),
     imageResults,

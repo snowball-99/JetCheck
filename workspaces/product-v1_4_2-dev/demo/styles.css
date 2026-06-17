@@ -4050,7 +4050,7 @@ thead th {
 }
 
 .modal.modal-capture-setup {
-  width: min(1040px, calc(100vw - 48px));
+  width: min(760px, calc(100vw - 48px));
 }
 
 .capture-setup-table {
@@ -4063,10 +4063,10 @@ thead th {
 .capture-setup-head,
 .capture-setup-row {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(300px, 1.5fr) 130px;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 1.4fr) 110px;
   gap: 12px;
   align-items: center;
-  min-width: 680px;
+  min-width: 560px;
   padding: 11px 14px;
 }
 
@@ -4172,7 +4172,7 @@ thead th {
 
 .capture-source-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 58px;
@@ -4201,9 +4201,34 @@ thead th {
   font-weight: 700;
 }
 
-.capture-source-back {
-  min-height: 32px;
-  padding: 6px 10px;
+.icon-btn.capture-source-back {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #d8e1ef;
+  border-radius: 4px;
+  color: #5f718a;
+  background: #fff;
+  line-height: 0;
+}
+
+.icon-btn.capture-source-back:hover,
+.icon-btn.capture-config-btn:hover {
+  transform: none;
+}
+
+.icon-btn.capture-source-back svg,
+.icon-btn.capture-config-btn svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .capture-source-list {
@@ -4261,10 +4286,17 @@ thead th {
   white-space: nowrap;
 }
 
-.capture-config-btn {
-  min-height: 32px;
-  padding: 6px 10px;
-  font-size: 12px;
+.icon-btn.capture-config-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #d8e1ef;
+  border-radius: 4px;
+  color: #5f718a;
+  background: #fff;
+  line-height: 0;
 }
 
 .capture-source-thumbs {
@@ -4286,6 +4318,49 @@ thead th {
   background: #e9eef5;
 }
 
+.capture-source-thumbs button.is-fresh-capture {
+  border-color: var(--primary);
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(36, 109, 242, 0.22);
+}
+
+.capture-source-thumbs button.is-fresh-capture::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.92);
+  animation: captureFreshMask 900ms ease-out forwards;
+  pointer-events: none;
+}
+
+.capture-thumb-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  color: #6b7788;
+  background: rgba(255, 255, 255, 0.74);
+  animation: captureFreshMark 900ms ease-out forwards;
+  pointer-events: none;
+}
+
+.capture-thumb-loading svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .capture-source-thumbs button.is-active {
   border-color: var(--primary);
   box-shadow: 0 0 0 1px var(--primary);
@@ -4297,20 +4372,17 @@ thead th {
   object-fit: contain;
 }
 
-.capture-source-thumbs i {
+.capture-source-thumb-tags {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  max-width: calc(100% - 4px);
-  padding: 1px 3px;
-  overflow: hidden;
-  border-radius: 2px;
-  color: #fff;
-  background: rgba(17, 28, 43, 0.8);
-  font-size: 9px;
-  font-style: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
 }
 
 .capture-source-empty {
@@ -4386,7 +4458,11 @@ thead th {
 
 .capture-multi-live-item.is-active {
   border-color: #6ea2ff;
-  box-shadow: 0 0 0 1px #6ea2ff;
+  box-shadow: 0 0 0 2px rgba(36, 109, 242, 0.32);
+}
+
+.capture-multi-live-item.is-active .capture-camera-preview {
+  box-shadow: inset 0 0 0 2px var(--primary);
 }
 
 .capture-camera-preview {
@@ -4456,13 +4532,74 @@ thead th {
 .capture-camera-controls {
   display: grid;
   min-width: 0;
-  gap: 9px;
+  gap: 8px;
   color: var(--text);
 }
 
 .capture-camera-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
   font-size: 13px;
+}
+
+.capture-camera-title .capture-camera-file {
+  display: inline-block;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-camera-title .capture-camera-file > span {
+  display: inline-block;
+  max-width: calc(100% - 22px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.capture-camera-title .capture-camera-file i {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  color: #6b7788;
+  vertical-align: -3px;
+  animation: captureFreshMark 900ms ease-out forwards;
+}
+
+.capture-camera-title .capture-camera-file i svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.capture-camera-title strong {
+  flex: 0 0 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-camera-title.is-editing .capture-camera-file {
+  color: var(--primary);
+}
+
+.capture-camera-title .capture-camera-file.is-fresh-capture {
+  animation: captureFreshText 720ms ease-out;
 }
 
 .capture-item-tag-picker {
@@ -4517,7 +4654,7 @@ thead th {
 
 .capture-item-shutter-btn {
   width: 100%;
-  min-width: 112px;
+  min-width: 122px;
   min-height: 54px;
   font-size: 15px;
 }
@@ -4529,6 +4666,49 @@ thead th {
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #fff;
+}
+
+@keyframes captureFreshMask {
+  0% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes captureFreshMark {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.82);
+  }
+  16% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes captureFreshText {
+  0% {
+    opacity: 0.46;
+    color: var(--primary);
+  }
+  50% {
+    opacity: 1;
+    color: #0f58d6;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .capture-tag-mode-row {
@@ -4990,7 +5170,8 @@ thead th {
 }
 
 .capture-library-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
   align-items: center;
   gap: 12px;
   min-height: 58px;
@@ -4999,16 +5180,8 @@ thead th {
 }
 
 .capture-library-tag-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.capture-library-tag-filter select {
-  min-width: 118px;
+  width: 100%;
+  min-width: 0;
   height: 30px;
   padding: 0 28px 0 10px;
   border: 1px solid var(--line);
@@ -5017,14 +5190,35 @@ thead th {
   background: #fff;
 }
 
-.capture-library-toolbar > span {
+.capture-library-toolbar-left > span {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
+.capture-library-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.capture-library-toolbar-left label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .capture-library-toolbar .capture-record-toolbar-actions {
-  flex: 1 1 auto;
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.capture-library-toolbar .capture-record-toolbar-actions button {
+  white-space: nowrap;
 }
 
 .capture-library-batches {
@@ -5158,11 +5352,14 @@ thead th {
   bottom: 5px;
   left: 5px;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
   gap: 3px;
   pointer-events: none;
 }
 
+.capture-source-thumb-tags i,
 .capture-image-tags i,
 .capture-preview-tags i {
   max-width: 86px;
@@ -5175,6 +5372,12 @@ thead th {
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.capture-source-thumb-tags i {
+  max-width: calc(100% - 2px);
+  padding: 1px 3px;
+  font-size: 9px;
 }
 
 .capture-record-items,

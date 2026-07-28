@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JetCheck 平台端</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./platform-replica.css?v=88" />
+  </head>
+  <body class="platform-body platform-system-body">
+    <div class="platform-system-shell">
+      <header class="platform-system-topbar">
+        <div class="platform-system-brand">
+          <div class="platform-system-logo">捷</div>
+          <img class="platform-system-wordmark-image" src="./logo&icon/Frame 1142814564@2x.png" alt="Jetcheck 捷检" />
+        </div>
+        <nav class="platform-system-nav" aria-label="平台端主导航">
+          <button class="platform-system-nav-item" data-view="home">首页</button>
+          <button class="platform-system-nav-item" data-view="scenes">场景库</button>
+          <button class="platform-system-nav-item" data-view="operators">算子库</button>
+          <button class="platform-system-nav-item" data-view="public-data">图像库</button>
+          <button class="platform-system-nav-item" data-view="clients">客户端管理</button>
+        </nav>
+        <div class="platform-account" id="platformAccount">
+          <button class="platform-system-user" id="platformAccountBtn" aria-haspopup="menu" aria-expanded="false">
+            <span class="platform-user-avatar">雪</span>
+            <span>雪球</span>
+          </button>
+          <div class="platform-account-menu" id="platformAccountMenu" role="menu" hidden></div>
+        </div>
+      </header>
+
+      <div class="platform-system-layout">
+        <aside class="platform-system-sidebar" id="platformSidebar" hidden></aside>
+        <main class="platform-system-main" id="platformMain"></main>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack"></div>
+
+    <script src="./shared.js?v=73"></script>
+    <script src="./platform-replica.js?v=88"></script>
+  </body>
+</html>

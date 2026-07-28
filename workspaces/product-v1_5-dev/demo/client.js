@@ -1,0 +1,12497 @@
+const Demo = window.JetCheckDemo;
+const PLATFORM_LIBRARY_STORAGE_KEY = "jetcheck-platform-replica-v4";
+const CLIENT_CLOUD_SYNC_QUEUE_KEY = "jetcheck-client-cloud-sync-v1";
+const CLIENT_DATA_RETURN_QUEUE_KEY = "jetcheck-client-data-return-v1";
+const CAPTURE_TAG_MAX_COUNT = 3;
+const CAPTURE_TAG_MAX_LENGTH = 8;
+
+let state = Demo.loadState();
+
+const ui = {
+  activePage: "detect-tools",
+  toolView: "overview",
+  builderStep: "acquire",
+  builderRuleNodeId: "",
+  builderRuleId: "",
+  settingsTab: "client",
+  activeToolId: state.tools[0]?.id || null,
+  activeRecordId: state.detectionRecords[0]?.id || null,
+  activeRuntimeImageId: null,
+  activeCaptureItemId: "",
+  activeCaptureImageId: "",
+  recentCaptureImageId: "",
+  selectedCaptureImageIds: new Set(),
+  captureCameraZoom: {},
+  captureCameraPan: {},
+  captureLibraryZoom: 1,
+  captureLibraryPan: { x: 0, y: 0 },
+  activeCameraId: state.cameras[0]?.id || null,
+  activeParamGroupId: state.cameras[0]?.paramGroups?.[0]?.id || null,
+  cameraFilters: {
+    keyword: "",
+  },
+  ioFilters: {
+    keyword: "",
+  },
+  activeIoConfigTab: "input",
+  activeToolIoModuleId: "",
+  recordFilters: {
+    runMode: "all",
+    business: "all",
+    startAt: "",
+    endAt: "",
+    keyword: "",
+  },
+  selectedRecordIds: new Set(),
+  recordPagination: {
+    page: 1,
+    pageSize: 10,
+  },
+  discoveryKeyword: "",
+  localFilters: {
+    keyword: "",
+    scene: "all",
+  },
+  cloudFilters: {
+    keyword: "",
+    scene: "all",
+  },
+  modelDrawerMode: "cloud-add",
+  modelSelectorFilters: {
+    keyword: "",
+    scene: "all",
+  },
+  selectedModelId: null,
+  modelTarget: null,
+  modalConfig: null,
+  recordImageViewer: null,
+  pendingDownload: null,
+  pendingDetectionToolId: null,
+  pendingDetectionStartedAt: 0,
+  runtimePlaybackRecordId: null,
+  runtimeInitialToolId: null,
+  paramPreviewZoom: 1,
+  judgmentScroll: {
+    tree: 0,
+    editor: 0,
+  },
+};
+
+const timers = {
+  download: null,
+  detection: null,
+  runtimeCarousel: null,
+  captureFresh: null,
+  runtimeSessionClock: null,
+};
+
+const CLEANUP_CUTOFF_OPTIONS = [
+  { value: "1y", label: "一年前" },
+  { value: "6m", label: "半年前" },
+  { value: "3m", label: "三个月前" },
+  { value: "1m", label: "一个月前" },
+  { value: "custom", label: "自定义时间范围" },
+];
+
+const TOOL_ITEM_LIMITS = {
+  acquire: 20,
+  process: 20,
+  detect: 20,
+};
+
+const BUILDER_STEPS = ["acquire", "process", "detect", "rule"];
+
+const RUN_MODE_OPTIONS = [
+  { value: "acquire", label: "采图模式", hint: "仅采集原始图像。", requiredStep: "acquire" },
+  { value: "process", label: "图像处理模式", hint: "采集图像并输出处理结果。", requiredStep: "process" },
+  { value: "detect", label: "检测模式", hint: "完成检测并给出最终结果。", requiredStep: "detect" },
+];
+
+const IO_MODULE_MODEL_OPTIONS = [
+  { value: "USR-IO424T", label: "USR-IO424T", points: 4 },
+  { value: "USR-IO808", label: "USR-IO808", points: 8 },
+];
+
+const IO_INPUT_ACTIONS = [
+  { value: "new-cycle", label: "开始" },
+  { value: "capture-next", label: "触发下一个采图" },
+  { value: "capture-all", label: "依次触发全部采图" },
+  { value: "reset-cycle", label: "重置" },
+];
+
+const IO_OUTPUT_ACTIONS = [
+  { value: "cycle-done", label: "检测完成" },
+  { value: "cycle-ok", label: "检测OK" },
+  { value: "cycle-ng", label: "检测NG" },
+  { value: "cycle-error", label: "检测异常" },
+];
+
+const DETECTION_EXCEPTION_CATALOG = {
+  9004: {
+    title: "相机连接失败（9004）",
+    text: "相机连接失败（9004）：相机未连接，请检查电源和网线后重试。",
+  },
+  9007: {
+    title: "相机参数异常（9007）",
+    text: "相机参数异常（9007）：存在不支持的相机参数，请检查参数组配置或联系管理员。",
+  },
+  9009: {
+    title: "相机参数设置失败（9009）",
+    text: "相机参数设置失败（9009）：自动曝光已开启，请关闭自动曝光后再设置曝光时间。",
+  },
+  9011: {
+    title: "相机参数设置失败（9011）",
+    text: "相机参数设置失败（9011）：自动增益已开启，请关闭自动增益后再设置增益。",
+  },
+  9012: {
+    title: "相机连接失败（9012）",
+    text: "相机连接失败（9012）：相机被占用或IP未设置，请在MVS中设置IP或断开占用者连接后重试。",
+  },
+  9013: {
+    title: "相机异常（9013）",
+    text: "相机异常（9013）：相机调用超时，请稍后重试。",
+  },
+  3000: {
+    title: "算子服务异常（3000）",
+    text: "算子服务异常（3000）：算子服务暂时不可用，请稍后重试或联系管理员。",
+  },
+  3201: {
+    title: "算子加载失败（3201）",
+    text: "算子加载失败（3201）：算子不存在或已被删除，请联系管理员。",
+  },
+  3401: {
+    title: "算子推理失败（3401）",
+    text: "算子推理失败（3401）：当前检测工具关联的算子不存在，请重新选择算子或联系管理员。",
+  },
+  repeatedTrigger: {
+    title: "重复触发",
+    text: "检测中，请勿重复触发",
+  },
+};
+
+const els = {
+  loginShell: document.getElementById("loginShell"),
+  loginClientNameField: document.getElementById("loginClientNameField"),
+  loginClientName: document.getElementById("loginClientName"),
+  loginClientNameError: document.getElementById("loginClientNameError"),
+  loginAccountField: document.getElementById("loginAccountField"),
+  loginAccount: document.getElementById("loginAccount"),
+  loginAccountError: document.getElementById("loginAccountError"),
+  loginPasswordField: document.getElementById("loginPasswordField"),
+  loginPassword: document.getElementById("loginPassword"),
+  loginPasswordError: document.getElementById("loginPasswordError"),
+  loginHint: document.getElementById("loginHint"),
+  loginError: document.getElementById("loginError"),
+  loginSubmit: document.getElementById("loginSubmit"),
+  loginScenarioFirstBindBtn: document.getElementById("loginScenarioFirstBindBtn"),
+  loginScenarioQuotaFullBtn: document.getElementById("loginScenarioQuotaFullBtn"),
+  loginScenarioOfflineBtn: document.getElementById("loginScenarioOfflineBtn"),
+  demoFloating: document.getElementById("demoFloating"),
+  demoFloatingToggle: document.getElementById("demoFloatingToggle"),
+  demoFloatingPanel: document.getElementById("demoFloatingPanel"),
+  demoFloatingClose: document.getElementById("demoFloatingClose"),
+  resetClientDemoFloating: document.getElementById("resetClientDemoFloating"),
+  demoFloatingFeedback: document.getElementById("demoFloatingFeedback"),
+
+  clientShell: document.getElementById("clientShell"),
+  topbarCompanyName: document.getElementById("topbarCompanyName"),
+  clientNetworkStatusPill: document.getElementById("clientNetworkStatusPill"),
+  demoToggleClientNetwork: document.getElementById("demoToggleClientNetwork"),
+  goSettingsBtn: document.getElementById("goSettingsBtn"),
+  resetClientDemo: document.getElementById("resetClientDemo"),
+  globalAlerts: document.getElementById("globalAlerts"),
+
+  navItems: Array.from(document.querySelectorAll(".nav-item")),
+  pages: Array.from(document.querySelectorAll("[data-page-panel]")),
+
+  toolOverviewPanel: document.getElementById("toolOverviewPanel"),
+  toolBuilderPanel: document.getElementById("toolBuilderPanel"),
+  toolRuntimePanel: document.getElementById("toolRuntimePanel"),
+  toolIoConfigPanel: document.getElementById("toolIoConfigPanel"),
+  toolCardGrid: document.getElementById("toolCardGrid"),
+  builderToolTitle: document.getElementById("builderToolTitle"),
+  backToToolOverview: document.getElementById("backToToolOverview"),
+  renameToolBtn: document.getElementById("renameToolBtn"),
+  deleteToolBtn: document.getElementById("deleteToolBtn"),
+  builderSteps: Array.from(document.querySelectorAll(".wizard-step")),
+  builderStepBody: document.getElementById("builderStepBody"),
+  prevBuilderStep: document.getElementById("prevBuilderStep"),
+  nextBuilderStep: document.getElementById("nextBuilderStep"),
+  finishBuilderBtn: document.getElementById("finishBuilderBtn"),
+  runtimeToolTitle: document.getElementById("runtimeToolTitle"),
+  runtimeModeSummary: document.getElementById("runtimeModeSummary"),
+  runtimeConfigAlert: document.getElementById("runtimeConfigAlert"),
+  backToToolOverviewFromRuntime: document.getElementById("backToToolOverviewFromRuntime"),
+  resetCurrentRunBtn: document.getElementById("resetCurrentRunBtn"),
+  stopToolRunBtn: document.getElementById("stopToolRunBtn"),
+  startToolRun: document.getElementById("startToolRun"),
+  runtimePrimaryResult: document.getElementById("runtimePrimaryResult"),
+  runtimeCycleTime: document.getElementById("runtimeCycleTime"),
+  runtimeCurrentCycleTime: document.getElementById("runtimeCurrentCycleTime"),
+  runtimeCurrentCycleResult: document.getElementById("runtimeCurrentCycleResult"),
+  runtimeBatchSummary: document.getElementById("runtimeBatchSummary"),
+  runtimeCameraActions: document.getElementById("runtimeCameraActions"),
+  runtimeRecentRecords: document.getElementById("runtimeRecentRecords"),
+  runtimeRecordDrawer: document.getElementById("runtimeRecordDrawer"),
+  runtimeRecordDrawerTitle: document.getElementById("runtimeRecordDrawerTitle"),
+  closeRuntimeRecordDrawer: document.getElementById("closeRuntimeRecordDrawer"),
+  runtimeRecordDrawerBody: document.getElementById("runtimeRecordDrawerBody"),
+  runtimeCurrentDetail: document.getElementById("runtimeCurrentDetail"),
+  runtimeTagCount: document.getElementById("runtimeTagCount"),
+  runtimeTagInfo: document.getElementById("runtimeTagInfo"),
+  runtimeCameraInfo: document.getElementById("runtimeCameraInfo"),
+  runtimeCurrentImageResult: document.getElementById("runtimeCurrentImageResult"),
+  runtimeImageStage: document.getElementById("runtimeImageStage"),
+  runtimeImageResultList: document.getElementById("runtimeImageResultList"),
+  runtimeImageCaption: document.getElementById("runtimeImageCaption"),
+  standardRuntimeGrid: document.getElementById("standardRuntimeGrid"),
+  captureRuntimePanel: document.getElementById("captureRuntimePanel"),
+  backToToolOverviewFromIo: document.getElementById("backToToolOverviewFromIo"),
+  ioConfigToolTitle: document.getElementById("ioConfigToolTitle"),
+  toolIoConfigBody: document.getElementById("toolIoConfigBody"),
+
+  ioKeywordInput: document.getElementById("ioKeywordInput"),
+  searchIoBtn: document.getElementById("searchIoBtn"),
+  resetIoFilterBtn: document.getElementById("resetIoFilterBtn"),
+  openAddIoModuleBtn: document.getElementById("openAddIoModuleBtn"),
+  ioModuleTableBody: document.getElementById("ioModuleTableBody"),
+  ioModuleEmptyState: document.getElementById("ioModuleEmptyState"),
+
+  cameraKeywordInput: document.getElementById("cameraKeywordInput"),
+  searchCameraBtn: document.getElementById("searchCameraBtn"),
+  resetCameraFilterBtn: document.getElementById("resetCameraFilterBtn"),
+  refreshCameraBtn: document.getElementById("refreshCameraBtn"),
+  openAddCameraBtn: document.getElementById("openAddCameraBtn"),
+  cameraTableBody: document.getElementById("cameraTableBody"),
+  cameraEmptyState: document.getElementById("cameraEmptyState"),
+
+  recordRunModeFilter: document.getElementById("recordRunModeFilter"),
+  recordStartTimeInput: document.getElementById("recordStartTimeInput"),
+  recordEndTimeInput: document.getElementById("recordEndTimeInput"),
+  recordKeywordInput: document.getElementById("recordKeywordInput"),
+  resetRecordFilterBtn: document.getElementById("resetRecordFilterBtn"),
+  searchRecordBtn: document.getElementById("searchRecordBtn"),
+  dataReturnRecordBatchBtn: document.getElementById("dataReturnRecordBatchBtn"),
+  deleteRecordBatchBtn: document.getElementById("deleteRecordBatchBtn"),
+  exportRecordBtn: document.getElementById("exportRecordBtn"),
+  selectFilteredRecordsBtn: document.getElementById("selectFilteredRecordsBtn"),
+  recordSelectedCount: document.getElementById("recordSelectedCount"),
+  recordSelectAll: document.getElementById("recordSelectAll"),
+  recordTableBody: document.getElementById("recordTableBody"),
+  recordEmptyState: document.getElementById("recordEmptyState"),
+  recordTableFooter: document.getElementById("recordTableFooter"),
+  recordPaginationSummary: document.getElementById("recordPaginationSummary"),
+  recordPaginationControls: document.getElementById("recordPaginationControls"),
+
+  settingsTabs: Array.from(document.querySelectorAll(".settings-tab")),
+  settingsPanels: Array.from(document.querySelectorAll(".settings-panel")),
+  clientInfoMeta: document.getElementById("clientInfoMeta"),
+  editClientNameBtn: document.getElementById("editClientNameBtn"),
+  unbindClientBtn: document.getElementById("unbindClientBtn"),
+  storageSummaryGrid: document.getElementById("storageSummaryGrid"),
+  warningThresholdInput: document.getElementById("warningThresholdInput"),
+  blockThresholdInput: document.getElementById("blockThresholdInput"),
+  thresholdMessage: document.getElementById("thresholdMessage"),
+  saveStorageThresholdBtn: document.getElementById("saveStorageThresholdBtn"),
+  simulateConsumeBtn: document.getElementById("simulateConsumeBtn"),
+  simulateReleaseBtn: document.getElementById("simulateReleaseBtn"),
+
+  modalBackdrop: document.getElementById("modalBackdrop"),
+  sharedModal: document.getElementById("sharedModal"),
+  sharedModalTitle: document.getElementById("sharedModalTitle"),
+  sharedModalBody: document.getElementById("sharedModalBody"),
+  sharedModalFooter: document.getElementById("sharedModalFooter"),
+  sharedModalCancel: document.getElementById("sharedModalCancel"),
+  sharedModalExtra: document.getElementById("sharedModalExtra"),
+  sharedModalConfirm: document.getElementById("sharedModalConfirm"),
+  closeSharedModal: document.getElementById("closeSharedModal"),
+
+  addCameraModal: document.getElementById("addCameraModal"),
+  closeAddCameraModal: document.getElementById("closeAddCameraModal"),
+  cancelAddCameraBtn: document.getElementById("cancelAddCameraBtn"),
+  cameraDiscoveryKeyword: document.getElementById("cameraDiscoveryKeyword"),
+  searchDiscoveryBtn: document.getElementById("searchDiscoveryBtn"),
+  scanDiscoveryBtn: document.getElementById("scanDiscoveryBtn"),
+  cameraDiscoveryBody: document.getElementById("cameraDiscoveryBody"),
+  confirmAddCameraBtn: document.getElementById("confirmAddCameraBtn"),
+
+  paramModal: document.getElementById("paramModal"),
+  closeParamModal: document.getElementById("closeParamModal"),
+  paramModalTitle: document.getElementById("paramModalTitle"),
+  addParamGroupBtn: document.getElementById("addParamGroupBtn"),
+  paramGroupList: document.getElementById("paramGroupList"),
+  paramPreviewStage: document.getElementById("paramPreviewStage"),
+  paramPreviewCaption: document.getElementById("paramPreviewCaption"),
+  paramFormScroll: document.getElementById("paramFormScroll"),
+  paramFormFields: document.getElementById("paramFormFields"),
+
+  modelDrawer: document.getElementById("modelDrawer"),
+  closeModelDrawer: document.getElementById("closeModelDrawer"),
+  openCloudModelDrawerBtn: document.getElementById("openCloudModelDrawerBtn"),
+  importModelBtn: document.getElementById("importModelBtn"),
+  importModelFileInput: document.getElementById("importModelFileInput"),
+  localModelKeywordFilter: document.getElementById("localModelKeywordFilter"),
+  localSceneFilter: document.getElementById("localSceneFilter"),
+  resetLocalFiltersBtn: document.getElementById("resetLocalFiltersBtn"),
+  applyLocalFiltersBtn: document.getElementById("applyLocalFiltersBtn"),
+  localModelTableBody: document.getElementById("localModelTableBody"),
+  localModelEmpty: document.getElementById("localModelEmpty"),
+  modelSelectPanel: document.getElementById("modelSelectPanel"),
+  selectorModelKeywordFilter: document.getElementById("selectorModelKeywordFilter"),
+  selectorModelSceneFilter: document.getElementById("selectorModelSceneFilter"),
+  selectorCloudModelBtn: document.getElementById("selectorCloudModelBtn"),
+  selectorImportModelBtn: document.getElementById("selectorImportModelBtn"),
+  resetSelectorModelFiltersBtn: document.getElementById("resetSelectorModelFiltersBtn"),
+  applySelectorModelFiltersBtn: document.getElementById("applySelectorModelFiltersBtn"),
+  selectorModelTableBody: document.getElementById("selectorModelTableBody"),
+  selectorModelEmpty: document.getElementById("selectorModelEmpty"),
+  cloudModelPanel: document.getElementById("cloudModelPanel"),
+  cloudModelKeywordFilter: document.getElementById("cloudModelKeywordFilter"),
+  cloudSceneFilter: document.getElementById("cloudSceneFilter"),
+  resetCloudFiltersBtn: document.getElementById("resetCloudFiltersBtn"),
+  applyCloudFiltersBtn: document.getElementById("applyCloudFiltersBtn"),
+  cloudModelList: document.getElementById("cloudModelList"),
+  modelDrawerFooter: document.getElementById("modelDrawerFooter"),
+  cancelModelSelectBtn: document.getElementById("cancelModelSelectBtn"),
+  confirmModelSelectBtn: document.getElementById("confirmModelSelectBtn"),
+
+  toastStack: document.getElementById("toastStack"),
+};
+
+function init() {
+  bindStaticEvents();
+  syncUiSelections();
+  renderAll();
+  timers.runtimeSessionClock = window.setInterval(refreshRuntimeSessionClock, 1000);
+  window.addEventListener("storage", handleStorageSync);
+}
+
+function bindStaticEvents() {
+  els.loginScenarioFirstBindBtn.addEventListener("click", () => applyLoginDemoScenario("first-bind"));
+  els.loginScenarioQuotaFullBtn.addEventListener("click", () => applyLoginDemoScenario("quota-full"));
+  els.loginScenarioOfflineBtn.addEventListener("click", () => applyLoginDemoScenario("offline"));
+  els.demoFloatingToggle.addEventListener("click", toggleDemoFloatingPanel);
+  els.demoFloatingClose.addEventListener("click", closeDemoFloatingPanel);
+  els.resetClientDemoFloating.addEventListener("click", resetDemoState);
+  els.loginSubmit.addEventListener("click", submitLogin);
+  els.demoToggleClientNetwork.addEventListener("click", toggleNetworkState);
+  els.goSettingsBtn.addEventListener("click", () => switchPage("settings"));
+  els.resetClientDemo.addEventListener("click", resetDemoState);
+  els.globalAlerts.addEventListener("click", handleGlobalAlertClick);
+
+  els.navItems.forEach((item) => {
+    item.addEventListener("click", () => switchPage(item.dataset.page));
+  });
+
+  els.backToToolOverview.addEventListener("click", () => switchToolView("overview"));
+  els.backToToolOverviewFromRuntime.addEventListener("click", () => switchToolView("overview"));
+  els.backToToolOverviewFromIo.addEventListener("click", () => switchToolView("overview"));
+  els.renameToolBtn.addEventListener("click", renameActiveTool);
+  els.deleteToolBtn.addEventListener("click", deleteActiveTool);
+  els.prevBuilderStep.addEventListener("click", moveBuilderStep.bind(null, -1));
+  els.nextBuilderStep.addEventListener("click", moveBuilderStep.bind(null, 1));
+  els.finishBuilderBtn.addEventListener("click", () => switchToolView("overview"));
+  els.builderSteps.forEach((button) => {
+    button.addEventListener("click", () => setBuilderStep(button.dataset.builderStep));
+  });
+  els.resetCurrentRunBtn.addEventListener("click", resetCurrentRunTask);
+  els.stopToolRunBtn.addEventListener("click", stopToolRunSession);
+  els.startToolRun.addEventListener("click", startDetectionRun);
+  els.closeRuntimeRecordDrawer.addEventListener("click", closeRuntimeRecordDrawer);
+  els.runtimeRecordDrawerBody.addEventListener("click", handleRuntimeRecordDrawerClick);
+
+  els.toolCardGrid.addEventListener("click", handleToolCardClick);
+  els.builderStepBody.addEventListener("click", handleBuilderBodyClick);
+  els.builderStepBody.addEventListener("input", handleBuilderBodyInput);
+  els.builderStepBody.addEventListener("change", handleBuilderBodyChange);
+  els.toolRuntimePanel.addEventListener("click", handleToolRuntimeClick);
+  els.captureRuntimePanel.addEventListener("change", handleCaptureRuntimeChange);
+  els.toolRuntimePanel.addEventListener("keydown", handleToolRuntimeKeydown);
+  els.runtimeImageResultList.addEventListener("click", handleRuntimeImageResultClick);
+  els.toolIoConfigBody.addEventListener("click", handleToolIoConfigClick);
+  els.toolIoConfigBody.addEventListener("change", handleToolIoConfigChange);
+
+  els.searchIoBtn.addEventListener("click", applyIoFilters);
+  els.resetIoFilterBtn.addEventListener("click", resetIoFilters);
+  els.openAddIoModuleBtn.addEventListener("click", () => openIoModuleModal());
+  els.ioModuleTableBody.addEventListener("click", handleIoModuleTableClick);
+
+  els.searchCameraBtn.addEventListener("click", applyCameraFilters);
+  els.resetCameraFilterBtn.addEventListener("click", resetCameraFilters);
+  els.refreshCameraBtn.addEventListener("click", refreshCameraList);
+  els.openAddCameraBtn.addEventListener("click", openAddCameraModal);
+  els.cameraTableBody.addEventListener("click", handleCameraTableClick);
+
+  els.resetRecordFilterBtn.addEventListener("click", resetRecordFilters);
+  els.searchRecordBtn.addEventListener("click", applyRecordFilters);
+  els.selectFilteredRecordsBtn.addEventListener("click", selectAllFilteredRecords);
+  els.dataReturnRecordBatchBtn.addEventListener("click", () => openBatchDataReturnModal(Array.from(ui.selectedRecordIds)));
+  els.deleteRecordBatchBtn.addEventListener("click", () => confirmDeleteRecords(Array.from(ui.selectedRecordIds)));
+  els.exportRecordBtn.addEventListener("click", () => openRecordExportModal(Array.from(ui.selectedRecordIds)));
+  els.recordTableBody.addEventListener("click", handleRecordTableClick);
+  els.recordTableBody.addEventListener("change", handleRecordTableChange);
+  els.recordSelectAll.addEventListener("change", handleRecordSelectAllChange);
+  els.recordPaginationControls.addEventListener("click", handleRecordPaginationClick);
+
+  els.settingsTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      ui.settingsTab = tab.dataset.settingsTab;
+      renderSettingsPanels();
+    });
+  });
+  els.editClientNameBtn.addEventListener("click", editClientName);
+  els.unbindClientBtn.addEventListener("click", confirmUnbindClient);
+  els.saveStorageThresholdBtn.addEventListener("click", saveStorageThresholds);
+  els.storageSummaryGrid.addEventListener("click", handleStorageSummaryClick);
+  els.simulateConsumeBtn.addEventListener("click", () => mutateStorage(-4));
+  els.simulateReleaseBtn.addEventListener("click", () => mutateStorage(6));
+
+  els.closeSharedModal.onclick = closeSharedModal;
+  els.sharedModalCancel.onclick = closeSharedModal;
+  els.sharedModalExtra.onclick = null;
+  els.sharedModalConfirm.onclick = submitSharedModal;
+
+  els.closeAddCameraModal.addEventListener("click", closeAddCameraModal);
+  els.cancelAddCameraBtn.addEventListener("click", closeAddCameraModal);
+  els.searchDiscoveryBtn.addEventListener("click", applyDiscoveryFilters);
+  els.scanDiscoveryBtn.addEventListener("click", scanDiscoveryDevices);
+  els.confirmAddCameraBtn.addEventListener("click", confirmAddCamera);
+  els.addCameraModal.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    const target = getEventTargetElement(event);
+    if (target?.tagName === "TEXTAREA") return;
+    event.preventDefault();
+    confirmAddCamera();
+  });
+
+  els.closeParamModal.addEventListener("click", closeParamModal);
+  els.addParamGroupBtn.addEventListener("click", addParamGroup);
+  els.paramGroupList.addEventListener("click", handleParamGroupClick);
+  els.paramPreviewStage.addEventListener("wheel", handleParamPreviewWheel, { passive: false });
+  els.paramFormFields.addEventListener("click", handleParamStepperClick);
+  els.paramFormFields.addEventListener("input", handleParamFieldChange);
+  els.paramFormFields.addEventListener("change", handleParamFieldChange);
+  els.paramFormFields.addEventListener("wheel", handleParamFieldWheel);
+
+  els.openCloudModelDrawerBtn.addEventListener("click", openCloudModelDrawer);
+  els.closeModelDrawer.addEventListener("click", closeModelDrawer);
+  els.cancelModelSelectBtn.addEventListener("click", closeModelDrawer);
+  els.confirmModelSelectBtn.addEventListener("click", confirmModelSelection);
+  els.importModelBtn.addEventListener("click", openImportModelModal);
+  els.importModelFileInput.addEventListener("change", handleImportModelFileChange);
+  els.resetLocalFiltersBtn.addEventListener("click", resetLocalFilters);
+  els.applyLocalFiltersBtn.addEventListener("click", applyLocalFilters);
+  els.resetSelectorModelFiltersBtn.addEventListener("click", resetModelSelectorFilters);
+  els.applySelectorModelFiltersBtn.addEventListener("click", applyModelSelectorFilters);
+  els.selectorCloudModelBtn.addEventListener("click", openSelectorCloudModelPanel);
+  els.selectorImportModelBtn.addEventListener("click", openSelectorImportModelModal);
+  els.resetCloudFiltersBtn.addEventListener("click", resetCloudFilters);
+  els.applyCloudFiltersBtn.addEventListener("click", applyCloudFilters);
+  els.localModelKeywordFilter.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyLocalFilters();
+  });
+  els.selectorModelKeywordFilter.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyModelSelectorFilters();
+  });
+  els.cloudModelKeywordFilter.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyCloudFilters();
+  });
+  els.localModelTableBody.addEventListener("click", handleLocalModelTableClick);
+  els.selectorModelTableBody.addEventListener("click", handleSelectorModelTableClick);
+  els.cloudModelList.addEventListener("click", handleCloudModelListClick);
+  els.modelDrawer.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    const target = getEventTargetElement(event);
+    if (target?.tagName === "TEXTAREA") return;
+    if (ui.modelDrawerMode === "select-local" && !els.confirmModelSelectBtn.disabled) {
+      event.preventDefault();
+      confirmModelSelection();
+    }
+  });
+}
+
+function resetDemoState() {
+  clearPendingTasks();
+  localStorage.removeItem(PLATFORM_LIBRARY_STORAGE_KEY);
+  localStorage.removeItem(CLIENT_CLOUD_SYNC_QUEUE_KEY);
+  localStorage.removeItem(CLIENT_DATA_RETURN_QUEUE_KEY);
+  state = Demo.resetState();
+  ui.activePage = "detect-tools";
+  ui.toolView = "overview";
+  ui.builderStep = "acquire";
+  ui.settingsTab = "client";
+  ui.activeToolId = state.tools[0]?.id || null;
+  ui.activeRecordId = state.detectionRecords[0]?.id || null;
+  ui.activeRuntimeImageId = null;
+  ui.activeCaptureItemId = "";
+  ui.activeCaptureImageId = "";
+  ui.recentCaptureImageId = "";
+  ui.selectedCaptureImageIds.clear();
+  ui.runtimePlaybackRecordId = null;
+  ui.runtimeInitialToolId = null;
+  ui.activeCameraId = state.cameras[0]?.id || null;
+  ui.activeParamGroupId = state.cameras[0]?.paramGroups?.[0]?.id || null;
+  ui.cameraFilters = { keyword: "" };
+  ui.ioFilters = { keyword: "" };
+  ui.activeIoConfigTab = "input";
+  ui.activeToolIoModuleId = "";
+  ui.recordFilters = { runMode: "all", business: "all", startAt: "", endAt: "", keyword: "" };
+  ui.selectedRecordIds.clear();
+  ui.discoveryKeyword = "";
+  ui.localFilters = { keyword: "", scene: "all" };
+  ui.cloudFilters = { keyword: "", scene: "all" };
+  ui.modelDrawerMode = "cloud-add";
+  ui.modelSelectorFilters = { keyword: "", scene: "all" };
+  ui.selectedModelId = null;
+  ui.modelTarget = null;
+  ui.modalConfig = null;
+  ui.pendingDownload = null;
+  ui.pendingDetectionToolId = null;
+  ui.pendingDetectionStartedAt = 0;
+  closeAllPanels();
+  syncUiSelections();
+  renderAll();
+  showDemoResetFeedback();
+}
+
+function showDemoResetFeedback() {
+  if (els.demoFloatingFeedback) els.demoFloatingFeedback.textContent = "已恢复 Demo 初始状态。";
+}
+
+function toggleDemoFloatingPanel() {
+  const willOpen = !!els.demoFloatingPanel?.hidden;
+  if (els.demoFloatingPanel) els.demoFloatingPanel.hidden = !willOpen;
+  if (els.demoFloating) els.demoFloating.classList.toggle("is-open", willOpen);
+  if (willOpen && els.demoFloatingFeedback) els.demoFloatingFeedback.textContent = "";
+}
+
+function closeDemoFloatingPanel() {
+  if (els.demoFloatingPanel) els.demoFloatingPanel.hidden = true;
+  if (els.demoFloating) els.demoFloating.classList.remove("is-open");
+}
+
+function clearPendingTasks() {
+  if (timers.download) clearTimeout(timers.download);
+  if (timers.detection) clearTimeout(timers.detection);
+  if (timers.runtimeCarousel) clearTimeout(timers.runtimeCarousel);
+  if (timers.captureFresh) clearTimeout(timers.captureFresh);
+  timers.download = null;
+  timers.detection = null;
+  timers.runtimeCarousel = null;
+  timers.captureFresh = null;
+  ui.pendingDetectionToolId = null;
+  ui.pendingDetectionStartedAt = 0;
+}
+
+function handleStorageSync(event) {
+  if (event.key !== Demo.STORAGE_KEY) return;
+  state = Demo.loadState();
+  syncUiSelections();
+  renderAll();
+}
+
+function syncUiSelections() {
+  syncRuntimeSessionState();
+  const validPages = new Set(els.pages.map((page) => page.dataset.pagePanel));
+  if (!validPages.has(ui.activePage)) ui.activePage = "detect-tools";
+  if (ui.activePage === "model-manage") ui.activePage = "detect-tools";
+
+  const activeToolExists = state.tools.some((tool) => tool.id === ui.activeToolId);
+  if (!activeToolExists) ui.activeToolId = state.tools[0]?.id || null;
+  if (ui.runtimeInitialToolId && !state.tools.some((tool) => tool.id === ui.runtimeInitialToolId)) {
+    ui.runtimeInitialToolId = null;
+  }
+
+  const activeRecordExists = state.detectionRecords.some((record) => record.id === ui.activeRecordId);
+  if (!activeRecordExists) ui.activeRecordId = state.detectionRecords[0]?.id || null;
+  if (ui.runtimePlaybackRecordId && !state.detectionRecords.some((record) => record.id === ui.runtimePlaybackRecordId)) {
+    ui.runtimePlaybackRecordId = null;
+  }
+
+  const activeCameraExists = state.cameras.some((camera) => camera.id === ui.activeCameraId);
+  if (!activeCameraExists) ui.activeCameraId = state.cameras[0]?.id || null;
+
+  const camera = getActiveCamera();
+  const activeParamExists = camera?.paramGroups?.some((group) => group.id === ui.activeParamGroupId);
+  if (!activeParamExists) ui.activeParamGroupId = camera?.paramGroups?.[0]?.id || null;
+
+  const activeTool = getActiveTool();
+  const activeRuntimeRecord = getActiveRuntimeRecord();
+  const runtimeImages = isRuntimeInitialState(activeTool) ? getRuntimeInitialImageResults(activeTool) : getRecordImageResults(activeRuntimeRecord);
+  const runtimeImageExists = runtimeImages.some((item) => item.id === ui.activeRuntimeImageId);
+  if (!runtimeImageExists) ui.activeRuntimeImageId = runtimeImages[0]?.id || null;
+
+  if (ui.activePage === "settings") renderSettingsPanels();
+}
+
+function syncRuntimeSessionState() {
+  const runtimeClient = Demo.getRuntimeClient(state);
+  if (runtimeClient?.bound) {
+    state.session.loggedIn = true;
+    state.session.clientId = runtimeClient.id;
+    state.session.account = state.enterprise.account;
+    return;
+  }
+
+  state.session.loggedIn = false;
+  state.session.clientId = null;
+  state.session.account = "";
+}
+
+function persistState(message, options = {}) {
+  const { feedback = "silent" } = options;
+  syncSystemNow();
+  Demo.syncOfflineAt(state);
+  let saveError = null;
+  try {
+    Demo.saveState(state);
+    state = Demo.loadState();
+  } catch (error) {
+    saveError = error;
+  }
+  syncUiSelections();
+  renderAll();
+  if (saveError) {
+    showToast(message ? `${message}，但浏览器本地缓存已满，刷新后可能丢失` : "浏览器本地缓存已满，当前修改仅在本次页面内生效", {
+      tone: "error",
+    });
+    return;
+  }
+  if (message && feedback !== "silent") showToast(message, { tone: feedback });
+}
+
+function syncSystemNow(targetState = state) {
+  if (!targetState?.meta) return new Date().toISOString();
+  targetState.meta.now = new Date().toISOString();
+  return targetState.meta.now;
+}
+
+function renderAll() {
+  syncUiSelections();
+  renderShellVisibility();
+  renderChromeState();
+  renderLoginScreen();
+  renderTopbar();
+  renderGlobalAlerts();
+  renderNavigation();
+  renderTools();
+  renderIoModulePage();
+  renderCameraPage();
+  renderModelManagePage();
+  renderRecords();
+  renderSettings();
+  renderAddCameraModal();
+  renderParamModal();
+  renderModelDrawer();
+  updateOverlay();
+}
+
+function renderShellVisibility() {
+  const loggedIn = hasUsableSession();
+  els.loginShell.hidden = loggedIn;
+  els.clientShell.hidden = !loggedIn;
+}
+
+function renderChromeState() {
+  const runtimeFocus = ui.activePage === "detect-tools" && ui.toolView === "runtime";
+  els.clientShell?.classList.toggle("is-runtime-focus", runtimeFocus);
+}
+
+function renderLoginScreen() {
+  const client = Demo.getRuntimeClient(state);
+  const activeScenario = getActiveLoginDemoMode();
+  els.loginClientName.value = client?.name || state.runtimeDevice.name;
+  els.loginAccount.value = state.enterprise.account;
+  els.loginPassword.value = state.enterprise.password;
+  renderLoginScenarioButtons();
+  els.loginHint.className = "login-text-hint";
+  els.loginHint.textContent = getLoginScenarioHint(activeScenario);
+  clearLoginErrors();
+  els.loginSubmit.disabled = false;
+  els.loginSubmit.textContent = "登录";
+}
+
+function clearLoginErrors() {
+  [
+    [els.loginClientNameField, els.loginClientNameError],
+    [els.loginAccountField, els.loginAccountError],
+    [els.loginPasswordField, els.loginPasswordError],
+  ].forEach(([field, errorEl]) => {
+    field?.classList.remove("is-error");
+    if (errorEl) {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+  });
+  els.loginError.hidden = true;
+  els.loginError.textContent = "";
+}
+
+function showLoginFieldErrors(errors = {}) {
+  clearLoginErrors();
+  const fieldMap = {
+    clientName: [els.loginClientNameField, els.loginClientNameError],
+    account: [els.loginAccountField, els.loginAccountError],
+    password: [els.loginPasswordField, els.loginPasswordError],
+  };
+  Object.entries(errors).forEach(([key, message]) => {
+    if (!message || !fieldMap[key]) return;
+    const [field, errorEl] = fieldMap[key];
+    field?.classList.add("is-error");
+    if (errorEl) {
+      errorEl.hidden = false;
+      errorEl.textContent = message;
+    }
+  });
+}
+
+function renderLoginScenarioButtons() {
+  const activeScenario = getActiveLoginDemoMode();
+  const buttonMap = {
+    "first-bind": els.loginScenarioFirstBindBtn,
+    "quota-full": els.loginScenarioQuotaFullBtn,
+    offline: els.loginScenarioOfflineBtn,
+  };
+
+  Object.entries(buttonMap).forEach(([scenario, button]) => {
+    button.classList.toggle("is-active", scenario === activeScenario);
+  });
+}
+
+function getActiveLoginDemoMode() {
+  const client = Demo.getRuntimeClient(state);
+  if (!state.runtimeDevice.networkOnline) return "offline";
+  if (!client && Demo.getQuotaUsage(state) >= state.enterprise.quota) return "quota-full";
+  return "first-bind";
+}
+
+function getLoginScenarioHint(type) {
+  if (type === "quota-full") {
+    return "当前账号可用设备数已满，新设备暂时无法登录。";
+  }
+  if (type === "offline") {
+    return "当前网络异常，暂时无法登录，请检查网络后重试。";
+  }
+  return "首次登录后，系统会自动绑定当前设备。";
+}
+
+function applyLoginDemoScenario(type) {
+  clearPendingTasks();
+  state = Demo.resetState();
+  state.session.loggedIn = false;
+  state.session.clientId = null;
+  state.session.account = "";
+  state.session.lastMessage = "";
+  state.runtimeDevice.name = "苏州客户端03";
+  state.runtimeDevice.networkOnline = true;
+  state.clients = state.clients.filter((client) => client.hardwareCode !== state.runtimeDevice.hardwareCode);
+
+  if (type === "quota-full") {
+    state.enterprise.quota = Demo.getQuotaUsage(state);
+  }
+
+  if (type === "offline") {
+    state.runtimeDevice.networkOnline = false;
+  }
+
+  Demo.saveState(state);
+  syncUiSelections();
+  renderAll();
+}
+
+function renderTopbar() {
+  els.topbarCompanyName.textContent = state.enterprise.companyName;
+  els.clientNetworkStatusPill.textContent = state.runtimeDevice.networkOnline ? "在线" : "离线";
+  els.clientNetworkStatusPill.className = `client-network-status ${state.runtimeDevice.networkOnline ? "is-online" : "is-offline"}`;
+  els.demoToggleClientNetwork.textContent = state.runtimeDevice.networkOnline ? "Demo: 切换离线" : "Demo: 切换在线";
+}
+
+function renderNavigation() {
+  els.navItems.forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.page === ui.activePage);
+  });
+  els.pages.forEach((page) => {
+    page.classList.toggle("is-active", page.dataset.pagePanel === ui.activePage);
+  });
+}
+
+function renderModelManagePage() {
+  renderLocalModels();
+}
+
+function renderGlobalAlerts() {
+  if (!hasUsableSession()) {
+    els.globalAlerts.innerHTML = "";
+    return;
+  }
+
+  const alerts = [];
+  if (Demo.isStorageBlocked(state)) {
+    alerts.push(renderTopbarAlert("danger", "剩余空间过低，新的检测任务已暂停，请先清理数据。", "去清理", "open-storage-cleanup"));
+  } else if (Demo.isStorageWarning(state)) {
+    alerts.push(renderTopbarAlert("warning", "剩余空间不足，可能影响检测，请尽快清理数据。", "去清理", "open-storage-cleanup"));
+  }
+
+  if (!state.runtimeDevice.networkOnline) {
+    alerts.push(renderTopbarAlert("neutral", "当前离线"));
+  }
+
+  els.globalAlerts.innerHTML = alerts.join("");
+}
+
+function handleGlobalAlertClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  if (actionEl.dataset.action !== "open-storage-cleanup") return;
+  ui.settingsTab = "storage";
+  switchPage("settings", { settingsTab: "storage" });
+}
+
+function renderTools() {
+  els.toolOverviewPanel.hidden = ui.toolView !== "overview";
+  els.toolBuilderPanel.hidden = ui.toolView !== "builder";
+  els.toolRuntimePanel.hidden = ui.toolView !== "runtime";
+  els.toolIoConfigPanel.hidden = ui.toolView !== "io-config";
+  renderToolCardGrid();
+  renderToolBuilder();
+  renderToolRuntime();
+  renderToolIoConfig();
+}
+
+function renderToolCardGrid() {
+  els.toolCardGrid.innerHTML =
+    `<button class="tool-create-card" data-action="create-tool">+ 新建工具</button>` +
+    state.tools
+      .map((tool) => {
+        const isRunning = isToolSessionRunning(tool) && tool.runtime?.status !== "未运行";
+        const card = getToolCardPresentation(tool);
+        return `
+          <article class="tool-card ${card.tone}" data-action="open-tool-runtime" data-id="${tool.id}">
+            <div class="tool-card-top">
+              ${card.statusText ? `<span class="tool-card-status ${card.statusClass}">${card.statusIcon ? `<span class="tool-card-status-icon">${card.statusIcon}</span>` : ""}${escapeHtml(card.statusText)}</span>` : "<span></span>"}
+              <div class="tool-card-action-group">
+                <button class="tool-action-btn tool-icon-action" data-action="open-capture-library" data-id="${tool.id}" title="采图记录" aria-label="采图记录">${getIconSvg("library")}</button>
+                <button class="tool-action-btn tool-icon-action" data-action="open-io-config" data-id="${tool.id}" title="IO配置" aria-label="IO配置" ${isRunning ? "disabled" : ""}>${getIconSvg("io")}</button>
+                <button class="tool-action-btn tool-icon-action" data-action="copy-tool" data-id="${tool.id}" title="复制工具" aria-label="复制工具" ${isRunning ? "disabled" : ""}>${getIconSvg("copy")}</button>
+                <button class="tool-action-btn tool-icon-action" data-action="edit-tool" data-id="${tool.id}" title="编辑" aria-label="编辑" ${isRunning ? "disabled" : ""}>${getIconSvg("edit")}</button>
+              </div>
+            </div>
+            <h3>${escapeHtml(tool.name)}</h3>
+          </article>
+        `;
+      })
+      .join("");
+}
+
+function getToolCardPresentation(tool) {
+  const isRunning = isToolSessionRunning(tool) && tool.runtime?.status !== "未运行";
+  if (isRunning) {
+    const runningMode = Demo.normalizeRunMode(tool.runtime?.sessionMode || getHighestAvailableRunMode(tool));
+    return {
+      tone: "tone-green",
+      statusText: runningMode === "acquire" ? "采图运行中" : "检测运行中",
+      statusClass: "is-running",
+      statusIcon: "",
+    };
+  }
+  if (tool.configInvalid || tool.runtime?.status === "配置异常") {
+    return { tone: "tone-blue", statusText: "配置异常", statusClass: "is-invalid", statusIcon: "!" };
+  }
+  if (tool.runtime?.status === "未配置" || !RUN_MODE_OPTIONS.some((item) => evaluateToolRunModeAvailability(tool, item.value))) {
+    return { tone: "tone-gray", statusText: "未配置", statusClass: "is-unconfigured", statusIcon: "" };
+  }
+  return { tone: "tone-blue", statusText: "" };
+}
+
+function getIconSvg(type) {
+  if (type === "library") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h5l2 2h9v12H4z"/><path d="M8 15l2.5-3 2 2 1.5-1.5L17 16H8z"/></svg>`;
+  }
+  if (type === "settings") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.7 3.2 10.4 2h3.2l.7 1.2c.3.6 1 .8 1.6.6l1.4-.5 2.3 2.3-.5 1.4c-.2.6 0 1.3.6 1.6l1.3.7v3.2l-1.3.7c-.6.3-.8 1-.6 1.6l.5 1.4-2.3 2.3-1.4-.5c-.6-.2-1.3 0-1.6.6l-.7 1.2h-3.2l-.7-1.2c-.3-.6-1-.8-1.6-.6l-1.4.5-2.3-2.3.5-1.4c.2-.6 0-1.3-.6-1.6L3 12.5V9.3l1.3-.7c.6-.3.8-1 .6-1.6l-.5-1.4 2.3-2.3 1.4.5c.6.2 1.3 0 1.6-.6Z"/><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/></svg>`;
+  }
+  if (type === "back") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/><path d="M9 12h12"/></svg>`;
+  }
+  if (type === "tag-edit") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3.4 13.4a2 2 0 0 1 0-2.8l7.2-7.2A2 2 0 0 1 12 3h6a3 3 0 0 1 3 3v6a2 2 0 0 1-.4 1.4z"/><path d="M16.5 7.5h.01"/><path d="M8.8 14.4l3.6-3.6 1.8 1.8-3.6 3.6H8.8z"/></svg>`;
+  }
+  if (type === "refresh") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M18.2 9A7 7 0 0 0 6.8 6.8L4 9"/><path d="M5.8 15A7 7 0 0 0 17.2 17.2L20 15"/></svg>`;
+  }
+  if (type === "io") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/><path d="M3 9h4M3 15h4M17 9h4M17 15h4M9 3v4M15 3v4M9 17v4M15 17v4"/></svg>`;
+  }
+  if (type === "copy") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="10" height="10" rx="2"/><path d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11a2.1 2.1 0 0 0-3-3L5 17l-1 3z"/><path d="M14 6l4 4"/></svg>`;
+}
+
+function renderToolBuilder() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  captureJudgmentScrollState();
+  const editingLocked = isToolEditingLocked(tool);
+  const detectInvalidTargetCount = getToolInvalidDetectTargetCount(tool);
+  els.builderToolTitle.textContent = tool.name;
+  els.builderSteps.forEach((button) => {
+    const isDetectStep = button.dataset.builderStep === "detect";
+    const isRuleStep = button.dataset.builderStep === "rule";
+    const hasInvalidDetectConfig = isDetectStep && detectInvalidTargetCount > 0;
+    const hasInvalidRuleConfig = isRuleStep && !isJudgmentRuleConfigValid(tool);
+    const hasStaleRuleConfig = isRuleStep && isJudgmentRuleStructureStale(tool);
+    button.classList.toggle("is-active", button.dataset.builderStep === ui.builderStep);
+    button.classList.toggle("is-invalid", hasInvalidDetectConfig);
+    button.classList.toggle("is-invalid", hasInvalidRuleConfig || hasInvalidDetectConfig);
+    if (hasInvalidDetectConfig) {
+      button.title = "配置失效";
+    } else if (hasStaleRuleConfig) {
+      button.title = "OK判定条件已失效";
+    } else if (hasInvalidRuleConfig) {
+      button.title = "表达式存在错误";
+    } else if (isDetectStep) {
+      button.removeAttribute("title");
+    } else if (isRuleStep) {
+      button.removeAttribute("title");
+    }
+  });
+  els.renameToolBtn.disabled = editingLocked;
+  els.deleteToolBtn.disabled = editingLocked;
+
+  if (ui.builderStep === "acquire") {
+    els.builderStepBody.innerHTML = renderBuilderStepSection({
+      title: "图像来源",
+      limitText: getBuilderLimitText("acquire", tool.acquire.length),
+      actionLabel: "添加图像来源",
+      actionKey: "add-acquire",
+      items: tool.acquire.map((item) => renderAcquireItem(tool, item)),
+      emptyText: "当前还没有图像来源。",
+      disabled: editingLocked || tool.acquire.length >= TOOL_ITEM_LIMITS.acquire,
+    });
+  }
+
+  if (ui.builderStep === "process") {
+    els.builderStepBody.innerHTML = renderBuilderStepSection({
+      title: "图像处理步骤",
+      limitText: getBuilderLimitText("process", tool.process.length),
+      actionLabel: "添加处理步骤",
+      actionKey: "add-process",
+      items: tool.process.map((item) => renderProcessItem(tool, item)),
+      emptyText: tool.acquire.length ? "当前还没有处理步骤。" : "当前没有可选图像，请前往上一步创建图像来源。",
+      disabled: editingLocked || !tool.acquire.length || tool.process.length >= TOOL_ITEM_LIMITS.process,
+    });
+  }
+
+  if (ui.builderStep === "detect") {
+    els.builderStepBody.innerHTML = renderBuilderStepSection({
+      title: "检测判断步骤",
+      limitText: getBuilderLimitText("detect", tool.detect.length),
+      actionLabel: "添加检测步骤",
+      actionKey: "add-detect",
+      items: tool.detect.map((item) => renderDetectItem(tool, item)),
+      emptyText: tool.process.length ? "当前还没有检测步骤。" : "当前没有可选图像，请前往上一步创建处理步骤。",
+      disabled: editingLocked || !tool.process.length || tool.detect.length >= TOOL_ITEM_LIMITS.detect,
+    });
+  }
+
+  if (ui.builderStep === "rule") {
+    els.builderStepBody.innerHTML = renderJudgmentRuleBuilder(tool);
+  }
+
+  const stepIndex = getBuilderStepIndex(ui.builderStep);
+  const canNext = canMoveNextFromStep(ui.builderStep);
+  els.prevBuilderStep.disabled = stepIndex === 0;
+  els.nextBuilderStep.disabled = stepIndex >= BUILDER_STEPS.length - 1 || !canNext;
+  els.nextBuilderStep.hidden = stepIndex >= BUILDER_STEPS.length - 1;
+  els.finishBuilderBtn.disabled = stepIndex < BUILDER_STEPS.length - 1 || !Demo.evaluateToolCompletion(tool) || !isJudgmentRuleConfigValid(tool);
+  restoreJudgmentScrollState();
+}
+
+function renderToolIoConfig() {
+  const tool = getActiveTool();
+  if (!tool || ui.toolView !== "io-config") return;
+  tool.ioConfig = getToolIoConfig(tool);
+  els.ioConfigToolTitle.textContent = `IO配置 - ${tool.name}`;
+  const activeModule = getActiveToolIoModule(tool);
+  const selectedModules = getToolSelectedIoModules(tool);
+  const canAddModule = state.ioModules.some((module) => !tool.ioConfig.moduleIds.includes(module.id));
+  els.toolIoConfigBody.innerHTML = `
+    ${
+      selectedModules.length
+        ? `
+          <div class="tool-io-module-bar">
+            <div class="tool-io-module-switcher">
+              ${selectedModules.map((module) => renderToolIoModuleSwitch(module, activeModule?.id)).join("")}
+            </div>
+            <div class="tool-io-module-actions">
+              <button class="secondary-btn" data-action="add-tool-io-module" ${canAddModule ? "" : "disabled"}>添加模块</button>
+              <button class="secondary-btn danger-btn-soft" data-action="remove-active-tool-io-module" data-id="${activeModule?.id || ""}" ${activeModule ? "" : "disabled"}>移除此模块</button>
+            </div>
+          </div>
+          ${activeModule ? renderToolIoModuleDetail(tool, activeModule) : ""}
+        `
+        : `
+          <div class="tool-io-module-empty-top">
+            <button class="primary-btn" data-action="add-tool-io-module" ${canAddModule ? "" : "disabled"}>添加模块</button>
+          </div>
+          <div class="builder-empty">当前工具还没有添加IO模块。</div>
+        `
+    }
+  `;
+}
+
+function renderToolIoModuleSwitch(module, activeModuleId) {
+  return `
+    <button class="tool-io-module-tab ${module.id === activeModuleId ? "is-active" : ""}" data-action="switch-tool-io-module" data-id="${module.id}">
+      <span>${escapeHtml(module.name)}</span>
+      <small>${escapeHtml(module.model)}</small>
+    </button>
+  `;
+}
+
+function renderToolIoModuleDetail(tool, module) {
+  return `
+    <div class="tool-io-module-detail">
+      <section class="tool-io-module-image-panel">
+        ${renderIoModuleSchematic(module.model, module)}
+      </section>
+      ${renderToolIoPointSection(tool, module, "input")}
+      ${renderToolIoPointSection(tool, module, "output")}
+    </div>
+  `;
+}
+
+function renderToolIoPointSection(tool, module, direction) {
+  const points = direction === "input" ? module.inputs : module.outputs;
+  const title = direction === "input" ? "触发输入点位" : "输出信号点位";
+  return `
+    <section class="tool-io-point-section">
+      <div class="tool-io-section-head">
+        <h4>${title}</h4>
+      </div>
+      <div class="tool-io-point-grid">
+        ${points.map((point) => renderToolIoPointCell(tool, module, point, direction)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderToolIoPointCell(tool, module, point, direction) {
+  const items = findToolIoConfigsByPoint(tool, module.id, point.point, direction);
+  const bound = items.length > 0;
+  return `
+    <button class="io-point-cell ${bound ? "is-configured" : ""}" data-action="open-tool-io-point-config" data-direction="${direction}" data-module-id="${module.id}" data-point="${escapeAttribute(point.point)}">
+      <strong>${escapeHtml(point.point)}</strong>
+      <div class="io-point-bind-state ${bound ? "is-bound" : "is-empty"}">${bound ? `已绑定 ${items.length} 个事件` : "未绑定"}</div>
+    </button>
+  `;
+}
+
+function getBuilderLimitText(type, count) {
+  return `${count}/${TOOL_ITEM_LIMITS[type]}`;
+}
+
+function captureJudgmentScrollState() {
+  const tree = els.builderStepBody.querySelector(".judgment-tree");
+  const editor = els.builderStepBody.querySelector(".judgment-editor-scroll");
+  if (tree) ui.judgmentScroll.tree = tree.scrollTop;
+  if (editor) ui.judgmentScroll.editor = editor.scrollTop;
+}
+
+function restoreJudgmentScrollState() {
+  if (ui.builderStep !== "rule") return;
+  const tree = els.builderStepBody.querySelector(".judgment-tree");
+  const editor = els.builderStepBody.querySelector(".judgment-editor-scroll");
+  if (tree) tree.scrollTop = ui.judgmentScroll.tree || 0;
+  if (editor) editor.scrollTop = ui.judgmentScroll.editor || 0;
+}
+
+function updateRuleStepValidationIndicator(tool = getActiveTool()) {
+  if (!tool) return;
+  const detectInvalidTargetCount = getToolInvalidDetectTargetCount(tool);
+  els.builderSteps.forEach((button) => {
+    const isDetectStep = button.dataset.builderStep === "detect";
+    const isRuleStep = button.dataset.builderStep === "rule";
+    const hasInvalidDetectConfig = isDetectStep && detectInvalidTargetCount > 0;
+    const hasInvalidRuleConfig = isRuleStep && !isJudgmentRuleConfigValid(tool);
+    const hasStaleRuleConfig = isRuleStep && isJudgmentRuleStructureStale(tool);
+    button.classList.toggle("is-invalid", hasInvalidDetectConfig || hasInvalidRuleConfig);
+    if (hasInvalidDetectConfig) {
+      button.title = "配置失效";
+    } else if (hasStaleRuleConfig) {
+      button.title = "OK判定条件已失效";
+    } else if (hasInvalidRuleConfig) {
+      button.title = "表达式存在错误";
+    } else if (isDetectStep || isRuleStep) {
+      button.removeAttribute("title");
+    }
+  });
+}
+
+function updateJudgmentExpressionValidationUi(tool = getActiveTool()) {
+  if (!tool || !isJudgmentExpressionMode(tool)) return;
+  const status = els.builderStepBody.querySelector(".judgment-expression-status");
+  const textarea = els.builderStepBody.querySelector("textarea[data-rule-config-field='expressionDraft']");
+  const errors = tool.ruleConfig.expressionErrors || [];
+  if (status) {
+    status.className = `judgment-expression-status ${errors.length ? "is-error" : "is-ok"}`;
+    status.textContent = errors.length ? "语法检查不通过" : "语法检查通过";
+  }
+  if (textarea) {
+    textarea.classList.toggle("has-error", Boolean(errors.length));
+  }
+}
+
+function isRuntimeInitialState(tool = getActiveTool()) {
+  return Boolean(tool && ui.runtimeInitialToolId === tool.id);
+}
+
+function activateRuntimeInitialState(toolId = ui.activeToolId) {
+  if (!toolId) return;
+  stopRuntimeCarousel();
+  ui.runtimeInitialToolId = toolId;
+  ui.runtimePlaybackRecordId = null;
+  ui.activeRuntimeImageId = null;
+}
+
+function clearRuntimeInitialState(toolId = "") {
+  stopRuntimeCarousel();
+  if (!toolId || ui.runtimeInitialToolId === toolId) ui.runtimeInitialToolId = null;
+  if (!toolId || ui.activeToolId === toolId) {
+    ui.runtimePlaybackRecordId = null;
+    ui.activeRuntimeImageId = null;
+  }
+}
+
+function getRuntimeInitialImageResults(tool) {
+  if (!tool) return [];
+  return (Array.isArray(tool.acquire) ? tool.acquire : []).map((acquire, index) => {
+    const camera = acquire?.cameraId ? state.cameras.find((item) => item.id === acquire.cameraId) || null : null;
+    return {
+      id: `preview_${acquire.id || index}`,
+      acquireId: acquire.id,
+      acquireName: acquire.name || `图像来源 ${index + 1}`,
+      imageLabel: getAcquireSampleName(acquire),
+      sourceImageUrl: "",
+      sourceImageName: "",
+      sourceImageWidth: Number(acquire.sampleImageWidth || 0),
+      sourceImageHeight: Number(acquire.sampleImageHeight || 0),
+      result: "",
+      subResults: [],
+      inputSource:
+        acquire?.type === "camera"
+          ? `${Demo.getCameraLabel(camera)} / ${Demo.getParamGroupLabel(camera, acquire.paramGroupId)}`
+          : acquire?.endpoint || "外部输入",
+    };
+  });
+}
+
+function getRuntimeProgressImageResults(tool, latestRecord = null) {
+  if (!tool) return [];
+  const pendingIndex = Number.isFinite(Number(tool.runtime?.pendingAcquireIndex)) ? Number(tool.runtime.pendingAcquireIndex) : -1;
+  const shouldUseCurrentCycleRecord = latestRecord?.cycleComplete === false && pendingIndex > 0;
+  const baseResults = shouldUseCurrentCycleRecord ? getRecordImageResults(latestRecord) : getRuntimeInitialImageResults(tool);
+  const byAcquireId = new Map(baseResults.map((item) => [item.acquireId, item]));
+  return (Array.isArray(tool.acquire) ? tool.acquire : []).map((acquire, index) => {
+    const source = byAcquireId.get(acquire.id) || getRuntimeInitialImageResults({ acquire: [acquire] })[0];
+    if (index !== pendingIndex) return source;
+    return {
+      ...source,
+      id: source.id || `pending_${acquire.id}`,
+      acquireId: acquire.id,
+      acquireName: acquire.name,
+      imageLabel: getAcquireSampleName(acquire),
+      sourceImageUrl: "",
+      sourceImageName: "",
+      result: "-",
+      businessResult: "-",
+      exceptions: [],
+      subResults: [],
+      isRuntimePending: true,
+    };
+  });
+}
+
+function getActiveCaptureBatch(tool = getActiveTool()) {
+  if (!tool) return null;
+  return (
+    state.captureRecords.find((record) => record.id === tool.runtime?.captureBatchId) ||
+    state.captureRecords.find((record) => record.toolId === tool.id && record.status === "采集中") ||
+    null
+  );
+}
+
+function getCaptureBatchImages(batch) {
+  return batch?.items?.flatMap((item) => item.images.map((image) => ({ ...image, acquireName: item.acquireName }))) || [];
+}
+
+function getCaptureItemAcquire(item, tool = getActiveTool()) {
+  return tool?.acquire?.find((acquire) => acquire.id === item?.acquireId) || null;
+}
+
+function renderCaptureRuntime(tool) {
+  const batch = getActiveCaptureBatch(tool);
+  els.runtimeConfigAlert.hidden = true;
+  els.runtimeConfigAlert.innerHTML = "";
+  if (!batch) {
+    els.captureRuntimePanel.innerHTML = `<div class="builder-empty">当前没有进行中的采图批次。</div>`;
+    return;
+  }
+  const enabledItems = batch.items.filter((item) => item.enabled !== false);
+  if (!enabledItems.some((item) => item.acquireId === ui.activeCaptureItemId)) {
+    ui.activeCaptureItemId = enabledItems[0]?.acquireId || "";
+  }
+  const activeItem = enabledItems.find((item) => item.acquireId === ui.activeCaptureItemId) || enabledItems[0] || null;
+  if (!activeItem?.images.some((image) => image.id === ui.activeCaptureImageId)) {
+    ui.activeCaptureImageId = activeItem?.images[0]?.id || "";
+  }
+  batch.capturedTotal = getCaptureBatchImages(batch).length;
+
+  els.captureRuntimePanel.innerHTML = `
+    <div class="capture-runtime-layout">
+      <aside class="capture-source-panel">
+        <div class="capture-source-summary">
+          <button class="icon-btn capture-source-back" data-action="back-to-tool-overview" type="button" title="返回检测工具列表" aria-label="返回检测工具列表">${getIconSvg("back")}</button>
+          <div>
+            <strong>${escapeHtml(tool.name)}</strong>
+          </div>
+          <button class="icon-btn capture-config-btn" data-action="open-capture-config" type="button" title="采图设置" aria-label="采图设置">${getIconSvg("settings")}</button>
+        </div>
+        <div class="capture-source-list">
+          ${enabledItems
+            .map((item) => {
+              const acquire = getCaptureItemAcquire(item, tool);
+              return `
+                <section class="capture-source-item ${item.acquireId === activeItem?.acquireId ? "is-active" : ""}">
+                  <button class="capture-source-title" data-action="select-capture-item" data-id="${escapeAttribute(item.acquireId)}">
+                    <span><strong>${escapeHtml(item.acquireName)}</strong></span>
+                    <b>${item.images.length}</b>
+                  </button>
+                  <div class="capture-source-thumbs">
+                    ${
+                      item.images.length
+                        ? item.images
+                            .slice(0, 6)
+                            .map(
+                              (image) => `
+                                <button class="${image.id === ui.recentCaptureImageId ? "is-fresh-capture" : ""}" data-action="open-capture-image-detail" data-item-id="${escapeAttribute(item.acquireId)}" data-id="${escapeAttribute(image.id)}">
+                                  ${image.imageUrl ? `<img src="${escapeAttribute(image.imageUrl)}" alt="" />` : `<span>无预览</span>`}
+                                  ${image.id === ui.recentCaptureImageId ? `<span class="capture-thumb-loading">${getIconSvg("refresh")}</span>` : ""}
+                                  ${
+                                    image.tags?.length
+                                      ? `<span class="capture-source-thumb-tags">${image.tags.slice(0, CAPTURE_TAG_MAX_COUNT).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>`
+                                      : ""
+                                  }
+                                </button>
+                              `,
+                            )
+                            .join("")
+                        : `<span class="capture-source-empty">尚未采集</span>`
+                    }
+                  </div>
+                  <button class="capture-view-all-btn" data-action="manage-capture-images" data-id="${escapeAttribute(item.acquireId)}">查看全部图像（${item.images.length}）</button>
+                </section>
+              `;
+            })
+            .join("")}
+        </div>
+        <div class="capture-source-footer">
+          <button class="danger-btn capture-finish-btn" data-action="finish-capture-run" type="button" ${isToolSessionRunning(tool) ? "" : "disabled"}>结束采图</button>
+        </div>
+      </aside>
+      <section class="capture-live-panel capture-main-preview">
+        <div class="capture-panel-head">
+          <h3>实时相机画面</h3>
+        </div>
+        <div class="capture-multi-live-grid ${enabledItems.length === 1 ? "is-single" : enabledItems.length === 2 ? "is-pair" : ""}">
+          ${enabledItems
+            .map((item) => {
+              const acquire = getCaptureItemAcquire(item, tool);
+              const cameraZoom = Number(ui.captureCameraZoom[item.acquireId] || 1);
+              const cameraPan = ui.captureCameraPan[item.acquireId] || { x: 0, y: 0 };
+              const latestImage = item.images[0] || null;
+              const visibleTags = getCaptureItemVisibleTags(item);
+              const contextText = latestImage ? latestImage.fileName : "";
+              return `
+                <article class="capture-multi-live-item ${item.acquireId === activeItem?.acquireId ? "is-active" : ""}">
+                  <button class="capture-camera-preview" data-id="${escapeAttribute(item.acquireId)}" type="button" style="--capture-camera-zoom:${cameraZoom};--capture-camera-pan-x:${cameraPan.x || 0}px;--capture-camera-pan-y:${cameraPan.y || 0}px">
+                    ${
+                      getAcquireSampleUrl(acquire)
+                        ? `<img src="${escapeAttribute(getAcquireSampleUrl(acquire))}" alt="${escapeAttribute(item.acquireName)} 实时画面" />`
+                        : `<span class="capture-live-placeholder">等待相机画面</span>`
+                    }
+                  </button>
+                  <div class="capture-camera-zoom" data-camera-zoom-controls="${escapeAttribute(item.acquireId)}">
+                    <button data-action="zoom-capture-camera" data-id="${escapeAttribute(item.acquireId)}" data-delta="-0.2" type="button" title="缩小" aria-label="缩小${escapeAttribute(item.acquireName)}画面">−</button>
+                    <span data-camera-zoom-label>${Math.round(cameraZoom * 100)}%</span>
+                    <button data-action="zoom-capture-camera" data-id="${escapeAttribute(item.acquireId)}" data-delta="0.2" type="button" title="放大" aria-label="放大${escapeAttribute(item.acquireName)}画面">＋</button>
+                    <button data-action="reset-capture-camera-zoom" data-id="${escapeAttribute(item.acquireId)}" type="button">适应</button>
+                  </div>
+                  <div class="capture-multi-live-meta">
+                    <div class="capture-camera-controls">
+                      <div class="capture-camera-title ${latestImage?.id === ui.activeCaptureImageId ? "is-editing" : ""}">
+                        <strong>${escapeHtml(item.acquireName)}</strong>
+                        ${
+                          contextText
+                            ? `<span class="capture-camera-file ${latestImage?.id === ui.recentCaptureImageId ? "is-fresh-capture" : ""}"><span>${escapeHtml(contextText)}</span>${latestImage?.id === ui.recentCaptureImageId ? `<i>${getIconSvg("refresh")}</i>` : ""}</span>`
+                            : ""
+                        }
+                      </div>
+                      <div class="capture-item-tag-picker">
+                        <div class="capture-item-tag-options">
+                          ${(item.availableTags || ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT)
+                            .map(
+                              (tag) =>
+                                `<button class="${visibleTags.includes(tag) ? "is-active" : ""}" data-action="select-capture-item-tag" data-id="${escapeAttribute(item.acquireId)}" data-tag="${escapeAttribute(tag)}" type="button">${escapeHtml(tag)}</button>`,
+                            )
+                            .join("")}
+                        </div>
+                        <button class="capture-tag-settings-btn" data-action="configure-capture-item-tags" data-id="${escapeAttribute(item.acquireId)}" type="button" title="设置可选标签" aria-label="设置${escapeAttribute(item.acquireName)}可选标签">${getIconSvg("settings")}</button>
+                      </div>
+                    </div>
+                    <button class="primary-btn capture-item-shutter-btn" data-action="capture-item" data-id="${escapeAttribute(item.acquireId)}" type="button">采集</button>
+                  </div>
+                </article>
+              `;
+            })
+            .join("")}
+        </div>
+      </section>
+    </div>
+  `;
+  els.captureRuntimePanel.querySelectorAll(".capture-camera-preview").forEach((stage) => {
+    stage.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const acquireId = stage.dataset.id || "";
+        const current = Number(ui.captureCameraZoom[acquireId] || 1);
+        const next = Math.min(3, Math.max(0.5, Number((current + (event.deltaY < 0 ? 0.1 : -0.1)).toFixed(1))));
+        ui.captureCameraZoom[acquireId] = next;
+        stage.style.setProperty("--capture-camera-zoom", String(next));
+        const label = els.captureRuntimePanel.querySelector(`[data-camera-zoom-controls="${CSS.escape(acquireId)}"] [data-camera-zoom-label]`);
+        if (label) label.textContent = `${Math.round(next * 100)}%`;
+      },
+      { passive: false },
+    );
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startPan = { x: 0, y: 0 };
+    stage.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      dragging = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startPan = ui.captureCameraPan[stage.dataset.id || ""] || { x: 0, y: 0 };
+      stage.dataset.dragged = "";
+      stage.classList.add("is-dragging");
+      stage.setPointerCapture?.(event.pointerId);
+    });
+    stage.addEventListener("pointermove", (event) => {
+      if (!dragging) return;
+      const acquireId = stage.dataset.id || "";
+      const pan = {
+        x: Math.round(startPan.x + event.clientX - startX),
+        y: Math.round(startPan.y + event.clientY - startY),
+      };
+      if (Math.abs(event.clientX - startX) + Math.abs(event.clientY - startY) > 4) stage.dataset.dragged = "true";
+      ui.captureCameraPan[acquireId] = pan;
+      stage.style.setProperty("--capture-camera-pan-x", `${pan.x}px`);
+      stage.style.setProperty("--capture-camera-pan-y", `${pan.y}px`);
+    });
+    const stopDrag = (event) => {
+      if (!dragging) return;
+      dragging = false;
+      stage.classList.remove("is-dragging");
+      stage.releasePointerCapture?.(event.pointerId);
+    };
+    stage.addEventListener("pointerup", stopDrag);
+    stage.addEventListener("pointercancel", stopDrag);
+  });
+}
+
+function renderToolRuntime() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  if (ui.activePage !== "detect-tools" || ui.toolView !== "runtime") {
+    stopRuntimeCarousel();
+    return;
+  }
+  const sessionMode = tool.runtime?.sessionMode || getHighestAvailableRunMode(tool);
+  const captureMode = Demo.normalizeRunMode(sessionMode) === "acquire";
+  els.standardRuntimeGrid.hidden = captureMode;
+  els.captureRuntimePanel.hidden = !captureMode;
+  els.toolRuntimePanel.classList.toggle("is-capture-runtime", captureMode);
+  els.runtimeToolTitle.textContent = tool.name;
+  els.stopToolRunBtn.disabled = !isToolSessionRunning(tool);
+  els.stopToolRunBtn.textContent = captureMode ? "结束采图" : "结束检测";
+  els.backToToolOverviewFromRuntime.hidden = false;
+  if (captureMode) {
+    renderCaptureRuntime(tool);
+    return;
+  }
+  if (ui.pendingDetectionToolId === tool.id && !timers.detection && Date.now() - Number(ui.pendingDetectionStartedAt || 0) > 5000) {
+    ui.pendingDetectionToolId = null;
+    ui.pendingDetectionStartedAt = 0;
+    if (tool.runtime?.status === "执行中") tool.runtime.status = "等待信号";
+  }
+  const sessionActive = isToolSessionRunning(tool);
+  if (sessionActive && (tool.runtime?.sessionStartedAt == null || !Number.isFinite(Number(tool.runtime.sessionStartedAt)))) {
+    tool.runtime.sessionStartedAt = Date.now();
+  }
+  if (sessionActive && (tool.runtime?.sessionRecordBaseline == null || !Number.isFinite(Number(tool.runtime.sessionRecordBaseline)))) {
+    tool.runtime.sessionRecordBaseline = state.detectionRecords.filter((record) => record.toolId === tool.id).length;
+  }
+  const initialState = isRuntimeInitialState(tool);
+  const sessionRunMode = Demo.normalizeRunMode(sessionMode);
+  const pendingCurrentTool = ui.pendingDetectionToolId === tool.id;
+  const latestRecord = initialState ? null : getActiveRuntimeRecord();
+  const waitingForCurrentRun = initialState && !pendingCurrentTool && !latestRecord;
+  const activeRunMode = getActiveRuntimeMode(tool, latestRecord);
+  const showRuntimeResultBadge = sessionRunMode === "detect";
+  const imageResults = pendingCurrentTool
+    ? getRuntimeProgressImageResults(tool, latestRecord)
+    : waitingForCurrentRun
+      ? getRuntimeInitialImageResults(tool)
+      : getRecordImageResults(latestRecord);
+  const pendingImageResult = pendingCurrentTool ? imageResults.find((item) => item.isRuntimePending) || null : null;
+  const activeImageResult = pendingImageResult || imageResults.find((item) => item.id === ui.activeRuntimeImageId) || imageResults[0] || null;
+  const playing = isRuntimePlaybackActive(latestRecord);
+  const runningBusy = playing;
+  const runActionLabel = getRunActionLabel(sessionMode);
+  const waitingLabel = getRunWaitingLabel(sessionMode);
+  const sessionRecords = getRuntimeSessionRecords(tool);
+  if (activeImageResult) ui.activeRuntimeImageId = activeImageResult.id;
+
+  els.runtimeConfigAlert.hidden = true;
+  els.runtimeConfigAlert.innerHTML = "";
+  const primaryResultText = !sessionActive
+    ? "未运行"
+    : pendingCurrentTool
+      ? "执行中"
+      : playing
+      ? "执行中"
+      : latestRecord
+          ? (activeRunMode === "detect" ? latestRecord.totalResult || latestRecord.businessResult || tool.runtime.primaryResult || "暂无结果" : "已完成")
+          : waitingLabel;
+  els.runtimePrimaryResult.innerHTML =
+    primaryResultText === "异常"
+      ? `${escapeHtml(primaryResultText)} ${renderExceptionIcon(getRecordExceptions(latestRecord), "总结果异常")}`
+      : escapeHtml(primaryResultText);
+  els.runtimeCycleTime.textContent = waitingForCurrentRun ? "-" : tool.runtime.cycleTime || "-";
+  if (els.runtimeCurrentCycleTime) {
+    els.runtimeCurrentCycleTime.textContent = getRuntimeCurrentCycleTime(tool);
+  }
+  if (els.runtimeCurrentCycleResult) {
+    renderRuntimeCurrentCycleResult(tool);
+  }
+  if (els.runtimeBatchSummary) {
+    els.runtimeBatchSummary.innerHTML = renderRuntimeBatchSummary(tool, imageResults, {
+      latestRecord,
+      sessionRecords,
+      waitingForCurrentRun,
+      runningBusy,
+      primaryResultText,
+    });
+  }
+  if (els.runtimeCameraActions) {
+    els.runtimeCameraActions.innerHTML = renderRuntimeCameraActions(tool);
+  }
+  if (els.runtimeRecentRecords) {
+    els.runtimeRecentRecords.innerHTML = renderRuntimeRecentRecords(tool, { limit: getRuntimeRecentVisibleLimit() });
+  }
+  if (els.runtimeRecordDrawer && !els.runtimeRecordDrawer.hidden) {
+    renderRuntimeRecordDrawer();
+  }
+  els.startToolRun.disabled = !sessionActive || Demo.isStorageBlocked(state) || !!ui.pendingDetectionToolId || playing;
+  els.startToolRun.textContent = pendingCurrentTool ? `${runActionLabel}中...` : playing ? `${runActionLabel}中...` : runActionLabel;
+  els.resetCurrentRunBtn.disabled = !sessionActive || (!pendingCurrentTool && !latestRecord);
+  els.stopToolRunBtn.disabled = !sessionActive;
+  els.runtimeCurrentImageResult.hidden = true;
+  if (els.runtimeCurrentDetail) {
+    els.runtimeCurrentDetail.innerHTML = renderRuntimeCurrentDetail(activeImageResult, {
+      waitingForCurrentRun,
+      runningBusy,
+      showRuntimeResultBadge,
+    });
+  }
+
+  if (!imageResults.length) {
+    applyRuntimeTileGridLayout(0);
+    els.runtimeImageResultList.innerHTML = `<div class="builder-empty">${initialState ? "当前暂无图像来源" : "暂无运行记录"}</div>`;
+    els.runtimeImageStage.innerHTML = "";
+    els.runtimeImageCaption.textContent = initialState ? "等待开始" : "暂无图像结果";
+    els.runtimeCurrentImageResult.hidden = true;
+    if (els.runtimeCurrentDetail) {
+      els.runtimeCurrentDetail.innerHTML = `<div class="builder-empty builder-empty-compact">当前暂无图像项信息</div>`;
+    }
+    stopRuntimeCarousel();
+    return;
+  }
+
+  applyRuntimeTileGridLayout(imageResults.length);
+  els.runtimeImageResultList.innerHTML = imageResults
+    .map((item, index) =>
+      renderRuntimeImageTile(item, index, item.id === activeImageResult?.id, {
+        showResultBadge: showRuntimeResultBadge,
+        showSubResultButton: shouldShowRuntimeSubResultButton(item, tool, sessionRunMode),
+        subResultButtonDisabled: waitingForCurrentRun,
+        waitingForCurrentRun,
+        runningBusy,
+      }),
+    )
+    .join("");
+  els.runtimeImageStage.innerHTML = "";
+  els.runtimeImageCaption.textContent = activeImageResult
+    ? activeImageResult.acquireName || activeImageResult.imageLabel || "当前图像"
+    : initialState
+      ? "等待开始"
+      : activeRunMode === "detect"
+        ? "等待检测结果"
+        : "等待运行结果";
+  stopRuntimeCarousel();
+}
+
+function getRuntimeTileGridLayout(count) {
+  const safeCount = Math.max(0, Number(count) || 0);
+  if (safeCount <= 1) return { columns: 1, rows: 1 };
+  if (safeCount === 2) return { columns: 2, rows: 1 };
+  if (safeCount === 3) return { columns: 3, rows: 1 };
+  if (safeCount === 4) return { columns: 2, rows: 2 };
+  if (safeCount <= 6) return { columns: 3, rows: 2 };
+  if (safeCount <= 8) return { columns: 4, rows: 2 };
+  if (safeCount <= 12) return { columns: 4, rows: 3 };
+  return { columns: 4, rows: Math.ceil(safeCount / 4) };
+}
+
+function applyRuntimeTileGridLayout(count) {
+  if (!els.runtimeImageResultList) return;
+  const layout = getRuntimeTileGridLayout(count);
+  els.runtimeImageResultList.dataset.count = String(Math.max(0, Number(count) || 0));
+  els.runtimeImageResultList.style.setProperty("--runtime-tile-columns", String(layout.columns));
+  els.runtimeImageResultList.style.setProperty("--runtime-tile-rows", String(layout.rows));
+}
+
+function renderRuntimeImageTile(item, index, active, options = {}) {
+  const { showResultBadge = true, waitingForCurrentRun = false, runningBusy = false } = options;
+  const statusText = getRuntimeImageItemStatus(item, { showResultBadge, waitingForCurrentRun, runningBusy });
+  const exceptions = item.exceptions || [];
+  const tileLoading = runningBusy || item.isRuntimePending || statusText === "检测中";
+  const sourceUrl = !waitingForCurrentRun && !tileLoading && statusText !== "待检测" ? getImageResultSourceUrl(item, getActiveTool()?.id || "") : "";
+  const aspectRatio = getRuntimeImageAspectRatio(item, getActiveTool()?.id || "");
+  const sourceStyle = [
+    `--runtime-source-aspect:${aspectRatio};`,
+    sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : "",
+  ].join("");
+  const issueText = statusText === "异常" ? getRuntimeImageIssueText(item, { waitingForCurrentRun, runningBusy, showResultBadge }) : "";
+  const subResultCount = Array.isArray(item.subResults) ? item.subResults.length : 0;
+  const cardAction = subResultCount > 0 ? "open-runtime-image-detail" : "select-runtime-image";
+  return `
+    <article class="runtime-result-tile ${active ? "is-active" : ""} ${tileLoading ? "is-loading" : ""} ${waitingForCurrentRun ? "is-empty" : ""}">
+      <button class="runtime-result-tile-hit" data-action="${cardAction}" data-id="${item.id}" type="button">
+        <div class="runtime-result-tile-visual">
+          <div class="runtime-result-tile-canvas ${sourceUrl ? "has-source" : ""}" style="${escapeAttribute(sourceStyle)}">
+            ${
+              sourceUrl
+                ? renderRuntimeTileSurfaceBoxes(item)
+                : `<div class="runtime-result-placeholder">${tileLoading ? `<span class="mini-spinner"></span><strong>检测中</strong>` : `<strong>等待检测</strong>`}</div>`
+            }
+          </div>
+          <div class="runtime-result-tile-status ${getRuntimeImageStatusClass(statusText)}">
+            <span>${escapeHtml(statusText)}</span>
+            ${statusText === "异常" ? renderExceptionIcon(exceptions, "采图项异常") : ""}
+          </div>
+        </div>
+        <div class="runtime-result-tile-body">
+          <div class="runtime-result-tile-title">
+            <strong>${escapeHtml(item.acquireName || `图像来源 ${index + 1}`)}</strong>
+          </div>
+          ${issueText ? `<div class="runtime-result-tile-issue">${escapeHtml(issueText)}</div>` : ""}
+        </div>
+      </button>
+    </article>
+  `;
+}
+
+function renderRuntimeTileSurfaceBoxes(imageResult) {
+  const subResults = Array.isArray(imageResult?.subResults) ? imageResult.subResults : [];
+  const roiResults = subResults.filter((item) => item?.regionBox && !isFullImageSubResult(item));
+  const detectionBoxes = getRuntimeTileDetectionBoxes(subResults);
+  if (!roiResults.length && !detectionBoxes.length) return "";
+  return `
+    <div class="runtime-tile-surface-layer">
+      ${roiResults.map((item, index) => renderRuntimeTileSurfaceBox(item, index)).join("")}
+      ${detectionBoxes.map((item, index) => renderRuntimeTileDetectionBox(item, index)).join("")}
+    </div>
+  `;
+}
+
+function renderRuntimeTileSurfaceBox(item, index) {
+  const resultText = getSubResultBusinessResult(item);
+  const toneClass = getResultToneModifier(resultText);
+  const label = getMappedRegionLabel(item, index);
+  return `
+    <span
+      class="runtime-tile-surface-box ${toneClass}"
+      style="${escapeAttribute(getRuntimeMappedRegionStyle(item, index))}"
+      title="${escapeAttribute(`${label} ${resultText}`)}"
+    >
+      <em>${escapeHtml(label)}</em>
+    </span>
+  `;
+}
+
+function getRuntimeTileDetectionBoxes(subResults = []) {
+  return subResults.flatMap((subResult) => {
+    const regionBox = subResult?.regionBox;
+    return getSubResultDetectResults(subResult).flatMap((detectResult) => {
+      const boxes = Array.isArray(detectResult?.detectionBoxes) && detectResult.detectionBoxes.length ? detectResult.detectionBoxes : [detectResult?.detectionBox || detectResult?.box].filter(Boolean);
+      return boxes.map((box) => ({
+        box: regionBox && !isFullImageSubResult(subResult) ? mapNestedDetectionBoxToImage(regionBox, box) : box,
+        label: getOverlayDisplayLabel(detectResult) || "缺陷",
+        result: detectResult?.businessResult || subResult?.businessResult || "-",
+      }));
+    });
+  });
+}
+
+function mapNestedDetectionBoxToImage(regionBox, box) {
+  const regionX = Number(regionBox?.x) || 0;
+  const regionY = Number(regionBox?.y) || 0;
+  const regionW = Number(regionBox?.w) || 1;
+  const regionH = Number(regionBox?.h) || 1;
+  return {
+    x: regionX + (Number(box?.x) || 0) * regionW,
+    y: regionY + (Number(box?.y) || 0) * regionH,
+    w: (Number(box?.w) || 0.1) * regionW,
+    h: (Number(box?.h) || 0.1) * regionH,
+  };
+}
+
+function renderRuntimeTileDetectionBox(item, index) {
+  const toneClass = getResultToneModifier(item.result);
+  const label = String(item.label || `缺陷${index + 1}`).trim();
+  return `
+    <span
+      class="runtime-tile-detection-box ${toneClass}"
+      style="${escapeAttribute(getNormalizedBoxStyle(item.box))}"
+      title="${escapeAttribute(`${label} ${getDisplayResultText(item.result)}`)}"
+    >
+      <em>${escapeHtml(label)}</em>
+    </span>
+  `;
+}
+
+function renderRuntimeBatchSummary(tool, imageResults = [], options = {}) {
+  const { sessionRecords = [] } = options;
+  const completedCycleRecords = buildDetectionSessionCycles(sessionRecords)
+    .filter((cycle) => cycle.complete)
+    .map((cycle) => cycle.record);
+  const detectedCount = completedCycleRecords.length;
+  const okCount = completedCycleRecords.filter((record) => getDisplayResultText(record.totalResult || record.businessResult || "-") === "OK").length;
+  const ngCount = completedCycleRecords.filter((record) => getDisplayResultText(record.totalResult || record.businessResult || "-") === "NG").length;
+  const errorCount = completedCycleRecords.filter((record) => getDisplayResultText(record.totalResult || record.businessResult || "-") === "异常").length;
+  const yieldRate = detectedCount > 0 ? `${Math.round((okCount / detectedCount) * 100)}%` : "0%";
+  return `
+    <div class="runtime-session-metric is-duration">
+      <span>运行时长</span>
+      <strong data-runtime-duration>${escapeHtml(getRuntimeSessionDuration(tool))}</strong>
+    </div>
+    <div class="runtime-session-metric is-total">
+      <span>检测数量</span>
+      <strong>${detectedCount}</strong>
+    </div>
+    <div class="runtime-session-metric is-yield">
+      <span>良品率</span>
+      <strong>${yieldRate}</strong>
+    </div>
+    <div class="runtime-session-metric is-ok">
+      <span>OK</span>
+      <strong>${okCount}</strong>
+    </div>
+    <div class="runtime-session-metric is-ng">
+      <span>NG</span>
+      <strong>${ngCount}</strong>
+    </div>
+    <div class="runtime-session-metric is-error">
+      <span>异常</span>
+      <strong>${errorCount}</strong>
+    </div>
+  `;
+}
+
+function renderRuntimeCurrentDetail(imageResult, options = {}) {
+  if (!imageResult) return `<div class="builder-empty builder-empty-compact">当前暂无图像项信息</div>`;
+  const { waitingForCurrentRun = false, runningBusy = false, showRuntimeResultBadge = true } = options;
+  const context = getRuntimeAcquireContext(imageResult);
+  const statusText = getRuntimeImageItemStatus(imageResult, { showResultBadge: showRuntimeResultBadge, waitingForCurrentRun, runningBusy });
+  const resultText = waitingForCurrentRun || runningBusy ? statusText : getDisplayResultText(imageResult.result || "-");
+  const subResultCount = Array.isArray(imageResult.subResults) ? imageResult.subResults.length : 0;
+  const cameraName =
+    context.acquire?.type === "camera" && context.camera
+      ? Demo.getCameraLabel(context.camera)
+      : context.acquire?.type === "api"
+        ? "接口图像"
+        : "-";
+  const cameraStatus = context.acquire?.type === "camera" ? getRuntimeCameraStatusText(context.camera) : "-";
+  const issueText = getRuntimeImageIssueText(imageResult, { waitingForCurrentRun, runningBusy, showResultBadge: showRuntimeResultBadge }) || "暂无问题";
+  return `
+    <div class="runtime-current-detail">
+      <div class="runtime-current-head">
+        <strong>${escapeHtml(imageResult.acquireName || "图像项")}</strong>
+        ${renderStatusBadgeHtml(resultText)}
+      </div>
+      <dl class="runtime-current-meta">
+        <div><dt>关联相机</dt><dd>${escapeHtml(cameraName)}</dd></div>
+        <div><dt>相机状态</dt><dd>${escapeHtml(cameraStatus)}</dd></div>
+        <div><dt>参数组</dt><dd>${escapeHtml(context.paramGroup ? context.paramGroup.name : "-")}</dd></div>
+        <div><dt>子图/分区</dt><dd>${subResultCount}</dd></div>
+        <div><dt>问题定位</dt><dd>${escapeHtml(issueText)}</dd></div>
+      </dl>
+      <div class="runtime-camera-actions">
+        <button class="secondary-btn" data-action="preview-runtime-camera" data-acquire-id="${context.acquire?.id || ""}" type="button" ${context.acquire?.type === "camera" ? "" : "disabled"}>查看相机画面</button>
+      </div>
+    </div>
+  `;
+}
+
+function formatRuntimeElapsed(ms) {
+  const safeMs = Math.max(0, Number(ms) || 0);
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function makeRunSessionCode(value = Date.now()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "RUN-00000000-000000";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `RUN-${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+function getRuntimeSessionDuration(tool = getActiveTool()) {
+  const startedAtValue = tool?.runtime?.sessionStartedAt;
+  const startedAt = Number(startedAtValue);
+  if (startedAtValue == null || !Number.isFinite(startedAt)) return "00:00:00";
+  return formatRuntimeElapsed(Date.now() - startedAt);
+}
+
+function getRuntimeCurrentCycleTime(tool = getActiveTool()) {
+  const runtime = tool?.runtime || {};
+  if (runtime.cycleActive || runtime.status === "执行中") return "-";
+  return runtime.currentCycleTime || runtime.cycleTime || "-";
+}
+
+function getRuntimeCurrentCycleResult(tool = getActiveTool()) {
+  const runtime = tool?.runtime || {};
+  if (runtime.cycleActive || runtime.status === "执行中") return "-";
+  const latestCompletedRecord = getLatestCompletedRuntimeSessionRecord(tool);
+  return getDisplayResultText(latestCompletedRecord?.totalResult || latestCompletedRecord?.businessResult || "-");
+}
+
+function getLatestCompletedRuntimeSessionRecord(tool = getActiveTool()) {
+  return buildDetectionSessionCycles(getRuntimeSessionRecords(tool))
+    .filter((cycle) => cycle.complete)
+    .at(-1)?.record || null;
+}
+
+function renderRuntimeCurrentCycleResult(tool = getActiveTool()) {
+  if (!els.runtimeCurrentCycleResult) return;
+  const result = getRuntimeCurrentCycleResult(tool);
+  els.runtimeCurrentCycleResult.textContent = result;
+  els.runtimeCurrentCycleResult.className = getRuntimeImageStatusClass(result);
+}
+
+function refreshRuntimeSessionClock() {
+  const durationEls = document.querySelectorAll("[data-runtime-duration]");
+  const cycleEls = document.querySelectorAll("[data-runtime-current-cycle], #runtimeCurrentCycleTime");
+  if ((!durationEls.length && !cycleEls.length) || ui.activePage !== "detect-tools" || ui.toolView !== "runtime") return;
+  const tool = getActiveTool();
+  if (!tool || Demo.normalizeRunMode(tool.runtime?.sessionMode) === "acquire") return;
+  const duration = getRuntimeSessionDuration(tool);
+  durationEls.forEach((durationEl) => {
+    durationEl.textContent = duration;
+  });
+  const cycleTime = getRuntimeCurrentCycleTime(tool);
+  cycleEls.forEach((cycleEl) => {
+    cycleEl.textContent = cycleTime;
+  });
+}
+
+function getRuntimeImageIssueText(item, options = {}) {
+  if (options.runningBusy || options.waitingForCurrentRun || !options.showResultBadge) return "";
+  const result = getDisplayResultText(item?.result || "-");
+  if (result === "异常") {
+    const exceptions = Array.isArray(item.exceptions) ? item.exceptions.filter(Boolean) : [];
+    return exceptions[0]?.title || "图像项异常";
+  }
+  if (result === "NG") {
+    const subResults = Array.isArray(item.subResults) ? item.subResults : [];
+    const ngCount = subResults.filter((sub) => getSubResultBusinessResult(sub) === "NG").length;
+    return ngCount ? `${ngCount} 个子图/分区 NG` : "当前图像项 NG";
+  }
+  return "";
+}
+
+function getRuntimeSessionRecords(tool = getActiveTool()) {
+  if (!tool) return [];
+  const records = state.detectionRecords.filter((record) => record.toolId === tool.id);
+  const sessionId = String(tool.runtime?.sessionId || "").trim();
+  if (tool.runtime?.sessionActive && sessionId) {
+    return records
+      .filter((record) => String(record.sessionId || "").trim() === sessionId)
+      .sort((a, b) => Date.parse(a.triggeredAt || "") - Date.parse(b.triggeredAt || ""));
+  }
+  const baselineValue = tool.runtime?.sessionRecordBaseline;
+  const baseline = Number(baselineValue);
+  const sessionRecords = baselineValue != null && Number.isFinite(baseline) ? records.slice(0, Math.max(0, records.length - baseline)) : records;
+  return sessionRecords.sort((a, b) => Date.parse(a.triggeredAt || "") - Date.parse(b.triggeredAt || ""));
+}
+
+function renderRuntimeCameraActions(tool = getActiveTool()) {
+  const cameraEntries = [];
+  (tool?.acquire || []).forEach((acquire) => {
+    if (acquire?.type !== "camera" || !acquire.cameraId || cameraEntries.some((item) => item.cameraId === acquire.cameraId)) return;
+    const camera = state.cameras.find((item) => item.id === acquire.cameraId);
+    if (!camera) return;
+    const statusText = getRuntimeCameraStatusText(camera);
+    cameraEntries.push({
+      acquireId: acquire.id,
+      cameraId: acquire.cameraId,
+      label: Demo.getCameraLabel(camera),
+      statusText,
+      statusClass: statusText === "已连接" ? "is-online" : "is-offline",
+    });
+  });
+  if (!cameraEntries.length) return "";
+  return cameraEntries
+    .map(
+      (item) =>
+        `<button class="secondary-btn runtime-camera-entry ${item.statusClass}" data-action="preview-runtime-camera" data-acquire-id="${escapeAttribute(item.acquireId)}" type="button" title="${escapeAttribute(`${item.label} · ${item.statusText}`)}"><span class="runtime-camera-status-dot" aria-hidden="true"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l1.4-2h5.2L16 7h2.5c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2H8Z"></path><circle cx="12" cy="13" r="3.4"></circle></svg><span class="runtime-camera-copy"><strong>${escapeHtml(item.label)}</strong></span></button>`,
+    )
+    .join("");
+}
+
+function renderRuntimeRecentRecords(tool = getActiveTool(), options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : Infinity;
+  const allCycles = buildDetectionSessionCycles(getRuntimeSessionRecords(tool)).filter((cycle) => cycle.complete);
+  const records = (Number.isFinite(limit) ? allCycles.slice(-limit) : allCycles).map((cycle) => cycle.record).reverse();
+  if (!records.length) return `<div class="runtime-recent-empty">暂无检测记录</div>`;
+  return records.map((record) => renderRuntimeRecordListItem(record, { compact: true })).join("");
+}
+
+function getRuntimeRecentVisibleLimit() {
+  const listHeight = Number(els.runtimeRecentRecords?.clientHeight || 0);
+  if (!listHeight) return 3;
+  const compactItemHeight = 38;
+  const itemGap = 6;
+  return Math.max(1, Math.floor((listHeight + itemGap) / (compactItemHeight + itemGap)));
+}
+
+function renderRuntimeRecordListItem(record, options = {}) {
+  const resultText = getDisplayResultText(record.totalResult || record.businessResult || "-");
+  const time = formatRuntimeRecordTime(record.triggeredAt);
+  const compact = Boolean(options.compact);
+  const imageResults = getRecordImageResults(record);
+  const previewImage = imageResults.find((item) => getImageResultSourceUrl(item, record.toolId)) || imageResults[0] || null;
+  const previewUrl = previewImage ? getImageResultSourceUrl(previewImage, record.toolId) : "";
+  const okCount = imageResults.filter((item) => getDisplayResultText(item.result || item.businessResult || "-") === "OK").length;
+  const ngCount = imageResults.filter((item) => getDisplayResultText(item.result || item.businessResult || "-") === "NG").length;
+  const errorCount = imageResults.filter((item) => getDisplayResultText(item.result || item.businessResult || "-") === "异常").length;
+  return `
+    <button class="runtime-record-item ${compact ? "is-compact" : ""}" data-action="open-runtime-record-detail" data-record-id="${escapeAttribute(record.id)}" type="button">
+      ${compact ? "" : `<span class="runtime-record-thumb ${previewUrl ? "has-image" : ""}" ${previewUrl ? `style="--runtime-record-image:url(&quot;${escapeAttribute(previewUrl)}&quot;)"` : ""}></span>`}
+      <span class="runtime-record-main">
+        <strong>${escapeHtml(time)}</strong>
+        ${
+          compact
+            ? ""
+            : `
+              <small>${escapeHtml(record.id)} · ${imageResults.length} 张图像</small>
+              <span class="runtime-record-breakdown">
+                <b>OK ${okCount}</b>
+                <b>NG ${ngCount}</b>
+                <b>异常 ${errorCount}</b>
+              </span>
+            `
+        }
+      </span>
+      <span class="runtime-record-result ${getRuntimeImageStatusClass(resultText)}">${escapeHtml(resultText)}</span>
+    </button>
+  `;
+}
+
+function formatRuntimeRecordTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(11, 19) || "-";
+  return date.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function openRuntimeRecordDrawer(recordId = "") {
+  if (recordId) {
+    ui.recordImageViewer = {
+      ...(ui.recordImageViewer || {}),
+      sessionId: "",
+      recordId,
+    };
+  } else {
+    ui.recordImageViewer = {
+      ...(ui.recordImageViewer || {}),
+      sessionId: "",
+    };
+  }
+  renderRuntimeRecordDrawer();
+  openPanel(els.runtimeRecordDrawer);
+}
+
+function openRecordSessionDrawer(sessionId, recordId = "") {
+  const session = getDetectionSessions().find((item) => item.id === sessionId);
+  if (!session) return;
+  ui.recordImageViewer = {
+    ...(ui.recordImageViewer || {}),
+    sessionId,
+    recordId: recordId || session.cycles[session.cycles.length - 1]?.record?.id || "",
+  };
+  renderRuntimeRecordDrawer();
+  openPanel(els.runtimeRecordDrawer);
+}
+
+function closeRuntimeRecordDrawer() {
+  closePanel(els.runtimeRecordDrawer);
+}
+
+function renderRuntimeRecordDrawer() {
+  const requestedSessionId = String(ui.recordImageViewer?.sessionId || "").trim();
+  const tool = getActiveTool();
+  const session = requestedSessionId
+    ? getDetectionSessions().find((item) => item.id === requestedSessionId)
+    : buildDetectionSessionRow(tool?.runtime?.sessionId || `runtime-${tool?.id || "tool"}`, getRuntimeSessionRecords(tool));
+  if (!session) {
+    if (els.runtimeRecordDrawerTitle) els.runtimeRecordDrawerTitle.textContent = "检测记录";
+    els.runtimeRecordDrawerBody.innerHTML = `<div class="builder-empty">暂无检测记录</div>`;
+    return;
+  }
+  if (!session.records.length) {
+    if (els.runtimeRecordDrawerTitle) els.runtimeRecordDrawerTitle.textContent = "检测记录";
+    els.runtimeRecordDrawerBody.innerHTML = `<div class="builder-empty">暂无检测记录</div>`;
+    return;
+  }
+  const preferredRecordId = ui.recordImageViewer?.recordId || session.cycles[session.cycles.length - 1]?.record?.id || "";
+  ui.recordImageViewer = {
+    ...(ui.recordImageViewer || {}),
+    sessionId: requestedSessionId,
+    recordId: session.records.some((record) => record.id === preferredRecordId) ? preferredRecordId : session.cycles[session.cycles.length - 1]?.record?.id || "",
+  };
+  if (els.runtimeRecordDrawerTitle) {
+    els.runtimeRecordDrawerTitle.textContent = requestedSessionId ? `${session.displayId || session.id} · 检测记录` : "检测记录";
+  }
+  els.runtimeRecordDrawerBody.innerHTML = renderRecordSessionDetailModal(session, {
+    rootId: "runtimeRecordDrawerDetailBody",
+    compact: true,
+  });
+}
+
+function handleRuntimeRecordDrawerClick(event) {
+  const filterButton = getClosestEventTarget(event, "[data-action='select-record-session-filter']");
+  if (filterButton?.dataset.filter) {
+    ui.recordImageViewer = {
+      ...(ui.recordImageViewer || {}),
+      cycleResultFilter: filterButton.dataset.filter,
+      cyclePage: 1,
+      recordId: "",
+    };
+    renderRuntimeRecordDrawer();
+    return;
+  }
+  const pageButton = getClosestEventTarget(event, "[data-action='select-record-session-page']");
+  if (pageButton?.dataset.page) {
+    ui.recordImageViewer = {
+      ...(ui.recordImageViewer || {}),
+      cyclePage: Math.max(1, Number(pageButton.dataset.page) || 1),
+      recordId: "",
+    };
+    renderRuntimeRecordDrawer();
+    return;
+  }
+  const cycleButton = getClosestEventTarget(event, "[data-action='select-record-session-cycle']");
+  if (cycleButton?.dataset.recordId) {
+    ui.recordImageViewer = {
+      ...(ui.recordImageViewer || {}),
+      recordId: cycleButton.dataset.recordId,
+    };
+    renderRuntimeRecordDrawer();
+    return;
+  }
+  const imageButton = getClosestEventTarget(event, "[data-action='open-record-session-image']");
+  if (imageButton?.dataset.recordId && imageButton?.dataset.imageId) {
+    openRecordImageResultsModal(imageButton.dataset.recordId, imageButton.dataset.imageId);
+  }
+}
+
+function getRecordImageNavigationItems(recordId = "") {
+  const sessionId = ui.recordImageViewer?.sessionId || "";
+  const session =
+    (sessionId ? getDetectionSessions().find((item) => item.id === sessionId) : null) ||
+    getDetectionSessions().find((item) => item.recordIds.includes(recordId));
+  const records = session?.cycles?.length ? session.cycles.map((cycle) => cycle.record).filter(Boolean) : state.detectionRecords.filter((record) => record.id === recordId);
+  return records.flatMap((record) => getRecordImageResults(record).map((imageResult) => ({ recordId: record.id, imageResultId: imageResult.id })));
+}
+
+function getRuntimeImageItemStatus(item, options = {}) {
+  if (item?.isRuntimePending) return "检测中";
+  if (options.runningBusy) return "检测中";
+  if (options.waitingForCurrentRun || !options.showResultBadge) return "待检测";
+  const result = getDisplayResultText(item?.result || "-");
+  return result === "-" ? "待检测" : result;
+}
+
+function getRuntimeImageStatusClass(statusText) {
+  if (statusText === "OK") return "is-ok";
+  if (statusText === "NG") return "is-ng";
+  if (statusText === "异常") return "is-error";
+  if (statusText === "检测中") return "is-running";
+  return "is-pending";
+}
+
+function shouldShowRuntimeSubResultButton(imageResult, tool, sessionRunMode) {
+  if (sessionRunMode === "acquire") return false;
+  if (hasOnlyFullImageSubResults(imageResult)) return false;
+  if (hasOnlyFullImageProcessOutputs(tool, imageResult?.acquireId)) return false;
+  return true;
+}
+
+function getActiveRuntimeMode(tool = getActiveTool(), record = getActiveRuntimeRecord()) {
+  return Demo.normalizeRunMode(record?.runMode || tool?.runtime?.sessionMode || getHighestAvailableRunMode(tool));
+}
+
+function getRuntimeCameraStatusText(camera) {
+  if (!camera) return "-";
+  return camera.status === "离线" ? "异常" : "已连接";
+}
+
+function renderRuntimeCameraInfo(imageResult) {
+  const context = getRuntimeAcquireContext(imageResult);
+  if (!context.acquire) {
+    return `<div class="builder-empty builder-empty-compact">当前暂无相机信息</div>`;
+  }
+  if (context.acquire.type !== "camera" || !context.camera) {
+    return `<div class="runtime-camera-empty">当前图像来自接口，不显示相机信息。</div>`;
+  }
+  const cameraStatusText = getRuntimeCameraStatusText(context.camera);
+  return `
+    <div class="runtime-camera-info">
+      <div class="runtime-camera-main">
+        <strong>${escapeHtml(Demo.getCameraLabel(context.camera))}</strong>
+        ${renderStatusBadgeHtml(cameraStatusText)}
+      </div>
+      <div class="runtime-camera-meta">
+        <span>参数组</span>
+        <strong>${escapeHtml(context.paramGroup ? context.paramGroup.name : "-")}</strong>
+      </div>
+      <div class="runtime-camera-actions">
+        <button class="secondary-btn" data-action="preview-runtime-camera" data-acquire-id="${context.acquire.id}" type="button">查看相机画面</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderRuntimeTagInfo(tags = [], options = {}) {
+  const { editable = false, hint = "当前可添加标签" } = options;
+  if (!tags.length && !editable) {
+    return `<div class="builder-empty builder-empty-compact">${hint}</div>`;
+  }
+  const tagCount = tags.length;
+  return `
+    <div class="runtime-tag-panel">
+      <div class="runtime-tag-list ${tagCount ? "" : "is-empty"}">
+        ${
+          tagCount
+            ? tags
+                .map(
+                  (tag, index) => `
+                    <span class="runtime-tag-chip">
+                      <span>${escapeHtml(tag)}</span>
+                      ${
+                        editable
+                          ? `<button class="icon-btn runtime-tag-remove" data-action="remove-runtime-tag" data-index="${index}" type="button" aria-label="删除标签">×</button>`
+                          : ""
+                      }
+                    </span>
+                  `,
+                )
+                .join("")
+            : `<span class="runtime-tag-empty">${editable ? "当前未添加标签" : hint}</span>`
+        }
+      </div>
+      ${
+        editable
+          ? `
+            <div class="runtime-tag-editor">
+              <input
+                id="runtimeTagInput"
+                type="text"
+                maxlength="12"
+                placeholder="输入标签后添加"
+                ${tagCount >= 3 ? "disabled" : ""}
+              />
+              <button class="secondary-btn" data-action="add-runtime-tag" type="button" ${tagCount >= 3 ? "disabled" : ""}>添加</button>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function getRuntimeRecordTags(record) {
+  return Array.isArray(record?.customTags) ? record.customTags.filter((item) => String(item || "").trim()) : [];
+}
+
+function getRuntimeDraftTags(tool = getActiveTool()) {
+  return Array.isArray(tool?.runtime?.draftTags) ? tool.runtime.draftTags.filter((item) => String(item || "").trim()) : [];
+}
+
+function getRuntimeActiveTags(tool = getActiveTool()) {
+  return Array.isArray(tool?.runtime?.activeTags) ? tool.runtime.activeTags.filter((item) => String(item || "").trim()) : [];
+}
+
+function getRuntimeVisibleTags(tool = getActiveTool(), record = getActiveRuntimeRecord()) {
+  if (ui.pendingDetectionToolId === tool?.id) {
+    const activeTags = getRuntimeActiveTags(tool);
+    return activeTags.length ? activeTags : getRuntimeDraftTags(tool);
+  }
+  if (isRuntimeInitialState(tool) || !record) return getRuntimeDraftTags(tool);
+  return getRuntimeRecordTags(record);
+}
+
+function getRuntimeTagTarget(tool = getActiveTool(), record = getActiveRuntimeRecord()) {
+  if (!tool) return null;
+  if (isRuntimeInitialState(tool) || !record) {
+    if (!tool.runtime || typeof tool.runtime !== "object") tool.runtime = {};
+    return { type: "draft", owner: tool.runtime };
+  }
+  return { type: "record", owner: record };
+}
+
+function canEditRuntimeTags(record = getActiveRuntimeRecord(), tool = getActiveTool()) {
+  if (!tool) return false;
+  if (ui.pendingDetectionToolId === tool.id) return false;
+  return true;
+}
+
+function getSubResultDetectResults(item) {
+  return Array.isArray(item?.detectResults) ? item.detectResults : [];
+}
+
+function getAggregatedBusinessResult(items = []) {
+  const values = items.map((item) => getDisplayResultText(item?.businessResult || "-"));
+  if (values.includes("异常")) return "异常";
+  if (values.includes("NG")) return "NG";
+  if (values.includes("OK")) return "OK";
+  return "-";
+}
+
+function getSubResultBusinessResult(item) {
+  const detectResults = getSubResultDetectResults(item);
+  if (detectResults.length) return getAggregatedBusinessResult(detectResults);
+  return getDisplayResultText(item?.businessResult || "-");
+}
+
+function getSubResultPrimaryDetectResult(item) {
+  return getSubResultDetectResults(item)[0] || null;
+}
+
+function getDetectResultTitle(item, index = 0) {
+  const detectName = String(item?.detectName || item?.name || "").trim();
+  if (detectName) return detectName;
+  const modelLabel = item?.modelId ? Demo.getModelLabel(state, item.modelId) : "";
+  if (modelLabel && modelLabel !== "未选择算子") return modelLabel;
+  return `检测结果 ${index + 1}`;
+}
+
+function getResultItemSceneType(item) {
+  const primary = getSubResultPrimaryDetectResult(item) || item;
+  return (primary?.modelSceneType || getModelSceneTypeById(primary?.modelId)) || "";
+}
+
+function buildDetectResultSummary(item, index = 0) {
+  const title = getDetectResultTitle(item, index);
+  const output = String(item?.algorithmOutput || "").trim();
+  return output ? `${title} · ${output}` : title;
+}
+
+function renderRuntimeImageStage(imageResult) {
+  if (!imageResult) {
+    return `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">暂无图像结果</div></div>`;
+  }
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  const sourceUrl = getImageResultSourceUrl(imageResult, getActiveTool()?.id || "");
+  const aspectRatio = getRuntimeImageAspectRatio(imageResult, getActiveTool()?.id || "");
+  const sourceStyle = [
+    `--runtime-source-aspect:${aspectRatio};`,
+    sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : "",
+  ].join("");
+  return `
+    <div class="inspection-stage runtime-image-stage runtime-source-stage">
+      <div class="runtime-source-stage-shell">
+        <div class="runtime-source-canvas ${sourceUrl ? "has-source" : "is-fallback"}" style="${escapeAttribute(sourceStyle)}">
+          <div class="runtime-source-grid"></div>
+          <div class="runtime-mapped-layer">
+            ${subResults.map((item, index) => renderRuntimeMappedResult(item, index, imageResult.id)).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRuntimeMappedResult(item, index, imageResultId = "") {
+  const style = getRuntimeMappedRegionStyle(item, index);
+  const fullImage = isFullImageSubResult(item);
+  const toneClass = getResultToneModifier(getSubResultBusinessResult(item));
+  const resultText = getSubResultBusinessResult(item);
+  const showResultBadge = resultText !== "-";
+  const regionLabel = getMappedRegionLabel(item, index);
+  if (fullImage) {
+    return renderFullImageDetectionBoxes(item);
+  }
+  return `
+    <button
+      class="runtime-mapped-result record-roi-button ${toneClass} is-roi-only"
+      style="${escapeAttribute(style)}"
+      data-action="focus-runtime-subresult"
+      data-image-id="${imageResultId}"
+      data-sub-id="${item.id}"
+      type="button"
+      title="查看对应子图结果"
+      aria-label="查看对应子图结果"
+    >
+      <span class="runtime-mapped-index">${escapeHtml(regionLabel)}</span>
+      ${showResultBadge ? `<span class="runtime-mapped-result-badge ${toneClass}">${escapeHtml(resultText)}</span>` : ""}
+    </button>
+  `;
+}
+
+function getMappedRegionLabel(item, index) {
+  const source = String(item?.source || item?.categoryKey || "").trim();
+  if (/^齿面\d*$/i.test(source)) return "齿面";
+  if (source) return source;
+  return `ROI${index + 1}`;
+}
+
+function renderRuntimeFullImageOverlay(item) {
+  const detectResults = getSubResultDetectResults(item);
+  if (!detectResults.length) return "";
+  return detectResults
+    .map(
+      (detectResult, detectIndex) => `
+        <div class="runtime-vector-tag ${getResultToneModifier(detectResult.businessResult)}" style="top:${18 + detectIndex * 38}px;">
+          ${escapeHtml(buildDetectResultSummary(detectResult, detectIndex))}
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function getOverlayDisplayLabel(item) {
+  const detectResults = getSubResultDetectResults(item);
+  if (detectResults.length === 1) return getOverlayDisplayLabel(detectResults[0]);
+  if (detectResults.length > 1) return detectResults.map((detectResult, index) => getDetectResultTitle(detectResult, index)).join(" / ");
+  const raw = String(item?.algorithmOutput || item?.businessResult || "").trim();
+  if (isDimensionModelResult(item)) return raw || "点点距离 12.84 mm";
+  if (!raw) return "目标类别";
+  const confidenceMatch = raw.match(/(\d+(?:\.\d+)?%)/);
+  const confidence = confidenceMatch ? ` ${confidenceMatch[1]}` : "";
+  if (/^OK\b/i.test(raw)) return `正常边界${confidence}`;
+  if (/^分类通过/.test(raw)) return `目标类别${confidence}`;
+  if (/^分类异常/.test(raw)) return `异常类别${confidence}`;
+  return raw;
+}
+
+function getRuntimeImageAspectRatio(imageResult, toolId = "") {
+  let width = Number(imageResult?.sourceImageWidth || 0);
+  let height = Number(imageResult?.sourceImageHeight || 0);
+  if (!(width > 0 && height > 0)) {
+    const acquire = getImageResultAcquire(imageResult, toolId || getActiveTool()?.id || getActiveRecord()?.toolId || "");
+    width = Number(acquire?.sampleImageWidth || width || 0);
+    height = Number(acquire?.sampleImageHeight || height || 0);
+    if (!(width > 0 && height > 0) && acquire?.cameraId && acquire?.paramGroupId) {
+      const camera = state.cameras.find((item) => item.id === acquire.cameraId);
+      const group = camera?.paramGroups?.find((item) => item.id === acquire.paramGroupId);
+      width = Number(group?.settings?.width || width || 0);
+      height = Number(group?.settings?.height || height || 0);
+    }
+  }
+  if (width > 0 && height > 0) {
+    return `${width} / ${height}`;
+  }
+  return "4 / 3";
+}
+
+function getRuntimeMappedRegionStyle(item, index) {
+  const region = item?.regionBox;
+  if (region && [region.x, region.y, region.w, region.h].every((value) => Number.isFinite(Number(value)))) {
+    const leftValue = Math.max(0, Math.min(94, Number(region.x) * 100));
+    const topValue = Math.max(0, Math.min(94, Number(region.y) * 100));
+    const widthValue = Math.max(6, Math.min(100 - leftValue, Number(region.w) * 100));
+    const heightValue = Math.max(6, Math.min(100 - topValue, Number(region.h) * 100));
+    const left = `${leftValue}%`;
+    const top = `${topValue}%`;
+    const width = `${widthValue}%`;
+    const height = `${heightValue}%`;
+    return `left:${left};top:${top};width:${width};height:${height};`;
+  }
+  const preset = getRecordRoiPreset(index);
+  return `left:${preset.left};top:${preset.top};width:${preset.width};height:${preset.height};`;
+}
+
+function findModelMetaById(modelId) {
+  if (!modelId) return null;
+  const localModel = state.localModels.find((item) => item.id === modelId);
+  if (localModel) return localModel;
+  for (const cloudModel of state.cloudModels) {
+    const version = Array.isArray(cloudModel.versions) ? cloudModel.versions.find((item) => item.id === modelId) : null;
+    if (version) {
+      return {
+        id: version.id,
+        version: version.version,
+        modelName: cloudModel.modelName,
+        sceneType: cloudModel.sceneType,
+        operatorId: cloudModel.operatorId || "",
+        weightId: version.weightId || "",
+        deploymentId: version.deploymentId || "",
+        configRevision: version.configRevision || "",
+      };
+    }
+  }
+  return null;
+}
+
+function getModelCategoriesById(modelId) {
+  const meta = findModelMetaById(modelId);
+  return Demo.normalizeModelCategories(meta);
+}
+
+function getModelSceneTypeById(modelId) {
+  return findModelMetaById(modelId)?.sceneType || "";
+}
+
+function isCategoryOutputModelId(modelId) {
+  return getModelSceneTypeById(modelId) === "分类";
+}
+
+function getDetectSceneType(detect) {
+  return String(detect?.modelSceneType || getModelSceneTypeById(detect?.modelId)).trim();
+}
+
+function isDimensionDetect(detect) {
+  return getDetectSceneType(detect) === "尺寸";
+}
+
+function getDimensionDetectItems(tool) {
+  return Array.isArray(tool?.detect) ? tool.detect.filter((detect) => isDimensionDetect(detect)) : [];
+}
+
+function getDimensionItemLabelsByModelId(modelId) {
+  const labels = getModelCategoriesById(modelId);
+  return labels.length ? labels : ["尺寸项1"];
+}
+
+function getDimensionOutputParamRows(detect, rawConfig = null) {
+  const raw = rawConfig && typeof rawConfig === "object" ? rawConfig : detect?.dimensionConfig || {};
+  const legacyRows = Array.isArray(raw.outputOffsets)
+    ? raw.outputOffsets
+    : Array.isArray(raw.dimensionOffsets)
+      ? raw.dimensionOffsets
+      : [];
+  const legacyMap = new Map(
+    legacyRows
+      .filter((item) => item?.label)
+      .map((item) => [String(item.label), { label: String(item.label), offset: String(item.offset ?? "0") }]),
+  );
+  return getDimensionItemLabelsByModelId(detect?.modelId).map((label) => ({
+    label,
+    offset: legacyMap.get(label)?.offset ?? "0",
+  }));
+}
+
+function getNormalizedDimensionConfig(detect) {
+  if (!isDimensionDetect(detect)) return null;
+  const raw = detect?.dimensionConfig && typeof detect.dimensionConfig === "object" ? detect.dimensionConfig : {};
+  const modelMeta = findModelMetaById(detect?.modelId) || null;
+  return {
+    publishedSchemeName: String(raw.publishedSchemeName || modelMeta?.modelName || detect?.name || "未命名尺寸方案"),
+    publishedVersion: String(raw.publishedVersion || modelMeta?.version || "未发布"),
+    calibrationConfigId: String(raw.calibrationConfigId || `cal_cfg_${detect?.id || "dimension"}`),
+    outputOffsets: getDimensionOutputParamRows(detect, raw),
+  };
+}
+
+function isDimensionModelResult(item) {
+  if (!item) return false;
+  return getResultItemSceneType(item) === "尺寸";
+}
+
+function getRuntimeMeasurementShellStyle() {
+  return "left:12%;top:18%;width:68%;height:46%;";
+}
+
+function getRecordMeasurementShellStyle(index) {
+  const preset = getRecordRoiPreset(index);
+  return `left:${preset.vectorLeft};top:${preset.vectorTop};width:${preset.vectorWidth};height:${preset.vectorHeight};`;
+}
+
+function renderMeasurementOverlay(label, style, options = {}) {
+  const tone = options.tone || (options.isNg ? "ng" : "ok");
+  const modifier = tone === "ng" ? "is-ng" : tone === "neutral" ? "is-neutral" : "is-ok";
+  return `
+    <div class="vector-measure-shell ${modifier}" style="${style}">
+      <span class="vector-measure-line"></span>
+      <span class="vector-measure-point is-start"></span>
+      <span class="vector-measure-point is-end"></span>
+      ${options.showLabel === false ? "" : `<span class="vector-measure-label ${modifier}">${label}</span>`}
+    </div>
+  `;
+}
+
+function getRuntimeAcquireContext(imageResult) {
+  const tool = getActiveTool();
+  const acquire = tool?.acquire?.find((item) => item.id === imageResult?.acquireId) || null;
+  const camera = acquire?.cameraId ? state.cameras.find((item) => item.id === acquire.cameraId) || null : null;
+  const paramGroup = camera?.paramGroups?.find((item) => item.id === acquire?.paramGroupId) || null;
+  return { tool, acquire, camera, paramGroup };
+}
+
+function stopRuntimeCarousel() {
+  if (timers.runtimeCarousel) clearTimeout(timers.runtimeCarousel);
+  timers.runtimeCarousel = null;
+}
+
+function isRuntimePlaybackActive(record) {
+  return Boolean(record && ui.runtimePlaybackRecordId === record.id);
+}
+
+function syncRuntimeCarousel(record) {
+  stopRuntimeCarousel();
+  if (!isRuntimePlaybackActive(record) || ui.activePage !== "detect-tools" || ui.toolView !== "runtime" || ui.pendingDetectionToolId) {
+    return;
+  }
+  const imageResults = getRecordImageResults(record);
+  if (imageResults.length <= 1) {
+    ui.runtimePlaybackRecordId = null;
+    renderToolRuntime();
+    return;
+  }
+  timers.runtimeCarousel = window.setTimeout(() => {
+    stepRuntimeImage(1, { silent: true, playbackRecordId: record.id });
+  }, 1800);
+}
+
+function stepRuntimeImage(direction, options = {}) {
+  const record = getActiveRuntimeRecord();
+  const imageResults = getRecordImageResults(record);
+  if (imageResults.length <= 1) return;
+  const currentIndex = Math.max(
+    0,
+    imageResults.findIndex((item) => item.id === ui.activeRuntimeImageId),
+  );
+  if (options.playbackRecordId && options.playbackRecordId === record?.id && direction > 0 && currentIndex >= imageResults.length - 1) {
+    ui.runtimePlaybackRecordId = null;
+    renderToolRuntime();
+    return;
+  }
+  const nextIndex = (currentIndex + direction + imageResults.length) % imageResults.length;
+  ui.activeRuntimeImageId = imageResults[nextIndex]?.id || imageResults[0]?.id || null;
+  renderToolRuntime();
+}
+
+function openRuntimeImageResultsModal(imageResultId, activeSubId = "") {
+  const record = getActiveRuntimeRecord();
+  const imageResults = getRecordImageResults(record);
+  const imageResult = imageResults.find((item) => item.id === imageResultId);
+  if (!record || !imageResult) return;
+  stopRuntimeCarousel();
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  openSubResultViewerModal({
+    title: imageResult.acquireName || imageResult.imageLabel || "图像结果",
+    imageResult,
+    subResults,
+    tool: state.tools.find((item) => item.id === record.toolId) || getActiveTool(),
+    activeSubId,
+    navigationItems: imageResults.map((item) => ({ recordId: record.id, imageResultId: item.id })),
+  });
+}
+
+function openRecordImageResultsModal(recordId, imageResultId, activeSubId = "") {
+  const record = state.detectionRecords.find((item) => item.id === recordId);
+  const imageResults = getRecordImageResults(record);
+  const imageResult = imageResults.find((item) => item.id === imageResultId);
+  if (!record || !imageResult) return;
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  openSubResultViewerModal({
+    title: imageResult.acquireName || imageResult.imageLabel || "图像结果",
+    imageResult,
+    subResults,
+    tool: state.tools.find((item) => item.id === record.toolId) || getActiveTool(),
+    activeSubId,
+    navigationItems: getRecordImageNavigationItems(recordId),
+  });
+}
+
+function openSubResultViewerModal({ title, imageResult = null, subResults = [], tool = getActiveTool(), activeSubId = "", onCloseRestore = null, navigationItems = [] }) {
+  let removeSubResultKeyListener = () => {};
+  let currentImageResult = imageResult;
+  let currentSubResults = subResults;
+  let currentTitle = title;
+  openSharedModal({
+    title: currentTitle,
+    panelClass: "modal-xl",
+    bodyClass: "modal-body-subresult",
+    body: `<div id="runtimeSubResultViewerRoot" class="runtime-subresult-root"></div>`,
+    hideCancel: true,
+    hideConfirm: true,
+    onOpen() {
+      const closeWithRestore = () => {
+        removeSubResultKeyListener();
+        closeSharedModal();
+        if (typeof onCloseRestore === "function") onCloseRestore();
+      };
+      els.closeSharedModal.onclick = closeWithRestore;
+      els.sharedModalCancel.onclick = closeWithRestore;
+      const root = document.getElementById("runtimeSubResultViewerRoot");
+      if (!root) return;
+      let currentId = currentSubResults.find((item) => item.id === activeSubId)?.id || currentSubResults[0]?.id || "";
+      let zoom = 1;
+      let zoomPan = { x: 0, y: 0 };
+      const render = () => {
+        els.sharedModalTitle.textContent = currentTitle || "图像结果";
+        root.innerHTML = renderSubResultViewerLayout(currentSubResults, currentId, tool, currentImageResult, { zoom, zoomPan });
+      };
+      const stepImage = (direction) => {
+        if (!navigationItems.length || !currentImageResult?.id) return;
+        const currentIndex = Math.max(0, navigationItems.findIndex((item) => item.imageResultId === currentImageResult.id));
+        const nextItem = navigationItems[(currentIndex + direction + navigationItems.length) % navigationItems.length];
+        const nextRecord = state.detectionRecords.find((item) => item.id === nextItem?.recordId);
+        const nextImageResult = getRecordImageResults(nextRecord).find((item) => item.id === nextItem?.imageResultId);
+        if (!nextRecord || !nextImageResult) return;
+        currentImageResult = nextImageResult;
+        currentSubResults = Array.isArray(nextImageResult.subResults) ? nextImageResult.subResults : [];
+        currentTitle = nextImageResult.acquireName || nextImageResult.imageLabel || "图像结果";
+        currentId = currentSubResults[0]?.id || "";
+        zoom = 1;
+        zoomPan = { x: 0, y: 0 };
+        render();
+      };
+      const setZoom = (nextZoom) => {
+        zoom = Math.max(0.5, Math.min(3, Math.round(nextZoom * 100) / 100));
+        render();
+      };
+      const handleKeyDown = (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeWithRestore();
+          return;
+        }
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          stepImage(-1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          stepImage(1);
+        }
+      };
+      root.addEventListener("click", (event) => {
+        const button = getClosestEventTarget(event, "[data-action='select-runtime-subresult']");
+        if (button?.dataset.id) {
+          currentId = button.dataset.id;
+          const activeItem = currentSubResults.find((item) => item.id === currentId);
+          const box = activeItem?.regionBox;
+          if (box) {
+            const centerX = (Number(box.x || 0) + Number(box.w || 0) / 2) * 100;
+            const centerY = (Number(box.y || 0) + Number(box.h || 0) / 2) * 100;
+            zoom = Math.max(1.4, Math.min(4, Math.round((0.82 / Math.max(Number(box.w || 0.1), Number(box.h || 0.1))) * 100) / 100));
+            zoomPan = {
+              x: Math.round((50 - centerX) * zoom * 100) / 100,
+              y: Math.round((50 - centerY) * zoom * 100) / 100,
+            };
+          }
+          render();
+          return;
+        }
+        const zoomButton = getClosestEventTarget(event, "[data-action='zoom-runtime-subresult']");
+        if (!zoomButton) return;
+        const intent = zoomButton.dataset.intent;
+        if (intent === "in") setZoom(zoom + 0.15);
+        if (intent === "out") setZoom(zoom - 0.15);
+        if (intent === "fit") {
+          zoomPan = { x: 0, y: 0 };
+          setZoom(1);
+        }
+      });
+      root.addEventListener("wheel", (event) => {
+        const stage = getClosestEventTarget(event, ".runtime-subresult-unified-stage");
+        if (!stage) return;
+        event.preventDefault();
+        setZoom(zoom + (event.deltaY < 0 ? 0.12 : -0.12));
+      });
+      document.addEventListener("keydown", handleKeyDown);
+      removeSubResultKeyListener = () => {
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+      render();
+    },
+    onConfirm() {
+      removeSubResultKeyListener();
+      closeSharedModal();
+      if (typeof onCloseRestore === "function") onCloseRestore();
+      return true;
+    },
+  });
+}
+
+function renderSubResultViewerLayout(subResults, activeId, tool = getActiveTool(), imageResult = null, options = {}) {
+  if (!subResults.length) {
+    return `<div class="runtime-subresult-dialog"><div class="builder-empty">当前暂无子图结果</div></div>`;
+  }
+  const activeIndex = Math.max(0, subResults.findIndex((item) => item.id === activeId));
+  const activeItem = subResults[activeIndex] || subResults[0];
+  const zoom = Number.isFinite(Number(options.zoom)) ? Number(options.zoom) : 1;
+  const zoomPan = options.zoomPan || { x: 0, y: 0 };
+  const fullImageOnly = hasOnlyFullImageSubResults(imageResult);
+  const categorySummary = renderSubResultCategorySummary(imageResult, subResults);
+  return `
+    <div class="runtime-subresult-viewer">
+      <section class="runtime-subresult-unified-panel">
+        <div class="runtime-subresult-unified-head">
+          <div class="runtime-subresult-summary">${categorySummary}</div>
+          <div class="runtime-subresult-zoom-tools" aria-label="图像缩放">
+            <button type="button" data-action="zoom-runtime-subresult" data-intent="out" aria-label="缩小">-</button>
+            <span>${Math.round(zoom * 100)}%</span>
+            <button type="button" data-action="zoom-runtime-subresult" data-intent="fit">适应</button>
+          </div>
+        </div>
+        ${renderSubResultUnifiedStage(imageResult, subResults, activeItem.id, tool, zoom, zoomPan)}
+      </section>
+    </div>
+  `;
+}
+
+function renderSubResultCategorySummary(imageResult, subResults = []) {
+  const counts = getSubResultCategoryCounts(imageResult, subResults);
+  return counts
+    .map(
+      (item) => `
+        <span class="runtime-subresult-summary-item ${item.kind === "detect" ? "is-detect" : "is-process"}">
+          ${escapeHtml(item.label)}：${item.count}
+        </span>
+      `,
+    )
+    .join("");
+}
+
+function getSubResultCategoryCounts(imageResult, subResults = []) {
+  const counts = new Map();
+  const addCount = (label, count = 1, kind = "process") => {
+    const normalizedLabel = String(label || "").trim();
+    if (!normalizedLabel || normalizedLabel === "全图") return;
+    const current = counts.get(normalizedLabel) || { label: normalizedLabel, count: 0, kind };
+    current.count += count;
+    current.kind = current.kind === "detect" ? "detect" : kind;
+    counts.set(normalizedLabel, current);
+  };
+
+  if (!hasOnlyFullImageSubResults(imageResult)) {
+    subResults.forEach((item, index) => addCount(getMappedRegionLabel(item, index), 1, "process"));
+  }
+
+  subResults.forEach((subResult) => {
+    getSubResultDetectResults(subResult).forEach((detectResult) => {
+      const boxes = Array.isArray(detectResult?.detectionBoxes) && detectResult.detectionBoxes.length ? detectResult.detectionBoxes : [detectResult?.detectionBox || detectResult?.box].filter(Boolean);
+      boxes.forEach(() => addCount(getDetectionCategoryLabel(detectResult), 1, "detect"));
+    });
+  });
+
+  return Array.from(counts.values());
+}
+
+function getDetectionCategoryLabel(detectResult) {
+  const direct = String(detectResult?.label || detectResult?.category || detectResult?.categoryKey || "").trim();
+  if (direct) return direct;
+  const display = String(getOverlayDisplayLabel(detectResult) || detectResult?.algorithmOutput || "").trim();
+  const withoutConfidence = display.replace(/\s*\d+(?:\.\d+)?%\s*$/g, "").trim();
+  if (!withoutConfidence || /^OK\b|^正常边界/i.test(withoutConfidence)) return "缺陷";
+  return withoutConfidence.split(/\s+/)[0] || "缺陷";
+}
+
+function renderSubResultUnifiedStage(imageResult, subResults, activeSubId, tool = getActiveTool(), zoom = 1, zoomPan = { x: 0, y: 0 }) {
+  if (!imageResult) {
+    return `<div class="builder-empty builder-empty-compact">暂无整图结果</div>`;
+  }
+  const toolId = tool?.id || getActiveTool()?.id || getActiveRecord()?.toolId || "";
+  const sourceUrl = getImageResultSourceUrl(imageResult, toolId);
+  const sourceStyle = [
+    `--runtime-source-aspect:${getRuntimeImageAspectRatio(imageResult, toolId)};`,
+    sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : "",
+  ].join("");
+  const zoomStyle = `--subresult-zoom:${zoom};--subresult-pan-x:${Number(zoomPan.x) || 0}%;--subresult-pan-y:${Number(zoomPan.y) || 0}%;`;
+  const fullImageOnly = hasOnlyFullImageSubResults(imageResult);
+  return `
+    <div class="inspection-stage runtime-image-stage runtime-source-stage runtime-subresult-unified-stage">
+      <div class="runtime-source-stage-shell">
+        <div class="runtime-subresult-unified-viewport">
+          <div class="runtime-subresult-unified-canvas-inner" style="${escapeAttribute(zoomStyle)}">
+            <div class="runtime-source-canvas ${sourceUrl ? "has-source" : "is-fallback"}" style="${escapeAttribute(sourceStyle)}">
+              <div class="runtime-source-grid"></div>
+              <div class="runtime-mapped-layer">
+                ${fullImageOnly ? renderFullImageDetectionBoxes(subResults[0]) : subResults.map((item, index) => renderSubResultUnifiedBox(item, index, item.id === activeSubId)).join("")}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderFullImageDetectionBoxes(item) {
+  return getSubResultDetectResults(item)
+    .flatMap((detectResult) => {
+      const boxes = Array.isArray(detectResult.detectionBoxes) && detectResult.detectionBoxes.length ? detectResult.detectionBoxes : [detectResult.detectionBox || detectResult.box].filter(Boolean);
+      return boxes.map((box, index) => ({ detectResult, box, index }));
+    })
+    .map(({ detectResult, box, index }) => {
+      const toneClass = getResultToneModifier(detectResult.businessResult);
+      return `
+        <span class="runtime-subresult-defect-box ${toneClass} runtime-subresult-full-defect" style="${escapeAttribute(getNormalizedBoxStyle(box))}">
+          <em>${escapeHtml(getOverlayDisplayLabel(detectResult) || `缺陷${index + 1}`)}</em>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function renderSubResultUnifiedBox(item, index, active) {
+  const resultText = getSubResultBusinessResult(item);
+  const toneClass = getResultToneModifier(resultText);
+  return `
+    <button
+      class="runtime-mapped-result record-roi-button runtime-subresult-unified-box ${toneClass}"
+      style="${escapeAttribute(getRuntimeMappedRegionStyle(item, index))}"
+      data-action="select-runtime-subresult"
+      data-id="${escapeAttribute(item.id)}"
+      type="button"
+      title="查看${escapeAttribute(getMappedRegionLabel(item, index))}"
+    >
+      <span class="runtime-subresult-region-label ${toneClass}">${escapeHtml(getMappedRegionLabel(item, index))}</span>
+      ${renderSubResultNestedDetections(item)}
+    </button>
+  `;
+}
+
+function renderSubResultNestedDetections(item) {
+  return getSubResultDetectResults(item)
+    .flatMap((detectResult) => {
+      const boxes = Array.isArray(detectResult.detectionBoxes) && detectResult.detectionBoxes.length ? detectResult.detectionBoxes : [detectResult.detectionBox || detectResult.box].filter(Boolean);
+      return boxes.map((box, index) => ({ detectResult, box, index }));
+    })
+    .map(({ detectResult, box, index }) => {
+      const toneClass = getResultToneModifier(detectResult.businessResult || item.businessResult);
+      return `
+        <span class="runtime-subresult-defect-box ${toneClass}" style="${escapeAttribute(getNormalizedBoxStyle(box))}">
+          <em>${escapeHtml(getOverlayDisplayLabel(detectResult) || `缺陷${index + 1}`)}</em>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function getNormalizedBoxStyle(box) {
+  const x = Math.max(0, Math.min(1, Number(box.x) || 0));
+  const y = Math.max(0, Math.min(1, Number(box.y) || 0));
+  const w = Math.max(0.02, Math.min(1 - x, Number(box.w) || 0.1));
+  const h = Math.max(0.02, Math.min(1 - y, Number(box.h) || 0.1));
+  return `left:${x * 100}%;top:${y * 100}%;width:${w * 100}%;height:${h * 100}%;`;
+}
+
+function renderSubResultSourceStage(imageResult, subResults, activeSubId, tool = getActiveTool()) {
+  if (!imageResult) {
+    return `<div class="builder-empty builder-empty-compact">暂无整图结果</div>`;
+  }
+  const toolId = tool?.id || getActiveTool()?.id || getActiveRecord()?.toolId || "";
+  const sourceUrl = getImageResultSourceUrl(imageResult, toolId);
+  const sourceStyle = [
+    `--runtime-source-aspect:${getRuntimeImageAspectRatio(imageResult, toolId)};`,
+    sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : "",
+  ].join("");
+  return `
+    <div class="inspection-stage runtime-image-stage runtime-source-stage runtime-subresult-source-stage">
+      <div class="runtime-source-stage-shell">
+        <div class="runtime-source-canvas ${sourceUrl ? "has-source" : "is-fallback"}" style="${escapeAttribute(sourceStyle)}">
+          <div class="runtime-source-grid"></div>
+          <div class="runtime-mapped-layer">
+            ${subResults.map((item, index) => renderSubResultSourceBox(item, index, item.id === activeSubId)).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSubResultSourceBox(item, index, active) {
+  const toneClass = getResultToneModifier(getSubResultBusinessResult(item));
+  return `
+    <button
+      class="runtime-mapped-result record-roi-button runtime-subresult-source-box ${toneClass} ${active ? "is-active" : ""}"
+      style="${escapeAttribute(getRuntimeMappedRegionStyle(item, index))}"
+      data-action="select-runtime-subresult"
+      data-id="${escapeAttribute(item.id)}"
+      type="button"
+      title="查看${escapeAttribute(getMappedRegionLabel(item, index))}"
+    >
+      <span class="runtime-mapped-index">${escapeHtml(getMappedRegionLabel(item, index))}</span>
+      <span class="runtime-mapped-result-badge ${toneClass}">${escapeHtml(getSubResultBusinessResult(item))}</span>
+    </button>
+  `;
+}
+
+function renderSubResultViewerListItem(item, index, active, tool = getActiveTool()) {
+  const displayName = getRuntimeSubResultDisplayName(item, index, tool);
+  const resultText = getSubResultBusinessResult(item);
+  return `
+    <button
+      class="runtime-subresult-list-item ${active ? "is-active" : ""}"
+      data-action="select-runtime-subresult"
+      data-id="${item.id}"
+      type="button"
+      title="${escapeAttribute(displayName)}"
+      aria-label="查看${escapeAttribute(displayName)}"
+    >
+      <div
+        class="inspection-stage inspection-stage-compact runtime-subresult-list-thumb"
+        style="${escapeAttribute(getRecordSubStageStyle(index, "thumb"))}"
+      >
+        <div class="record-sub-image-grid"></div>
+        <div class="record-overlay-layer record-thumb-overlay">${renderVectorOverlay(item, index, { showLabel: false })}</div>
+        <span class="record-thumb-index">${index + 1}</span>
+      </div>
+      <div class="runtime-subresult-list-meta">
+        <div class="runtime-subresult-list-copy">
+          <strong>${escapeHtml(displayName)}</strong>
+        </div>
+        ${resultText === "-" ? "" : renderBusinessBadge(resultText)}
+      </div>
+    </button>
+  `;
+}
+
+function renderSubResultViewerStage(item, index) {
+  return `
+    <div
+      class="inspection-stage inspection-stage-compact runtime-subresult-stage runtime-subresult-stage-lg"
+      style="${escapeAttribute(getRecordSubStageStyle(index, "main"))}"
+    >
+      <div class="record-sub-image-grid"></div>
+      <div class="record-overlay-layer">${renderVectorOverlay(item, index, { showLabel: true })}</div>
+    </div>
+  `;
+}
+
+function getRuntimeSubResultDisplayName(item, index, tool = getActiveTool()) {
+  const rawName = String(item?.name || "").trim();
+  if (/ROI\s*\d+$/i.test(rawName)) return rawName;
+  const processName = tool?.process?.find((process) => process.id === item?.processId)?.name || rawName || `处理步骤 ${index + 1}`;
+  const source = String(item?.source || "").trim();
+  if (/^齿面\d+$/i.test(source)) return `${processName} · ${source}`;
+  const roiMatch = String(item?.source || "").match(/ROI\s*#?\s*(\d+)/i);
+  const roiIndex = roiMatch?.[1] || index + 1;
+  return `${processName} ROI${roiIndex}`;
+}
+
+function updateSelectOptions(selectEl, options, selectedValue, emptyLabel) {
+  if (!selectEl) return;
+  const markup = options.length
+    ? options
+        .map((option) => `<option value="${escapeAttribute(option.value)}">${escapeHtml(option.label)}</option>`)
+        .join("")
+    : `<option value="">${escapeHtml(emptyLabel || "暂无可选项")}</option>`;
+
+  if (selectEl.dataset.renderMarkup !== markup) {
+    selectEl.innerHTML = markup;
+    selectEl.dataset.renderMarkup = markup;
+  }
+
+  const normalizedValue = selectedValue || "";
+  const nextValue = options.some((option) => option.value === normalizedValue) ? normalizedValue : options[0]?.value || "";
+  if (selectEl.value !== nextValue) {
+    selectEl.value = nextValue;
+  }
+}
+
+function renderCameraPage() {
+  els.cameraKeywordInput.value = ui.cameraFilters.keyword;
+  const rows = getFilteredCameras();
+  els.cameraTableBody.innerHTML = rows
+    .map((camera) => {
+      const canManageParam = camera.status !== "离线";
+      return `
+        <tr>
+          <td>${escapeHtml(Demo.getCameraLabel(camera))}</td>
+          <td>${escapeHtml(camera.id || camera.serial)}</td>
+          <td>${escapeHtml(camera.vendor)}</td>
+          <td>${escapeHtml(camera.model)}</td>
+          <td>${renderStatusBadgeHtml(getCameraConnectionStatus(camera))}</td>
+          <td>
+            <div class="camera-row-actions">
+              <button class="table-btn table-btn-primary" data-action="manage-param" data-id="${camera.id}" ${canManageParam ? "" : "disabled"}>参数组管理</button>
+              <button class="table-btn table-btn-danger" data-action="delete-camera" data-id="${camera.id}">删除</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.cameraEmptyState.hidden = rows.length > 0;
+}
+
+function renderIoModulePage() {
+  if (!els.ioKeywordInput) return;
+  els.ioKeywordInput.value = ui.ioFilters.keyword;
+  const rows = getFilteredIoModules();
+  els.ioModuleTableBody.innerHTML = rows
+    .map((module) => {
+      return `
+        <tr>
+          <td>${escapeHtml(module.name)}</td>
+          <td>${escapeHtml(module.model)}</td>
+          <td>${escapeHtml(module.ip || "-")}</td>
+          <td>${escapeHtml(module.port || "-")}</td>
+          <td>${escapeHtml(module.deviceId || "-")}</td>
+          <td>${module.parallel ? "开启" : "关闭"}</td>
+          <td>${renderStatusBadgeHtml(module.status)}</td>
+          <td>
+            <div class="camera-row-actions">
+              <button class="table-btn table-btn-primary" data-action="edit-io-module" data-id="${module.id}">查看</button>
+              <button class="table-btn table-btn-danger" data-action="delete-io-module" data-id="${module.id}">删除</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.ioModuleEmptyState.hidden = rows.length > 0;
+}
+
+function renderRecords() {
+  renderRecordFilters();
+  renderRecordTable();
+}
+
+function renderRecordFilters() {
+  if (ui.recordFilters.runMode === "acquire") ui.recordFilters.runMode = "all";
+  els.recordRunModeFilter.value = ui.recordFilters.runMode;
+  els.recordStartTimeInput.value = ui.recordFilters.startAt;
+  els.recordEndTimeInput.value = ui.recordFilters.endAt;
+  els.recordKeywordInput.value = ui.recordFilters.keyword;
+}
+
+function renderRecordTable() {
+  const rows = getFilteredRecords();
+  syncSelectedRecordsWithRows(rows);
+  const pagination = getRecordPaginationState(rows);
+  const pageRows = rows.slice(pagination.startIndex, pagination.endIndex);
+  const selectedCount = ui.selectedRecordIds.size;
+  const allFilteredSelected = rows.length > 0 && rows.every((record) => ui.selectedRecordIds.has(record.id));
+  els.exportRecordBtn.disabled = selectedCount === 0;
+  els.deleteRecordBatchBtn.disabled = selectedCount === 0;
+  els.dataReturnRecordBatchBtn.disabled = selectedCount === 0;
+  els.selectFilteredRecordsBtn.disabled = rows.length === 0;
+  els.selectFilteredRecordsBtn.textContent = allFilteredSelected ? "全部清除勾选" : "全部选中";
+  els.recordSelectedCount.textContent = `已选 ${selectedCount} 条`;
+  els.recordSelectAll.disabled = pageRows.length === 0;
+  els.recordSelectAll.checked = pageRows.length > 0 && pageRows.every((record) => ui.selectedRecordIds.has(record.id));
+  els.recordSelectAll.indeterminate =
+    pageRows.some((record) => ui.selectedRecordIds.has(record.id)) && !els.recordSelectAll.checked;
+
+  els.recordTableBody.innerHTML = pageRows
+    .map((session) => {
+      const checked = ui.selectedRecordIds.has(session.id) ? "checked" : "";
+      return `
+        <tr>
+          <td class="table-select-col"><input type="checkbox" data-action="select-record" data-id="${session.id}" aria-label="选择检测会话 ${escapeAttribute(session.id)}" ${checked} /></td>
+          <td>${escapeHtml(session.displayId)}</td>
+          <td>${escapeHtml(session.toolName)}</td>
+          <td>${escapeHtml(getRunModeLabel(session.runMode || "detect"))}</td>
+          <td>${Demo.formatDateTime(session.startedAt)}</td>
+          <td>${session.detectedCount}</td>
+          <td>${renderRecordSessionBreakdown(session)}</td>
+          <td>${escapeHtml(session.yieldRate)}</td>
+          <td>${escapeHtml(session.durationText)}</td>
+          <td>
+            <div class="camera-row-actions">
+              <button class="table-btn table-btn-primary" data-action="view-record-detail" data-id="${session.id}">查看详情</button>
+              <button class="table-btn table-btn-danger" data-action="delete-record" data-id="${session.id}">删除</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.recordEmptyState.hidden = rows.length > 0;
+  renderRecordPagination(rows, pagination);
+}
+
+function renderRecordSessionBreakdown(session) {
+  return `
+    <span class="record-session-breakdown">
+      <b class="is-ok">OK ${session.okCount}</b>
+      <b class="is-ng">NG ${session.ngCount}</b>
+      <b class="is-error">异常 ${session.errorCount}</b>
+    </span>
+  `;
+}
+
+function renderRecordTagSummary(record) {
+  const tags = getRuntimeRecordTags(record);
+  if (!tags.length) {
+    return `<span class="record-tag-empty">-</span>`;
+  }
+  return `
+    <div class="record-tag-summary">
+      ${tags.map((tag) => `<span class="record-tag-chip">${escapeHtml(tag)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function getCaptureRecordTags(record) {
+  return Array.from(
+    new Set(
+      (record?.items || [])
+        .flatMap((item) => item.images || [])
+        .flatMap((image) => (Array.isArray(image.tags) ? image.tags : []))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getRecordPaginationState(rows = getFilteredRecords()) {
+  const total = rows.length;
+  const pageSize = ui.recordPagination.pageSize;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, ui.recordPagination.page), totalPages);
+  ui.recordPagination.page = page;
+  const startIndex = total ? (page - 1) * pageSize : 0;
+  const endIndex = total ? Math.min(startIndex + pageSize, total) : 0;
+  return {
+    total,
+    page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+  };
+}
+
+function renderRecordPagination(rows, pagination = getRecordPaginationState(rows)) {
+  if (!els.recordTableFooter || !els.recordPaginationSummary || !els.recordPaginationControls) return;
+  const { total, page, totalPages, startIndex, endIndex } = pagination;
+  els.recordTableFooter.hidden = total === 0;
+  if (!total) {
+    els.recordPaginationSummary.textContent = "";
+    els.recordPaginationControls.innerHTML = "";
+    return;
+  }
+
+  els.recordPaginationSummary.textContent = `共 ${total} 条，第 ${startIndex + 1}-${endIndex} 条`;
+  const pageNumbers = getRecordPaginationNumbers(page, totalPages);
+  els.recordPaginationControls.innerHTML = `
+    <button class="page-btn" data-action="prev-page" type="button" ${page <= 1 ? "disabled" : ""}>上一页</button>
+    ${pageNumbers
+      .map((value) =>
+        value === "ellipsis"
+          ? `<span class="pagination-ellipsis">...</span>`
+          : `<button class="page-btn ${value === page ? "is-active" : ""}" data-action="go-page" data-page="${value}" type="button">${value}</button>`,
+      )
+      .join("")}
+    <button class="page-btn" data-action="next-page" type="button" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+  `;
+}
+
+function getRecordPaginationNumbers(page, totalPages) {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  if (page <= 3) {
+    return [1, 2, 3, 4, "ellipsis", totalPages];
+  }
+  if (page >= totalPages - 2) {
+    return [1, "ellipsis", totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, "ellipsis", page - 1, page, page + 1, "ellipsis", totalPages];
+}
+
+function renderSettings() {
+  renderSettingsPanels();
+  renderClientInfo();
+  renderStoragePanel();
+}
+
+function renderSettingsPanels() {
+  els.settingsTabs.forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.settingsTab === ui.settingsTab);
+  });
+  els.settingsPanels.forEach((panel) => {
+    panel.classList.toggle("is-active", panel.dataset.settingsPanel === ui.settingsTab);
+  });
+}
+
+function renderClientInfo() {
+  const client = Demo.getRuntimeClient(state);
+  const clientStatus = client ? Demo.getClientStatus(client, state.meta.now) : "未绑定";
+  els.clientInfoMeta.innerHTML = [
+    ["设备名称", client?.name || state.runtimeDevice.name],
+    ["客户端版本", "JetCheck Client v1.5"],
+    ["设备编号", state.runtimeDevice.hardwareCode],
+    ["绑定时间", Demo.formatDateTime(client?.boundAt)],
+    ["登录手机号", state.enterprise.account],
+    ["设备状态", clientStatus],
+  ]
+    .map(([label, value]) => `<span>${label}</span><span>${escapeHtml(String(value))}</span>`)
+    .join("");
+  els.editClientNameBtn.disabled = !hasUsableSession();
+  els.unbindClientBtn.disabled = !hasUsableSession() || !state.runtimeDevice.networkOnline;
+}
+
+function editClientName() {
+  const client = Demo.getRuntimeClient(state);
+  const currentName = client?.name || state.runtimeDevice.name || "";
+  openSharedModal({
+    title: "编辑设备名称",
+    body: `
+      <label class="field">
+        <span>设备名称</span>
+        <input id="clientNameInput" type="text" maxlength="24" value="${escapeAttribute(currentName)}" placeholder="请输入设备名称" />
+      </label>
+    `,
+    confirmText: "保存",
+    onConfirm() {
+      const nextName = document.getElementById("clientNameInput").value.trim();
+      if (!nextName) {
+        showToast("请输入设备名称");
+        return false;
+      }
+      state.runtimeDevice.name = nextName;
+      if (client) client.name = nextName;
+      closeSharedModal();
+      persistState("设备名称已更新");
+      return true;
+    },
+  });
+}
+
+function renderStoragePanel() {
+  els.warningThresholdInput.value = String(state.storage.warningGb);
+  els.blockThresholdInput.value = String(state.storage.blockGb);
+  els.thresholdMessage.hidden = true;
+  els.thresholdMessage.textContent = "";
+  els.storageSummaryGrid.innerHTML = [
+    renderStorageSummaryCard("剩余可用空间", Demo.formatGb(state.storage.remainingGb)),
+    renderStorageSummaryCard("检测记录", Demo.formatGb(state.storage.usage.detectImages), {
+      actionType: "detectImages",
+      actionLabel: "清理旧数据",
+      disabled: getCleanupEntries("detectImages").length === 0,
+    }),
+  ].join("");
+}
+
+function handleStorageSummaryClick(event) {
+  const trigger = getClosestEventTarget(event, "[data-clean-type]");
+  if (!trigger) return;
+  confirmCleanup(trigger.dataset.cleanType);
+}
+
+function renderAddCameraModal() {
+  const keyword = ui.discoveryKeyword.toLowerCase();
+  const rows = state.availableCameras.filter((camera) => {
+    if (camera.status === "离线") return false;
+    if (state.cameras.some((item) => item.id === camera.id)) return false;
+    if (!keyword) return true;
+    return [camera.name || "", camera.id, camera.vendor, camera.model, camera.serial].some((value) => value.toLowerCase().includes(keyword));
+  });
+
+  els.cameraDiscoveryBody.innerHTML = rows.length
+    ? rows
+        .map((camera) => {
+          return `
+            <tr>
+              <td><input type="checkbox" value="${camera.id}" /></td>
+              <td>${escapeHtml(Demo.getCameraLabel(camera))}</td>
+              <td>${escapeHtml(camera.id)}</td>
+              <td>${escapeHtml(camera.vendor)}</td>
+              <td>${escapeHtml(camera.model)}</td>
+              <td>${escapeHtml(camera.serial)}</td>
+              <td>${escapeHtml(camera.ip)}</td>
+            </tr>
+          `;
+        })
+        .join("")
+    : `
+        <tr>
+          <td colspan="7" class="empty-state">当前没有可添加的相机</td>
+        </tr>
+      `;
+}
+
+function renderParamModal() {
+  const camera = getActiveCamera();
+  const referencedParamIds = Demo.getReferencedParamIds(state);
+  els.paramModalTitle.textContent = "参数组管理";
+  els.addParamGroupBtn.disabled = !camera;
+  if (!camera) {
+    els.paramGroupList.innerHTML = `<div class="builder-empty">暂无可管理的相机参数组。</div>`;
+    els.paramFormFields.innerHTML = "";
+    els.paramPreviewCaption.textContent = "相机画面";
+    els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
+    return;
+  }
+
+  const group = getActiveParamGroup();
+  els.paramGroupList.innerHTML = renderParamGroupList(camera, referencedParamIds);
+  if (!group) {
+    els.paramFormFields.innerHTML = "";
+    els.paramPreviewCaption.textContent = "相机画面";
+    els.paramPreviewStage.style.aspectRatio = "2448 / 2048";
+    return;
+  }
+
+  els.paramFormFields.innerHTML = renderParamFields(camera, group);
+  syncParamPreview(camera, group);
+  els.paramFormScroll.scrollTop = 0;
+}
+
+function renderParamGroupList(camera, referencedParamIds) {
+  return camera.paramGroups
+    .map((item) => {
+      const referenced = referencedParamIds.has(item.id);
+      const active = item.id === ui.activeParamGroupId;
+      const canDelete = !referenced && camera.paramGroups.length > 1;
+      return `
+        <article class="param-group-item ${active ? "is-active" : ""}">
+          <button class="param-group-main" data-group-id="${item.id}">
+            <strong>${escapeHtml(getParamGroupDisplayName(item))}</strong>
+          </button>
+          <button
+            class="table-btn table-btn-danger param-group-delete"
+            data-action="delete-param-group"
+            data-group-id="${item.id}"
+            ${canDelete ? "" : "disabled"}
+          >
+            删除
+          </button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function syncParamPreview(camera, group) {
+  els.paramPreviewStage.style.aspectRatio = getParamPreviewAspectRatio(group);
+  els.paramPreviewCaption.textContent = getParamPreviewCaption(camera, group);
+  els.paramPreviewStage.style.setProperty("--preview-zoom", ui.paramPreviewZoom);
+}
+
+function renderModelDrawer() {
+  els.modelDrawerFooter.hidden = ui.modelDrawerMode !== "select-local";
+  els.modelSelectPanel.hidden = ui.modelDrawerMode !== "select-local";
+  els.cloudModelPanel.hidden = ui.modelDrawerMode !== "cloud-add";
+  els.modelDrawer.querySelector(".drawer-header h3").textContent =
+    ui.modelDrawerMode === "select-local" ? ui.modelTarget?.title || "选择算子" : "从平台拉取算子";
+  if (ui.modelDrawerMode === "select-local") {
+    renderSelectorModels();
+    return;
+  }
+  renderCloudModels();
+}
+
+function getFilteredLocalModels() {
+  const keyword = ui.localFilters.keyword.trim().toLowerCase();
+  return state.localModels.filter((model) => {
+    const keywordMatch =
+      !keyword ||
+      [model.modelName, Demo.getModelVersionLabel(model), model.version].some((value) => value.toLowerCase().includes(keyword));
+    const sceneMatch = ui.localFilters.scene === "all" || model.sceneType === ui.localFilters.scene;
+    return keywordMatch && sceneMatch;
+  });
+}
+
+function renderLocalModels() {
+  els.localModelKeywordFilter.value = ui.localFilters.keyword;
+  els.localSceneFilter.value = ui.localFilters.scene;
+
+  const rows = getFilteredLocalModels();
+  const hasModels = rows.length > 0;
+  els.localModelEmpty.hidden = hasModels;
+  els.localModelEmpty.textContent = state.localModels.length ? "没有符合条件的算子" : "暂无数据";
+  els.localModelTableBody.innerHTML = hasModels
+    ? rows
+        .map((model) => {
+          const referenceCount = getLocalModelReferenceCount(model.id);
+          return `
+            <tr>
+              <td>${escapeHtml(model.modelName)}</td>
+              <td>${escapeHtml(model.sceneType)}</td>
+              <td>${escapeHtml(Demo.getModelVersionLabel(model))}</td>
+              <td>${escapeHtml(model.source)}</td>
+              <td>${Demo.formatDateTime(model.addedAt)}</td>
+              <td>${renderReferenceStatusHtml(referenceCount)}</td>
+              <td><button class="table-btn table-btn-danger" data-action="delete-local-model" data-model-id="${model.id}">删除</button></td>
+            </tr>
+          `;
+        })
+        .join("")
+    : "";
+}
+
+function getFilteredSelectorModels() {
+  const keyword = ui.modelSelectorFilters.keyword.trim().toLowerCase();
+  const allowedScenes = Array.isArray(ui.modelTarget?.allowedScenes) ? ui.modelTarget.allowedScenes : [];
+  return state.localModels.filter((model) => {
+    const keywordMatch =
+      !keyword ||
+      [model.modelName, Demo.getModelVersionLabel(model), model.version].some((value) => value.toLowerCase().includes(keyword));
+    const fixedSceneMatch = !allowedScenes.length || allowedScenes.includes(model.sceneType);
+    const sceneMatch = ui.modelSelectorFilters.scene === "all" || model.sceneType === ui.modelSelectorFilters.scene;
+    return keywordMatch && fixedSceneMatch && sceneMatch;
+  });
+}
+
+function renderSelectorModels() {
+  const fixedScenes = Array.isArray(ui.modelTarget?.allowedScenes) ? ui.modelTarget.allowedScenes : [];
+  if (fixedScenes.length === 1) {
+    ui.modelSelectorFilters.scene = fixedScenes[0];
+  }
+  els.selectorModelKeywordFilter.value = ui.modelSelectorFilters.keyword;
+  els.selectorModelSceneFilter.value = ui.modelSelectorFilters.scene;
+  els.selectorModelSceneFilter.disabled = fixedScenes.length === 1;
+
+  const rows = getFilteredSelectorModels();
+  if (!rows.length) {
+    ui.selectedModelId = null;
+  } else if (!ui.selectedModelId || !rows.some((model) => model.id === ui.selectedModelId)) {
+    ui.selectedModelId = rows[0].id;
+  }
+
+  const hasModels = rows.length > 0;
+  els.confirmModelSelectBtn.disabled = !hasModels;
+  els.selectorModelEmpty.hidden = hasModels;
+  els.selectorModelEmpty.textContent = state.localModels.length ? "没有符合条件的算子" : "暂无已缓存算子，可从平台拉取或导入算子包";
+  els.selectorModelTableBody.innerHTML = hasModels
+    ? rows
+        .map((model) => {
+          const selected = ui.selectedModelId === model.id;
+          return `
+            <tr data-action="select-selector-model" data-model-id="${model.id}" class="${selected ? "row-selected" : ""}">
+              <td>${escapeHtml(model.modelName)}</td>
+              <td>${escapeHtml(model.sceneType)}</td>
+              <td>${escapeHtml(Demo.getModelVersionLabel(model))}</td>
+              <td>${escapeHtml(model.source)}</td>
+              <td>${Demo.formatDateTime(model.addedAt)}</td>
+            </tr>
+          `;
+        })
+        .join("")
+    : "";
+}
+
+function renderCloudModels() {
+  els.cloudModelKeywordFilter.value = ui.cloudFilters.keyword;
+  els.cloudSceneFilter.value = ui.cloudFilters.scene;
+
+  if (!state.runtimeDevice.networkOnline) {
+    els.cloudModelList.innerHTML = `<p class="banner banner-neutral">当前离线，无法从平台拉取算子</p>`;
+    return;
+  }
+
+  const rows = state.cloudModels.filter((model) => {
+    const keyword = ui.cloudFilters.keyword.trim().toLowerCase();
+    const keywordMatch =
+      !keyword ||
+      model.modelName.toLowerCase().includes(keyword) ||
+      model.versions.some((version) => [Demo.getModelVersionLabel(version), version.version].some((value) => value.toLowerCase().includes(keyword)));
+    const sceneMatch = ui.cloudFilters.scene === "all" || model.sceneType === ui.cloudFilters.scene;
+    return keywordMatch && sceneMatch;
+  });
+
+  if (!rows.length) {
+    els.cloudModelList.innerHTML = `<div class="builder-empty">暂无符合条件的平台算子</div>`;
+    return;
+  }
+
+  els.cloudModelList.innerHTML = rows
+    .map((model) => {
+      return `
+        <div class="cloud-model-card">
+          <div class="cloud-model-card-head">
+            <div class="cloud-model-card-copy">
+              <div class="cloud-model-card-title-row">
+                <h4>${escapeHtml(model.modelName)}</h4>
+                <span class="cloud-model-count">${model.versions.length} 个版本</span>
+              </div>
+              <p class="muted">${escapeHtml(model.sceneType)} · 最近更新时间 ${Demo.formatDateTime(model.updatedAt)}</p>
+            </div>
+          </div>
+          <div class="cloud-version-list">
+            ${model.versions.map((version) => renderCloudVersionRow(model, version)).join("")}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderNavigationState(page) {
+  ui.activePage = page;
+  renderNavigation();
+}
+
+function switchPage(page, options = {}) {
+  ui.activePage = page;
+  if (page === "detect-tools" && options.resetToolView !== false) {
+    ui.toolView = "overview";
+    ui.runtimeInitialToolId = null;
+    stopRuntimeCarousel();
+  }
+  if (options.settingsTab) ui.settingsTab = options.settingsTab;
+  renderAll();
+}
+
+function switchToolView(view) {
+  if (view === "builder" && !hasUsableSession()) return;
+  ui.toolView = view;
+  if (view !== "runtime") {
+    ui.runtimeInitialToolId = null;
+    stopRuntimeCarousel();
+  }
+  if (view === "builder") {
+    ui.builderStep = getRecommendedBuilderStep(getActiveTool(), ui.builderStep);
+  }
+  renderChromeState();
+  renderTools();
+}
+
+function setBuilderStep(step) {
+  if (!canEnterBuilderStep(step)) {
+    showToast("请先完成前一步的基础配置，再继续下一步");
+    return;
+  }
+  ui.builderStep = step;
+  renderToolBuilder();
+}
+
+function moveBuilderStep(direction) {
+  const currentIndex = BUILDER_STEPS.indexOf(ui.builderStep);
+  const nextStep = BUILDER_STEPS[currentIndex + direction];
+  if (!nextStep) return;
+  setBuilderStep(nextStep);
+}
+
+function openCreateToolModal() {
+  openSharedModal({
+    title: "新建检测工具",
+    body: `
+      <label class="field">
+        <span>检测工具名称</span>
+        <input id="createToolInput" type="text" maxlength="24" placeholder="请输入检测工具名称" />
+      </label>
+    `,
+    confirmText: "创建",
+    onOpen() {
+      const input = document.getElementById("createToolInput");
+      input?.focus();
+    },
+    onConfirm() {
+      const input = document.getElementById("createToolInput");
+      const name = input?.value.trim() || "";
+      if (!name) {
+        showToast("请输入检测工具名称");
+        input?.focus();
+        return false;
+      }
+      closeSharedModal();
+      createTool(name);
+      return true;
+    },
+  });
+}
+
+function createTool(name) {
+  const tool = {
+    id: Demo.makeId("tool"),
+    name,
+    tone: "tone-blue",
+    acquire: [],
+    process: [],
+    detect: [],
+    ioConfig: createEmptyIoConfig(),
+    runtime: {
+      lastRunAt: null,
+      status: "未配置",
+      primaryResult: "-",
+      cycleTime: "-",
+    },
+  };
+  state.tools.unshift(tool);
+  ui.activeToolId = tool.id;
+  ui.toolView = "builder";
+  ui.builderStep = getRecommendedBuilderStep(tool, "acquire");
+  persistState("已创建新的检测工具");
+}
+
+function isToolEditingLocked(tool = getActiveTool()) {
+  return isToolSessionRunning(tool);
+}
+
+function renameActiveTool() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  if (isToolEditingLocked(tool)) {
+    showToast("工具运行中，不能编辑配置，请先结束运行");
+    return;
+  }
+  openSharedModal({
+    title: "编辑检测工具名称",
+    body: `
+      <label class="field">
+        <span>检测工具名称</span>
+        <input id="renameToolInput" type="text" maxlength="24" value="${escapeAttribute(tool.name)}" />
+      </label>
+    `,
+    confirmText: "保存",
+    onConfirm() {
+      const input = document.getElementById("renameToolInput");
+      const name = input.value.trim();
+      if (!name) {
+        showToast("请输入检测工具名称");
+        return false;
+      }
+      tool.name = name;
+      closeSharedModal();
+      persistState("检测工具名称已更新");
+      return true;
+    },
+  });
+}
+
+function deleteActiveTool() {
+  if (state.tools.length <= 1) {
+    showToast("至少保留一个检测工具");
+    return;
+  }
+  const tool = getActiveTool();
+  if (!tool) return;
+  if (isToolEditingLocked(tool)) {
+    showToast("工具运行中，不能编辑配置，请先结束运行");
+    return;
+  }
+  openSharedModal({
+    title: "删除检测工具",
+    body: `<p class="banner banner-danger">删除后该工具的配置会被移除，运行入口也会消失。是否继续删除“${escapeHtml(tool.name)}”？</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.tools = state.tools.filter((item) => item.id !== tool.id);
+      ui.activeToolId = state.tools[0]?.id || null;
+      ui.toolView = "overview";
+      closeSharedModal();
+      persistState("检测工具已删除");
+      return true;
+    },
+  });
+}
+
+function handleToolCardClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, id } = actionEl.dataset;
+  if (action === "create-tool") return openCreateToolModal();
+  if (action === "edit-tool") return openToolBuilder(id);
+  if (action === "copy-tool") return openCopyToolModal(id);
+  if (action === "open-capture-library") return openCaptureToolLibrary(id);
+  if (action === "open-io-config") return openToolIoConfig(id);
+  if (action === "open-tool-runtime") return openToolRuntime(id);
+}
+
+function openCopyToolModal(toolId) {
+  const source = state.tools.find((item) => item.id === toolId);
+  if (!source) return;
+  if (isToolEditingLocked(source)) {
+    showToast("工具运行中，不能复制配置，请先结束运行");
+    return;
+  }
+  const defaultName = `${source.name} 副本`;
+  openSharedModal({
+    title: "复制检测工具",
+    body: `
+      <label class="field">
+        <span>检测工具名称</span>
+        <input id="copyToolNameInput" type="text" maxlength="24" value="${escapeAttribute(defaultName)}" />
+      </label>
+    `,
+    confirmText: "创建",
+    onOpen() {
+      const input = document.getElementById("copyToolNameInput");
+      input?.focus();
+      input?.select();
+    },
+    onConfirm() {
+      const input = document.getElementById("copyToolNameInput");
+      const name = input?.value.trim() || "";
+      if (!name) {
+        showToast("请输入检测工具名称");
+        input?.focus();
+        return false;
+      }
+      const copied = cloneToolForCopy(source, name);
+      state.tools.unshift(copied);
+      ui.activeToolId = copied.id;
+      ui.toolView = "builder";
+      ui.builderStep = getRecommendedBuilderStep(copied, "acquire");
+      closeSharedModal();
+      persistState("检测工具已复制");
+      return true;
+    },
+  });
+}
+
+function cloneToolForCopy(source, name) {
+  const acquireIdMap = new Map();
+  const processIdMap = new Map();
+  const detectIdMap = new Map();
+  const acquire = (source.acquire || []).map((item) => {
+    const id = Demo.makeId("acq");
+    acquireIdMap.set(item.id, id);
+    return { ...JSON.parse(JSON.stringify(item)), id };
+  });
+  const process = (source.process || []).map((item) => {
+    const id = Demo.makeId("proc");
+    processIdMap.set(item.id, id);
+    return {
+      ...JSON.parse(JSON.stringify(item)),
+      id,
+      inputId: acquireIdMap.get(item.inputId) || item.inputId || "",
+    };
+  });
+  const detect = (source.detect || []).map((item) => {
+    const id = Demo.makeId("det");
+    detectIdMap.set(item.id, id);
+    return {
+      ...JSON.parse(JSON.stringify(item)),
+      id,
+      processIds: (item.processIds || []).map((processId) => processIdMap.get(processId) || processId),
+      targets: (item.targets || []).map((target) => ({
+        ...target,
+        processId: processIdMap.get(target.processId) || target.processId || "",
+      })),
+    };
+  });
+  return {
+    id: Demo.makeId("tool"),
+    name,
+    tone: source.tone || "tone-blue",
+    acquire,
+    process,
+    detect,
+    ioConfig: cloneIoConfigForTool(source.ioConfig),
+    runtime: {
+      lastRunAt: null,
+      status: "未运行",
+      primaryResult: "-",
+      cycleTime: "-",
+      sessionActive: false,
+      sessionMode: source.runtime?.sessionMode || getHighestAvailableRunMode(source) || "detect",
+    },
+  };
+}
+
+function cloneIoConfigForTool(ioConfig) {
+  const source = ioConfig && typeof ioConfig === "object" ? ioConfig : createEmptyIoConfig();
+  return {
+    moduleIds: Array.isArray(source.moduleIds) ? [...source.moduleIds] : [],
+    input: (source.input || []).map((item) => ({ ...item, id: Demo.makeId("io_in") })),
+    output: (source.output || []).map((item) => ({ ...item, id: Demo.makeId("io_out") })),
+  };
+}
+
+function openToolBuilder(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (isToolEditingLocked(tool)) {
+    showToast("工具运行中，不能编辑配置，请先结束运行");
+    return;
+  }
+  ui.activeToolId = toolId;
+  ui.builderStep = getRecommendedBuilderStep(getActiveTool(), ui.builderStep);
+  ui.toolView = "builder";
+  ui.runtimeInitialToolId = null;
+  renderAll();
+}
+
+function openToolIoConfig(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  if (isToolEditingLocked(tool)) {
+    showToast("工具运行中，不能编辑IO配置，请先结束运行");
+    return;
+  }
+  ui.activeToolId = toolId;
+  ui.activeIoConfigTab = ui.activeIoConfigTab || "input";
+  ui.toolView = "io-config";
+  ui.runtimeInitialToolId = null;
+  renderAll();
+}
+
+function handleIoConfigTabClick(event) {
+  const tab = getClosestEventTarget(event, "[data-io-tab]");
+  if (!tab) return;
+  ui.activeIoConfigTab = tab.dataset.ioTab === "output" ? "output" : "input";
+  renderToolIoConfig();
+}
+
+function handleToolIoConfigClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, direction, id, moduleId, point } = actionEl.dataset;
+  if (action === "add-tool-io-module") return openAddToolIoModuleModal();
+  if (action === "switch-tool-io-module") {
+    ui.activeToolIoModuleId = id;
+    renderToolIoConfig();
+    return;
+  }
+  if (action === "remove-active-tool-io-module") return removeToolIoModule(id);
+  if (action === "open-tool-io-point-config") return openToolIoPointConfigModal({ direction, moduleId, point });
+}
+
+function handleToolIoConfigChange(event) {
+  const target = event.target;
+  if (target?.dataset?.role === "io-event-scope") {
+    const row = target.closest("[data-event-row]");
+    syncIoEventActionOptions(row);
+  }
+}
+
+function openAddToolIoModuleModal() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const config = getToolIoConfig(tool);
+  const candidates = state.ioModules.filter((module) => !config.moduleIds.includes(module.id));
+  if (!candidates.length) {
+    showToast("暂无可添加的IO模块");
+    return;
+  }
+  openSharedModal({
+    title: "添加IO模块",
+    body: `
+      <label class="field">
+        <span>选择IO模块</span>
+        <select id="toolIoModuleSelect">
+          ${state.ioModules
+            .map((module) => {
+              const selected = candidates[0]?.id === module.id;
+              const disabled = config.moduleIds.includes(module.id);
+              const suffix = disabled ? "（已添加）" : "";
+              return `<option value="${module.id}" ${selected ? "selected" : ""} ${disabled ? "disabled" : ""}>${escapeHtml(module.name)} / ${escapeHtml(module.model)}${suffix}</option>`;
+            })
+            .join("")}
+        </select>
+      </label>
+    `,
+    confirmText: "添加",
+    onConfirm() {
+      const moduleId = document.getElementById("toolIoModuleSelect")?.value || "";
+      if (!moduleId) return showToast("请选择IO模块");
+      if (!config.moduleIds.includes(moduleId)) config.moduleIds.push(moduleId);
+      ui.activeToolIoModuleId = moduleId;
+      closeSharedModal();
+      persistState("IO模块已添加到当前工具");
+      return true;
+    },
+  });
+}
+
+function removeToolIoModule(moduleId) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const config = getToolIoConfig(tool);
+  openSharedModal({
+    title: "移除IO模块",
+    body: `<p class="banner banner-warning">移除模块会同时清除该模块在当前工具下的点位事件配置。是否继续？</p>`,
+    confirmText: "确认移除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      config.moduleIds = config.moduleIds.filter((id) => id !== moduleId);
+      config.input = config.input.filter((item) => item.moduleId !== moduleId);
+      config.output = config.output.filter((item) => item.moduleId !== moduleId);
+      if (ui.activeToolIoModuleId === moduleId) ui.activeToolIoModuleId = config.moduleIds[0] || "";
+      closeSharedModal();
+      persistState("IO模块已移除");
+      return true;
+    },
+  });
+}
+
+function openToolIoPointConfigModal({ direction, moduleId, point }) {
+  const tool = getActiveTool();
+  const module = state.ioModules.find((item) => item.id === moduleId);
+  if (!tool || !module || !point) return;
+  const title = `${direction === "input" ? "触发输入点位" : "输出信号点位"} · ${point}`;
+  openSharedModal({
+    title,
+    panelClass: "modal-io-point-config",
+    body: `
+      <div class="io-point-event-modal" data-direction="${direction}" data-module-id="${moduleId}" data-point="${escapeAttribute(point)}">
+        <div class="io-point-event-scroll">
+          <table class="io-point-event-table ${direction === "input" ? "is-input" : "is-output"}">
+            <thead>
+              <tr>
+                ${direction === "input" ? "<th>顺序</th>" : ""}
+                <th>对象</th>
+                <th>事件</th>
+                ${direction === "output" ? "<th>信号持续秒数</th>" : ""}
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ioPointEventList">
+              ${renderIoPointEventRows(tool, moduleId, point, direction)}
+            </tbody>
+          </table>
+        </div>
+        <button class="secondary-btn" type="button" id="addIoPointEventBtn">添加事件</button>
+      </div>
+    `,
+    confirmText: "保存",
+    onOpen() {
+      bindIoPointEventModal(direction);
+    },
+    onConfirm() {
+      saveIoPointEventModal({ tool, moduleId, point, direction });
+      closeSharedModal();
+      persistState("点位事件已保存");
+      return true;
+    },
+  });
+}
+
+function renderIoPointEventRows(tool, moduleId, point, direction) {
+  const rows = findToolIoConfigsByPoint(tool, moduleId, point, direction);
+  const sourceRows = rows.length ? rows : [];
+  if (!sourceRows.length) return `<tr class="io-event-empty-row"><td colspan="${direction === "input" ? 4 : 4}">当前点位还没有绑定事件。</td></tr>`;
+  return sourceRows.map((item) => renderIoPointEventRow(tool, item, direction)).join("");
+}
+
+function renderIoPointEventRow(tool, item, direction) {
+  const parsed = parseIoEventType(item.type, direction);
+  return `
+    <tr class="io-point-event-row" data-event-row draggable="${direction === "input" ? "true" : "false"}" data-id="${escapeAttribute(item.id)}">
+      ${direction === "input" ? `<td><span class="io-drag-handle" title="拖动调整顺序">≡</span></td>` : ""}
+      <td>
+        <select data-role="io-event-scope">
+          ${getIoEventScopeOptions(tool, direction)
+            .map((option) => `<option value="${escapeAttribute(option.value)}" ${option.value === parsed.scope ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+            .join("")}
+        </select>
+      </td>
+      <td><select data-role="io-event-action" data-selected-action="${escapeAttribute(parsed.action)}"></select></td>
+      ${direction === "output" ? `<td><input data-role="io-event-duration" type="number" min="0.1" step="0.1" value="${escapeAttribute(item.duration || 1)}" /></td>` : ""}
+      <td><button class="table-btn table-btn-danger" type="button" data-action="delete-io-point-event">删除</button></td>
+    </tr>
+  `;
+}
+
+function bindIoPointEventModal(direction) {
+  const list = document.getElementById("ioPointEventList");
+  const addBtn = document.getElementById("addIoPointEventBtn");
+  list?.querySelectorAll("[data-event-row]").forEach(syncIoEventActionOptions);
+  addBtn?.addEventListener("click", () => {
+    if (list.querySelector(".io-event-empty-row")) list.innerHTML = "";
+    const tool = getActiveTool();
+    const item = createDefaultIoEventItem(tool, direction);
+    list.insertAdjacentHTML("beforeend", renderIoPointEventRow(tool, item, direction));
+    const row = list.lastElementChild;
+    syncIoEventActionOptions(row);
+  });
+  list?.addEventListener("click", (event) => {
+    const deleteBtn = getClosestEventTarget(event, "[data-action='delete-io-point-event']");
+    if (!deleteBtn) return;
+    deleteBtn.closest("[data-event-row]")?.remove();
+    if (!list.querySelector("[data-event-row]")) {
+      list.innerHTML = `<tr class="io-event-empty-row"><td colspan="${direction === "input" ? 4 : 4}">当前点位还没有绑定事件。</td></tr>`;
+    }
+  });
+  list?.addEventListener("change", (event) => {
+    if (event.target?.dataset?.role !== "io-event-scope") return;
+    syncIoEventActionOptions(event.target.closest("[data-event-row]"));
+  });
+  if (direction === "input") bindDraggableIoEventRows(list);
+}
+
+function bindDraggableIoEventRows(list) {
+  let draggingRow = null;
+  list?.addEventListener("dragstart", (event) => {
+    draggingRow = event.target.closest("[data-event-row]");
+    if (draggingRow) draggingRow.classList.add("is-dragging");
+  });
+  list?.addEventListener("dragend", () => {
+    draggingRow?.classList.remove("is-dragging");
+    draggingRow = null;
+  });
+  list?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (!draggingRow) return;
+    const rows = Array.from(list.querySelectorAll("[data-event-row]:not(.is-dragging)"));
+    const afterRow = rows.find((row) => event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2);
+    if (afterRow) {
+      list.insertBefore(draggingRow, afterRow);
+    } else {
+      list.appendChild(draggingRow);
+    }
+  });
+}
+
+function syncIoEventActionOptions(row) {
+  if (!row) return;
+  const direction = els.sharedModalBody.querySelector(".io-point-event-modal")?.dataset.direction || "input";
+  const scope = row.querySelector("[data-role='io-event-scope']")?.value || "cycle";
+  const actionSelect = row.querySelector("[data-role='io-event-action']");
+  if (!actionSelect) return;
+  const selected = actionSelect.value || actionSelect.dataset.selectedAction || "";
+  const options = getIoEventActionOptions(direction, scope);
+  actionSelect.innerHTML = options.map((option) => `<option value="${escapeAttribute(option.value)}">${escapeHtml(option.label)}</option>`).join("");
+  actionSelect.value = options.some((option) => option.value === selected) ? selected : options[0]?.value || "";
+  actionSelect.dataset.selectedAction = actionSelect.value;
+}
+
+function saveIoPointEventModal({ tool, moduleId, point, direction }) {
+  const config = getToolIoConfig(tool);
+  const rows = Array.from(els.sharedModalBody.querySelectorAll("[data-event-row]"));
+  const otherItems = config[direction].filter((item) => !(item.moduleId === moduleId && item.point === point));
+  const nextItems = rows.map((row, index) => {
+    const scope = row.querySelector("[data-role='io-event-scope']")?.value || "cycle";
+    const action = row.querySelector("[data-role='io-event-action']")?.value || "";
+    const type = buildIoEventType(scope, action, direction);
+    return {
+      id: row.dataset.id || Demo.makeId(`io_${direction}`),
+      type,
+      name: getIoActionLabel(tool, type, direction),
+      moduleId,
+      point,
+      priority: index + 1,
+      duration: Number(row.querySelector("[data-role='io-event-duration']")?.value || 1),
+    };
+  });
+  config[direction] = otherItems.concat(nextItems);
+}
+
+function openToolRuntime(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  if (!getToolAvailableRunModes(tool).length) {
+    showToast("当前工具尚未完成配置");
+    ui.activeToolId = toolId;
+    ui.builderStep = getRecommendedBuilderStep(tool, ui.builderStep);
+    ui.toolView = "builder";
+    renderAll();
+    return;
+  }
+  if (!isToolSessionRunning(tool)) {
+    openLaunchToolModal(toolId);
+    return;
+  }
+  ui.activeToolId = toolId;
+  ui.toolView = "runtime";
+  if (getRuntimeSessionRecords(tool).length) {
+    clearRuntimeInitialState(toolId);
+  } else {
+    activateRuntimeInitialState(toolId);
+  }
+  syncUiSelections();
+  renderAll();
+}
+
+function openLaunchToolModal(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  const availableModes = getToolAvailableRunModes(tool);
+  if (!availableModes.length) {
+    showToast("当前工具还没有可运行的模式");
+    return;
+  }
+  openSharedModal({
+    title: `开始检测 · ${tool.name}`,
+    panelClass: "modal-launch",
+    bodyClass: "modal-body-launch",
+    hideConfirm: true,
+    hideCancel: true,
+    body: `
+      <div class="launch-mode-grid">
+        ${RUN_MODE_OPTIONS.map((item) => {
+          const enabled = availableModes.some((modeItem) => modeItem.value === item.value);
+          const toneClass = `launch-mode-card-${item.value}`;
+          return `
+            <button
+              class="launch-mode-card ${toneClass} ${enabled ? "" : "is-disabled"}"
+              data-run-mode="${item.value}"
+              type="button"
+              ${enabled ? "" : "disabled"}
+            >
+              <div class="launch-mode-head">
+                <strong>${escapeHtml(item.label)}</strong>
+              </div>
+              <p>${escapeHtml(enabled ? item.hint : `当前配置未满足${item.label}要求`)}</p>
+              ${enabled ? "" : `<span class="launch-mode-state">当前不可用</span>`}
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `,
+    onOpen() {
+      els.sharedModalBody.querySelectorAll("[data-run-mode]").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (button.disabled) return;
+          const runMode = button.dataset.runMode || "";
+          if (runMode === "acquire") {
+            startDefaultCaptureBatch(toolId);
+            return;
+          }
+          startToolRunSession(toolId, runMode);
+        });
+      });
+    },
+  });
+}
+
+function startDefaultCaptureBatch(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool?.acquire?.length) return;
+  const previous = state.captureRecords.find((record) => record.toolId === toolId);
+  const items = tool.acquire.map((acquire) => {
+    const previousItem = previous?.items?.find((item) => item.acquireId === acquire.id);
+    const availableTags = Array.isArray(previousItem?.availableTags)
+      ? [...previousItem.availableTags].slice(0, CAPTURE_TAG_MAX_COUNT)
+      : ["OK", "NG"];
+    return {
+      acquireId: acquire.id,
+      acquireName: acquire.name || "图像获取",
+      enabled: true,
+      availableTags,
+      selectedTag: "",
+      selectedTags: [],
+      tagSelectMode: previousItem?.tagSelectMode === "multiple" ? "multiple" : "single",
+      images: [],
+    };
+  });
+  createCaptureBatch(tool, items);
+  closeSharedModal();
+}
+
+function openCaptureBatchSetup(toolId) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool?.acquire?.length) return;
+  const previous = state.captureRecords.find((record) => record.toolId === toolId);
+  openSharedModal({
+    title: `开始采图 · ${tool.name}`,
+    panelClass: "modal-capture-setup",
+    body: renderCaptureConfigurationForm(tool, previous, { selectAllByDefault: true }),
+    confirmText: "开始采图",
+    onOpen: bindCaptureConfigurationForm,
+    onConfirm() {
+      const configuration = readCaptureConfiguration(tool);
+      const items = configuration.items;
+      if (!items.some((item) => item.enabled)) {
+        showToast("请至少选择一个图像获取项");
+        return false;
+      }
+      createCaptureBatch(tool, items);
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function renderCaptureConfigurationForm(tool, source = null, options = {}) {
+  return `
+    <div class="capture-setup-table">
+      <div class="capture-setup-head">
+        <span>图像获取项</span><span>相机 / 参数组</span><span>本次采集</span>
+      </div>
+      ${tool.acquire
+        .map((acquire, index) => {
+          const sourceItem = source?.items?.find((item) => item.acquireId === acquire.id);
+          const enabled = options.selectAllByDefault || !sourceItem ? true : sourceItem.enabled !== false;
+          return `
+            <div class="capture-setup-row" data-capture-setup-row data-acquire-id="${escapeAttribute(acquire.id)}">
+              <strong>${escapeHtml(acquire.name || `图像获取 ${index + 1}`)}</strong>
+              <span>${escapeHtml(getAcquireInputSource(acquire))}</span>
+              <label class="capture-enable-switch">
+                <input data-capture-enabled type="checkbox" ${enabled ? "checked" : ""} aria-label="${escapeAttribute(acquire.name || `图像获取 ${index + 1}`)}是否采集" />
+                <i></i><span>${enabled ? "采集" : "不采集"}</span>
+              </label>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function bindCaptureConfigurationForm() {
+  const itemCheckboxes = Array.from(els.sharedModalBody.querySelectorAll("[data-capture-enabled]"));
+  itemCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const copy = checkbox.closest(".capture-enable-switch")?.querySelector("span");
+      if (copy) copy.textContent = checkbox.checked ? "采集" : "不采集";
+    });
+  });
+}
+
+function readCaptureConfiguration(tool, existingItems = []) {
+  const rows = Array.from(els.sharedModalBody.querySelectorAll("[data-capture-setup-row]"));
+  return {
+    items: rows.map((row) => {
+      const acquire = tool.acquire.find((entry) => entry.id === row.dataset.acquireId);
+      const existingItem = existingItems.find((item) => item.acquireId === acquire?.id);
+      const availableTags = (Array.isArray(existingItem?.availableTags) ? existingItem.availableTags : ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT);
+      const selectedTags = normalizeCaptureSelectedTags(existingItem, availableTags);
+      return {
+        acquireId: acquire?.id || "",
+        acquireName: acquire?.name || "",
+        enabled: Boolean(row.querySelector("[data-capture-enabled]")?.checked),
+        availableTags,
+        selectedTag: availableTags.includes(existingItem?.selectedTag) ? existingItem.selectedTag : selectedTags[0] || "",
+        selectedTags,
+        tagSelectMode: existingItem?.tagSelectMode === "multiple" ? "multiple" : "single",
+        images: existingItem?.images || [],
+      };
+    }),
+  };
+}
+
+function openCaptureRuntimeConfiguration() {
+  const tool = getActiveTool();
+  const batch = getActiveCaptureBatch(tool);
+  if (!tool || !batch) return;
+  openSharedModal({
+    title: "采图设置",
+    panelClass: "modal-capture-setup",
+    body: renderCaptureConfigurationForm(tool, batch),
+    confirmText: "保存设置",
+    onOpen: bindCaptureConfigurationForm,
+    onConfirm() {
+      const configuration = readCaptureConfiguration(tool, batch.items);
+      if (!configuration.items.some((item) => item.enabled)) {
+        showToast("请至少选择一个图像获取项");
+        return false;
+      }
+      batch.items = configuration.items;
+      if (!batch.items.some((item) => item.acquireId === ui.activeCaptureItemId && item.enabled)) {
+        ui.activeCaptureItemId = batch.items.find((item) => item.enabled)?.acquireId || "";
+        ui.activeCaptureImageId = "";
+      }
+      closeSharedModal();
+      persistState("当前采图设置已更新");
+      return true;
+    },
+  });
+}
+
+function createCaptureBatch(tool, items) {
+  const blockingModule = getToolBlockingIoModuleForRun(tool);
+  if (blockingModule) {
+    showToast(`IO模块“${blockingModule.name}”未开启工具并行，当前只能启动一个关联工具`);
+    return;
+  }
+  syncSystemNow();
+  const batch = {
+    id: `CAP-${state.meta.now.slice(0, 10).replace(/-/g, "")}-${String(state.captureRecords.length + 1).padStart(3, "0")}`,
+    toolId: tool.id,
+    toolName: tool.name,
+    status: "采集中",
+    startedAt: state.meta.now,
+    completedAt: "",
+    capturedTotal: 0,
+    items,
+  };
+  state.captureRecords.unshift(batch);
+  tool.runtime.sessionActive = true;
+  tool.runtime.sessionMode = "acquire";
+  tool.runtime.status = "等待采图";
+  tool.runtime.captureBatchId = batch.id;
+  ui.activeToolId = tool.id;
+  ui.toolView = "runtime";
+  ui.activeCaptureItemId = items.find((item) => item.enabled)?.acquireId || "";
+  ui.activeCaptureImageId = "";
+  ui.selectedCaptureImageIds.clear();
+  persistState("采图批次已开始");
+}
+
+function startToolRunSession(toolId, runMode) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  const blockingModule = getToolBlockingIoModuleForRun(tool);
+  if (blockingModule) {
+    showToast(`IO模块“${blockingModule.name}”未开启工具并行，当前只能启动一个关联工具`);
+    return;
+  }
+  syncToolCompletionState(tool);
+  if (!evaluateToolRunModeAvailability(tool, runMode)) {
+    showToast("当前模式所需配置尚未完成");
+    return;
+  }
+  tool.runtime.sessionActive = true;
+  tool.runtime.sessionMode = Demo.normalizeRunMode(runMode);
+  tool.runtime.status = "等待信号";
+  tool.runtime.sessionStartedAt = Date.now();
+  tool.runtime.sessionId = makeRunSessionCode(Date.now());
+  tool.runtime.sessionRecordBaseline = state.detectionRecords.filter((record) => record.toolId === tool.id).length;
+  tool.runtime.sequenceCursor = 0;
+  tool.runtime.pendingAcquireIndex = null;
+  tool.runtime.cycleActive = false;
+  tool.runtime.cycleStartedAt = null;
+  tool.runtime.currentCycleTime = "-";
+  tool.runtime.cycleTime = "-";
+  tool.runtime.currentCycleResult = "-";
+  tool.runtime.mockCycleNg = false;
+  tool.runtime.mockCycleNgAcquireIndex = -1;
+  ui.activeToolId = toolId;
+  ui.toolView = "runtime";
+  closeSharedModal();
+  activateRuntimeInitialState(toolId);
+  syncUiSelections();
+  persistState(`已开始运行：${getRunModeLabel(runMode)}`);
+}
+
+function handleBuilderBodyClick(event) {
+  if (isToolEditingLocked(getActiveTool())) {
+    showToast("工具运行中，不能编辑配置，请先结束运行");
+    return;
+  }
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, id } = actionEl.dataset;
+  if (action === "add-acquire") return openAcquireModal();
+  if (action === "edit-acquire") return openAcquireModal(id);
+  if (action === "delete-acquire") return deleteAcquire(id);
+  if (action === "add-process") return openProcessModal();
+  if (action === "edit-process") return openProcessModal(id);
+  if (action === "delete-process") return deleteProcess(id);
+  if (action === "add-detect") return openDetectModal();
+  if (action === "edit-detect") return openDetectModal(id);
+  if (action === "edit-detect-params") return openDetectParamModal(id);
+  if (action === "delete-detect") return deleteDetect(id);
+  if (action === "select-rule-node") {
+    ui.builderRuleNodeId = actionEl.dataset.nodeId || "";
+    ui.builderRuleId = "";
+    return renderToolBuilder();
+  }
+  if (action === "select-node-rule") {
+    ui.builderRuleId = actionEl.dataset.ruleId || "";
+    return renderToolBuilder();
+  }
+  if (action === "add-node-rule") return addJudgmentRule();
+  if (action === "delete-node-rule") return deleteJudgmentRule(actionEl.dataset.ruleId || "");
+  if (action === "reset-default-rules") return resetJudgmentRules();
+  if (action === "prompt-switch-rule-mode") return confirmSwitchJudgmentRuleMode(actionEl.dataset.mode || "visual");
+  if (action === "add-classify-condition") return addClassifyCondition();
+  if (action === "remove-classify-condition") return removeClassifyCondition(Number(actionEl.dataset.conditionIndex));
+}
+
+function handleBuilderBodyChange(event) {
+  if (ui.builderStep !== "rule") return;
+  const tool = getActiveTool();
+  if (!tool) return;
+  ensureJudgmentRuleState(tool);
+  const target = getEventTargetElement(event);
+  if (!target) return;
+
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+    const configField = target.dataset.ruleConfigField;
+    if (configField) {
+      tool.ruleConfig[configField] = target.type === "checkbox" ? target.checked : target.value;
+      if (configField === "expressionDraft") {
+        tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+      }
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const rule = getSelectedJudgmentRule(tool);
+    if (!rule) return;
+    const ruleField = target.dataset.ruleField;
+    if (ruleField) {
+      rule[ruleField] = target.type === "checkbox" ? target.checked : target.value;
+      if (ruleField === "template") {
+        const node = findJudgmentRuleNode(tool, ui.builderRuleNodeId);
+        applyJudgmentRuleTemplateDefaults(rule, node, tool);
+      }
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const dimensionIndex = Number(target.dataset.dimensionIndex);
+    const dimensionField = target.dataset.dimensionField;
+    if (Number.isInteger(dimensionIndex) && dimensionField && Array.isArray(rule.dimensions) && rule.dimensions[dimensionIndex]) {
+      rule.dimensions[dimensionIndex][dimensionField] = target.type === "checkbox" ? target.checked : target.value;
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const conditionIndex = Number(target.dataset.conditionIndex);
+    const conditionField = target.dataset.conditionField;
+    if (Number.isInteger(conditionIndex) && conditionField && Array.isArray(rule.conditions) && rule.conditions[conditionIndex]) {
+      rule.conditions[conditionIndex][conditionField] = target.type === "checkbox" ? target.checked : target.value;
+      saveStateSilently();
+      renderToolBuilder();
+      return;
+    }
+
+    const selectionNodeId = target.dataset.selectionNodeId;
+    if (selectionNodeId) {
+      const selected = new Set(Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : []);
+      if (target instanceof HTMLInputElement && target.checked) selected.add(selectionNodeId);
+      if (target instanceof HTMLInputElement && !target.checked) selected.delete(selectionNodeId);
+      rule.selectedNodeIds = Array.from(selected);
+      saveStateSilently();
+      renderToolBuilder();
+    }
+  }
+}
+
+function handleBuilderBodyInput(event) {
+  if (ui.builderStep !== "rule") return;
+  const tool = getActiveTool();
+  if (!tool) return;
+  const target = getEventTargetElement(event);
+  if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) return;
+  const configField = target.dataset.ruleConfigField;
+  if (configField !== "expressionDraft") return;
+  ensureJudgmentRuleState(tool);
+  tool.ruleConfig.expressionDraft = target.value;
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+  saveStateSilently();
+  updateJudgmentExpressionValidationUi(tool);
+  updateRuleStepValidationIndicator(tool);
+}
+
+function addJudgmentRule() {
+  const tool = getActiveTool();
+  if (!tool || !ui.builderRuleNodeId) return;
+  ensureJudgmentRuleState(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const node = nodes.find((item) => item.id === ui.builderRuleNodeId);
+  if (!node) return;
+  const nextRule = createDefaultJudgmentRule(tool, node, nodes);
+  tool.ruleConfig.rulesByNode[node.id].push(nextRule);
+  ui.builderRuleId = nextRule.id;
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function deleteJudgmentRule(ruleId) {
+  const tool = getActiveTool();
+  if (!tool || !ruleId) return;
+  const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  if (rules.length <= 1) {
+    showToast("当前项至少保留 1 条规则");
+    return;
+  }
+  tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] = rules.filter((rule) => rule.id !== ruleId);
+  ui.builderRuleId = tool.ruleConfig.rulesByNode[ui.builderRuleNodeId][0]?.id || "";
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function addClassifyCondition() {
+  const tool = getActiveTool();
+  const rule = getSelectedJudgmentRule(tool);
+  if (!rule) return;
+  if (!Array.isArray(rule.conditions)) rule.conditions = [];
+  const sceneType = getDetectSceneType(getDetectByNode(tool, findJudgmentRuleNode(tool, ui.builderRuleNodeId)));
+  if (sceneType === "缺陷" || rule.template === "defect-conditions") return;
+  rule.conditions.push({
+    label: rule.conditions[0]?.label || "目标",
+    operator: "eq",
+    expectedCount: 1,
+  });
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function removeClassifyCondition(index) {
+  const tool = getActiveTool();
+  const rule = getSelectedJudgmentRule(tool);
+  if (!rule || !Array.isArray(rule.conditions) || rule.conditions.length <= 1) return;
+  rule.conditions = rule.conditions.filter((_, currentIndex) => currentIndex !== index);
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function resetJudgmentRules() {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const mode = tool.ruleConfig?.mode || "visual";
+  tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  tool.ruleConfig.mode = mode;
+  tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+  ui.builderRuleNodeId = "";
+  ui.builderRuleId = "";
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function confirmSwitchJudgmentRuleMode(mode) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const nextMode = mode === "expression" ? "expression" : "visual";
+  if (tool.ruleConfig?.mode === nextMode) return;
+  openSharedModal({
+    title: "切换配置方式",
+    body: `<p>切换到${escapeHtml(nextMode === "expression" ? "表达式编辑" : "可视化配置")}后，会清空当前配置并恢复为默认规则，是否继续？</p>`,
+    confirmText: "继续切换",
+    onConfirm() {
+      switchJudgmentRuleMode(nextMode);
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function switchJudgmentRuleMode(mode) {
+  const tool = getActiveTool();
+  if (!tool) return;
+  const nextMode = mode === "expression" ? "expression" : "visual";
+  if (tool.ruleConfig?.mode === nextMode) return;
+  tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  tool.ruleConfig.mode = nextMode;
+  tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+  ui.builderRuleNodeId = "";
+  ui.builderRuleId = "";
+  saveStateSilently();
+  renderToolBuilder();
+}
+
+function ensureToolItemCapacity(type, currentId = "") {
+  const tool = getActiveTool();
+  if (!tool) return false;
+  if (currentId || tool[type].length < TOOL_ITEM_LIMITS[type]) return true;
+  showToast(`${getToolItemLabel(type)}最多支持 ${TOOL_ITEM_LIMITS[type]} 个`);
+  return false;
+}
+
+function getToolItemLabel(type) {
+  if (type === "acquire") return "图像来源";
+  if (type === "process") return "处理步骤";
+  return "检测步骤";
+}
+
+function openAcquireModal(acquireId) {
+  if (!ensureToolItemCapacity("acquire", acquireId)) return;
+  const tool = getActiveTool();
+  const camera = getActiveCamera();
+  const existing = tool.acquire.find((item) => item.id === acquireId);
+  let draftSample = {
+    name: getAcquireSampleName(existing),
+    url: getAcquireSampleUrl(existing),
+    width: Number(existing?.sampleImageWidth || 0),
+    height: Number(existing?.sampleImageHeight || 0),
+  };
+  const defaultCameraId = existing?.cameraId || state.cameras[0]?.id || "";
+  const defaultParamId =
+    existing?.paramGroupId ||
+    state.cameras.find((item) => item.id === defaultCameraId)?.paramGroups?.[0]?.id ||
+    camera?.paramGroups?.[0]?.id ||
+    "";
+
+  openSharedModal({
+    title: existing ? "编辑图像来源" : "添加图像来源",
+    panelClass: "modal-param",
+    body: `
+      <div class="form-grid double-column">
+        <label class="field">
+          <span>实例名称</span>
+          <input id="acquireNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入实例名称" />
+        </label>
+        <label class="field">
+          <span>获取类型</span>
+          <select id="acquireTypeSelect">
+            <option value="camera" ${existing?.type !== "api" ? "selected" : ""}>相机获取</option>
+            <option value="api" ${existing?.type === "api" ? "selected" : ""}>接口获取</option>
+          </select>
+        </label>
+      </div>
+      <div id="acquireCameraFields">
+        <div class="form-grid double-column">
+          <label class="field">
+            <span>选择相机</span>
+            <select id="acquireCameraSelect">
+              ${state.cameras.map((item) => `<option value="${item.id}" ${item.id === defaultCameraId ? "selected" : ""}>${escapeHtml(Demo.getCameraLabel(item))}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>选择参数组</span>
+            <select id="acquireParamSelect"></select>
+          </label>
+        </div>
+      </div>
+      <div id="acquireApiFields">
+        <div class="form-grid double-column">
+          <label class="field">
+            <span>接口地址</span>
+            <input id="acquireEndpointInput" type="text" value="${escapeAttribute(existing?.endpoint || "")}" placeholder="例如 tcp://plc-gateway/image/1" />
+          </label>
+        </div>
+      </div>
+      <div class="builder-sample-card">
+        <div class="section-head section-head-tight">
+          <div>
+            <h4>示例图片</h4>
+          </div>
+          <button class="secondary-btn" type="button" id="acquireSampleUploadBtn">上传示例图像</button>
+        </div>
+        <input id="acquireSampleFileInput" type="file" accept="image/*" hidden />
+        <div class="builder-sample-preview" id="acquireSamplePreview"></div>
+      </div>
+    `,
+    confirmText: existing ? "保存" : "创建",
+    onOpen() {
+      const typeSelect = document.getElementById("acquireTypeSelect");
+      const cameraSelect = document.getElementById("acquireCameraSelect");
+      const paramSelect = document.getElementById("acquireParamSelect");
+      const cameraFields = document.getElementById("acquireCameraFields");
+      const apiFields = document.getElementById("acquireApiFields");
+      const sampleUploadBtn = document.getElementById("acquireSampleUploadBtn");
+      const sampleFileInput = document.getElementById("acquireSampleFileInput");
+      const samplePreview = document.getElementById("acquireSamplePreview");
+
+      function renderAcquireFields() {
+        const isCamera = typeSelect.value === "camera";
+        cameraFields.hidden = !isCamera;
+        apiFields.hidden = isCamera;
+        const selectedCamera = state.cameras.find((item) => item.id === cameraSelect.value);
+        paramSelect.innerHTML = (selectedCamera?.paramGroups || [])
+          .map((group) => `<option value="${group.id}" ${group.id === defaultParamId ? "selected" : ""}>${escapeHtml(group.name)}</option>`)
+          .join("");
+      }
+
+      function renderAcquireSamplePreview() {
+        samplePreview.innerHTML = `
+          ${renderSamplePreviewHtml(draftSample.url, draftSample.name || "未上传示例图片")}
+          <p class="muted">${escapeHtml(draftSample.name || "请上传示例图片")}</p>
+        `;
+      }
+
+      typeSelect.addEventListener("change", renderAcquireFields);
+      cameraSelect.addEventListener("change", renderAcquireFields);
+      sampleUploadBtn.addEventListener("click", () => sampleFileInput.click());
+      sampleFileInput.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        sampleUploadBtn.disabled = true;
+        try {
+          const preview = await readImageFileAsDemoPreview(file);
+          draftSample = {
+            name: file.name,
+            url: preview.url,
+            width: preview.width,
+            height: preview.height,
+          };
+          renderAcquireSamplePreview();
+        } catch (error) {
+          showToast("示例图片处理失败，请重试");
+        } finally {
+          sampleUploadBtn.disabled = false;
+          sampleFileInput.value = "";
+        }
+      });
+      renderAcquireFields();
+      renderAcquireSamplePreview();
+    },
+    onConfirm() {
+      const name = document.getElementById("acquireNameInput").value.trim();
+      const type = document.getElementById("acquireTypeSelect").value;
+      if (!name) {
+        showToast("请输入实例名称");
+        return false;
+      }
+      if (!draftSample.url) {
+        showToast("请上传示例图片");
+        return false;
+      }
+      if (type === "camera") {
+        const cameraId = document.getElementById("acquireCameraSelect").value;
+        const paramGroupId = document.getElementById("acquireParamSelect").value;
+        if (!cameraId || !paramGroupId) {
+          showToast("相机获取模式下必须选择相机和参数组");
+          return false;
+        }
+        const next = existing || { id: Demo.makeId("acq") };
+        next.name = name;
+        next.type = "camera";
+        next.cameraId = cameraId;
+        next.paramGroupId = paramGroupId;
+        next.sampleImageName = draftSample.name;
+        next.sampleImageUrl = draftSample.url;
+        next.sampleImageWidth = draftSample.width || next.sampleImageWidth || 0;
+        next.sampleImageHeight = draftSample.height || next.sampleImageHeight || 0;
+        next.sampleImage = draftSample.name;
+        delete next.endpoint;
+        upsertToolItem("acquire", next);
+      } else {
+        const endpoint = document.getElementById("acquireEndpointInput").value.trim();
+        if (!endpoint) {
+          showToast("接口获取模式下必须填写接口地址");
+          return false;
+        }
+        const next = existing || { id: Demo.makeId("acq") };
+        next.name = name;
+        next.type = "api";
+        next.endpoint = endpoint;
+        next.sampleImageName = draftSample.name;
+        next.sampleImageUrl = draftSample.url;
+        next.sampleImageWidth = draftSample.width || next.sampleImageWidth || 0;
+        next.sampleImageHeight = draftSample.height || next.sampleImageHeight || 0;
+        next.sampleImage = draftSample.name;
+        delete next.cameraId;
+        delete next.paramGroupId;
+        upsertToolItem("acquire", next);
+      }
+      closeSharedModal();
+      persistState(existing ? "图像来源已更新" : "图像来源已添加");
+      return true;
+    },
+  });
+}
+
+function openProcessModal(processId) {
+  if (!ensureToolItemCapacity("process", processId)) return;
+  const tool = getActiveTool();
+  if (!tool.acquire.length) {
+    showToast("请先添加图像来源");
+    return;
+  }
+  const existing = tool.process.find((item) => item.id === processId);
+  const initialMode = normalizeProcessMode(existing?.mode || "full-image");
+  let draftMode = initialMode;
+  let draftInputId = existing?.inputId || tool.acquire[0]?.id || "";
+  let draftModelId = existing?.modelId || null;
+  let draftRegions = getProcessRegions(existing).map((item) => ({ ...item }));
+  let activeDrawType = draftRegions.find((item) => item.type === "ignore") ? "ignore" : "roi";
+  let liveDraftRegion = null;
+  const getProcessOperatorSummary = (modelId) => {
+    if (modelId) return Demo.getModelLabel(state, modelId);
+    return existing ? "算子未关联" : "";
+  };
+  openSharedModal({
+    title: existing ? "编辑处理步骤" : "新增处理步骤",
+    panelClass: "modal-param",
+    body: `
+      <div class="form-grid double-column">
+        <label class="field">
+          <span>实例名称</span>
+          <input id="processNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入实例名称" />
+        </label>
+        <label class="field">
+          <span>关联图像</span>
+          <select id="processInputSelect">
+            ${tool.acquire.map((item) => `<option value="${item.id}" ${item.id === draftInputId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="form-grid double-column">
+        <label class="field">
+          <span>处理方式</span>
+          <select id="processModeSelect">
+            <option value="full-image" ${initialMode === "full-image" ? "selected" : ""}>全图处理</option>
+            <option value="manual-roi" ${initialMode === "manual-roi" ? "selected" : ""}>手绘 ROI</option>
+            <option value="model-roi" ${initialMode === "model-roi" ? "selected" : ""}>算子识别 ROI</option>
+          </select>
+        </label>
+      </div>
+      <div id="processModelSection" hidden>
+        <label class="field">
+          <span>ROI 识别算子</span>
+          <div class="model-picker-row">
+            <div class="model-picker-value" id="processModelSummary">${escapeHtml(getProcessOperatorSummary(draftModelId))}</div>
+            <button class="secondary-btn" id="openProcessModelDrawer" type="button">选择算子</button>
+          </div>
+          <input id="processModelValue" type="hidden" value="${escapeAttribute(draftModelId || "")}" />
+        </label>
+        <div class="muted" id="processModelCategories" hidden></div>
+      </div>
+      <div id="processRoiSection" hidden class="roi-editor-layout">
+        <div class="roi-toolbar">
+          <div class="roi-toolbar-group">
+            <button class="secondary-btn" type="button" id="drawRoiBtn">绘制 ROI</button>
+            <button class="ghost-btn" type="button" id="drawIgnoreBtn">绘制不检测区域</button>
+            <button class="ghost-btn" type="button" id="clearProcessRegionsBtn">清空区域</button>
+          </div>
+          <div class="roi-toolbar-group">
+            <button class="ghost-btn" type="button" id="split4RoiBtn">4 等分</button>
+            <button class="ghost-btn" type="button" id="split9RoiBtn">9 等分</button>
+            <button class="ghost-btn" type="button" id="split16RoiBtn">16 等分</button>
+          </div>
+        </div>
+        <div class="roi-editor-content">
+          <article class="card roi-stage-card">
+            <div class="section-head section-head-tight">
+              <div>
+                <h4>区域绘制</h4>
+              </div>
+            </div>
+            <div class="roi-stage-shell">
+              <div class="roi-stage" id="processRoiStage"></div>
+            </div>
+          </article>
+          <article class="card roi-region-card">
+            <div class="section-head section-head-tight">
+              <div>
+                <h4>已绘制区域</h4>
+              </div>
+            </div>
+            <div class="roi-region-list" id="processRegionList"></div>
+          </article>
+        </div>
+      </div>
+    `,
+    confirmText: existing ? "保存" : "创建",
+    onOpen() {
+      const modeSelect = document.getElementById("processModeSelect");
+      const inputSelect = document.getElementById("processInputSelect");
+      const modelSection = document.getElementById("processModelSection");
+      const roiSection = document.getElementById("processRoiSection");
+      const processModelValue = document.getElementById("processModelValue");
+      const processModelSummary = document.getElementById("processModelSummary");
+      const processModelCategories = document.getElementById("processModelCategories");
+      const openProcessModelDrawerBtn = document.getElementById("openProcessModelDrawer");
+      const drawRoiBtn = document.getElementById("drawRoiBtn");
+      const drawIgnoreBtn = document.getElementById("drawIgnoreBtn");
+      const clearProcessRegionsBtn = document.getElementById("clearProcessRegionsBtn");
+      const split4RoiBtn = document.getElementById("split4RoiBtn");
+      const split9RoiBtn = document.getElementById("split9RoiBtn");
+      const split16RoiBtn = document.getElementById("split16RoiBtn");
+      const processRoiStage = document.getElementById("processRoiStage");
+      const processRegionList = document.getElementById("processRegionList");
+      let drawSession = null;
+
+      function syncProcessDraftFromFields() {
+        draftMode = normalizeProcessMode(modeSelect.value || draftMode);
+        draftInputId = inputSelect.value || draftInputId;
+        draftModelId = processModelValue.value || draftModelId || null;
+      }
+
+      function getSourceAcquire() {
+        return tool.acquire.find((item) => item.id === draftInputId) || null;
+      }
+
+      function isRoiMode() {
+        return draftMode === "manual-roi";
+      }
+
+      function isModelRoiMode() {
+        return draftMode === "model-roi";
+      }
+
+      function getRegionLabel(region) {
+        if (isFullImageRegion(region)) {
+          return "全图";
+        }
+        const sameType = draftRegions.filter((item) => item.type === region.type);
+        const index = sameType.findIndex((item) => item.id === region.id);
+        if (index < 0) {
+          return region.type === "ignore" ? "不检测区域" : "ROI";
+        }
+        return region.type === "ignore" ? `不检测区域 ${index + 1}` : `ROI ${index + 1}`;
+      }
+
+      function renderRegionBox(region, draft = false) {
+        return `
+          <div
+            class="roi-box ${region.type === "ignore" ? "is-ignore" : "is-roi"} ${draft ? "is-draft" : ""}"
+            style="left:${region.x * 100}%;top:${region.y * 100}%;width:${region.w * 100}%;height:${region.h * 100}%"
+          >
+            <span>${escapeHtml(getRegionLabel(region))}</span>
+          </div>
+        `;
+      }
+
+      function renderProcessRegionList() {
+        if (!draftRegions.length) {
+          processRegionList.innerHTML = `<div class="builder-empty">还没有绘制区域</div>`;
+          return;
+        }
+        processRegionList.innerHTML = draftRegions
+          .map((region) => {
+            return `
+              <div class="roi-region-item">
+                <div>
+                  <strong>${escapeHtml(getRegionLabel(region))}</strong>
+                  <p>${region.type === "ignore" ? "不参与检测" : isFullImageRegion(region) ? "整张图片参与检测" : "参与检测"}</p>
+                </div>
+                <button class="table-btn table-btn-danger" type="button" data-remove-region="${region.id}">删除</button>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function applyPresetRegions(nextRegions) {
+        draftRegions = nextRegions;
+        liveDraftRegion = null;
+        activeDrawType = "roi";
+        renderDrawButtons();
+        renderProcessRegionList();
+        renderProcessRoiStage();
+      }
+
+      function renderProcessRoiStage() {
+        const sourceAcquire = getSourceAcquire();
+        const sampleUrl = getAcquireSampleUrl(sourceAcquire);
+        processRoiStage.innerHTML = `
+          <div class="roi-stage-surface ${sampleUrl ? "" : "is-placeholder"}" id="processRoiSurface">
+            ${sampleUrl ? `<img src="${escapeAttribute(sampleUrl)}" alt="${escapeAttribute(getAcquireSampleName(sourceAcquire))}" />` : `<div class="sample-preview-frame is-placeholder"><div class="sample-preview-grid"></div><span>请先为当前图像来源上传示例图像</span></div>`}
+            <div class="roi-overlay-layer">
+              ${draftRegions.map((region) => renderRegionBox(region)).join("")}
+              ${liveDraftRegion ? renderRegionBox(liveDraftRegion, true) : ""}
+            </div>
+          </div>
+        `;
+        const surface = document.getElementById("processRoiSurface");
+        if (!surface || !sampleUrl) return;
+        surface.addEventListener("mousedown", (event) => {
+          if (!isRoiMode()) return;
+          const bounds = surface.getBoundingClientRect();
+          const startX = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+          const startY = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height));
+          drawSession = { bounds, startX, startY };
+          liveDraftRegion = {
+            id: "draft",
+            type: activeDrawType,
+            x: startX,
+            y: startY,
+            w: 0,
+            h: 0,
+          };
+          renderProcessRoiStage();
+          function handleMove(moveEvent) {
+            if (!drawSession) return;
+            const currentX = Math.min(1, Math.max(0, (moveEvent.clientX - bounds.left) / bounds.width));
+            const currentY = Math.min(1, Math.max(0, (moveEvent.clientY - bounds.top) / bounds.height));
+            liveDraftRegion = {
+              id: "draft",
+              type: activeDrawType,
+              x: Math.min(drawSession.startX, currentX),
+              y: Math.min(drawSession.startY, currentY),
+              w: Math.abs(currentX - drawSession.startX),
+              h: Math.abs(currentY - drawSession.startY),
+            };
+            renderProcessRoiStage();
+          }
+          function handleUp(upEvent) {
+            const currentX = Math.min(1, Math.max(0, (upEvent.clientX - bounds.left) / bounds.width));
+            const currentY = Math.min(1, Math.max(0, (upEvent.clientY - bounds.top) / bounds.height));
+            const nextRegion = {
+              id: Demo.makeId(activeDrawType === "ignore" ? "ignore" : "roi"),
+              type: activeDrawType,
+              x: Math.min(drawSession.startX, currentX),
+              y: Math.min(drawSession.startY, currentY),
+              w: Math.abs(currentX - drawSession.startX),
+              h: Math.abs(currentY - drawSession.startY),
+            };
+            if (nextRegion.w >= 0.03 && nextRegion.h >= 0.03) {
+              draftRegions.push(nextRegion);
+            }
+            drawSession = null;
+            liveDraftRegion = null;
+            window.removeEventListener("mousemove", handleMove);
+            window.removeEventListener("mouseup", handleUp);
+            renderProcessRegionList();
+            renderProcessRoiStage();
+          }
+          window.addEventListener("mousemove", handleMove);
+          window.addEventListener("mouseup", handleUp);
+        });
+      }
+
+      function renderDrawButtons() {
+        drawRoiBtn.classList.toggle("secondary-btn", activeDrawType === "roi");
+        drawRoiBtn.classList.toggle("ghost-btn", activeDrawType !== "roi");
+        drawIgnoreBtn.classList.toggle("secondary-btn", activeDrawType === "ignore");
+        drawIgnoreBtn.classList.toggle("ghost-btn", activeDrawType !== "ignore");
+      }
+
+      function renderProcessSections() {
+        modeSelect.value = draftMode;
+        inputSelect.value = draftInputId;
+        const roiMode = isRoiMode();
+        roiSection.hidden = !roiMode;
+        modelSection.hidden = !isModelRoiMode();
+        renderDrawButtons();
+        if (roiMode) {
+          renderProcessRegionList();
+          renderProcessRoiStage();
+        }
+        if (isModelRoiMode()) {
+          let modelId = processModelValue.value || draftModelId || null;
+          if (modelId && !isCategoryOutputModelId(modelId)) {
+            modelId = null;
+            draftModelId = null;
+            processModelValue.value = "";
+          }
+          const categories = getModelCategoriesById(modelId);
+          processModelSummary.textContent = getProcessOperatorSummary(modelId);
+          processModelCategories.hidden = !categories.length;
+          processModelCategories.textContent = categories.length ? `类别：${categories.join(" / ")}` : "";
+        }
+      }
+
+      openProcessModelDrawerBtn.addEventListener("click", () => {
+        syncProcessDraftFromFields();
+        openModelSelector({
+          valueId: "processModelValue",
+          summaryId: "processModelSummary",
+          selectedModelId: processModelValue.value || draftModelId || null,
+          title: "选择 ROI 识别算子",
+          allowedScenes: ["分类"],
+        });
+      });
+      drawRoiBtn.addEventListener("click", () => {
+        activeDrawType = "roi";
+        renderDrawButtons();
+      });
+      drawIgnoreBtn.addEventListener("click", () => {
+        activeDrawType = "ignore";
+        renderDrawButtons();
+      });
+      clearProcessRegionsBtn.addEventListener("click", () => {
+        draftRegions = [];
+        renderProcessRegionList();
+        renderProcessRoiStage();
+      });
+      split4RoiBtn.addEventListener("click", () => {
+        applyPresetRegions(buildSplitRegions(4));
+      });
+      split9RoiBtn.addEventListener("click", () => {
+        applyPresetRegions(buildSplitRegions(9));
+      });
+      split16RoiBtn.addEventListener("click", () => {
+        applyPresetRegions(buildSplitRegions(16));
+      });
+      processRegionList.addEventListener("click", (event) => {
+        const removeBtn = getClosestEventTarget(event, "[data-remove-region]");
+        if (!removeBtn) return;
+        draftRegions = draftRegions.filter((region) => region.id !== removeBtn.dataset.removeRegion);
+        renderProcessRegionList();
+        renderProcessRoiStage();
+      });
+      const handleModeOrInputChange = () => {
+        syncProcessDraftFromFields();
+        renderProcessSections();
+      };
+      modeSelect.addEventListener("input", handleModeOrInputChange);
+      modeSelect.addEventListener("change", handleModeOrInputChange);
+      inputSelect.addEventListener("input", handleModeOrInputChange);
+      inputSelect.addEventListener("change", handleModeOrInputChange);
+      processModelValue.addEventListener("input", () => {
+        syncProcessDraftFromFields();
+        renderProcessSections();
+      });
+      processModelValue.addEventListener("change", () => {
+        syncProcessDraftFromFields();
+        renderProcessSections();
+      });
+      renderProcessSections();
+      processModelSummary.textContent = getProcessOperatorSummary(draftModelId);
+    },
+    onConfirm() {
+      const modeSelect = document.getElementById("processModeSelect");
+      const inputSelect = document.getElementById("processInputSelect");
+      const processModelValue = document.getElementById("processModelValue");
+      const name = document.getElementById("processNameInput").value.trim();
+      const inputId = inputSelect?.value || draftInputId;
+      const mode = normalizeProcessMode(modeSelect?.value || draftMode);
+      if (!name) {
+        showToast("请输入实例名称");
+        return false;
+      }
+      if (!inputId) {
+        showToast("请选择关联图像");
+        return false;
+      }
+      const selectedModelId = String(processModelValue?.value || draftModelId || "").trim() || null;
+      const selectedCategories = mode === "model-roi" ? getModelCategoriesById(selectedModelId) : [];
+      if (mode === "model-roi" && selectedModelId && !isCategoryOutputModelId(selectedModelId)) {
+        showToast("ROI 模式仅支持选择分类算子");
+        return false;
+      }
+      if (mode === "model-roi" && selectedModelId && !selectedCategories.length) {
+        showToast("当前算子未提供可选类别");
+        return false;
+      }
+      if (mode === "manual-roi" && !draftRegions.some((item) => item.type !== "ignore")) {
+        showToast("请至少绘制一个 ROI 区域");
+        return false;
+      }
+      const next = existing || { id: Demo.makeId("proc") };
+      next.name = name;
+      next.inputId = inputId;
+      next.mode = mode;
+      next.type = mode;
+      next.modelId = mode === "model-roi" ? selectedModelId : null;
+      next.modelSceneType = mode === "model-roi" ? getModelSceneTypeById(selectedModelId) : "";
+      next.categoryOptions = mode === "model-roi" ? [...selectedCategories] : [];
+      next.categories = mode === "model-roi" ? [...selectedCategories] : [];
+      next.regions = mode === "manual-roi" ? draftRegions : [];
+      delete next.details;
+      upsertToolItem("process", next);
+      closeSharedModal();
+      persistState(existing ? "处理步骤已更新" : "处理步骤已添加");
+      return true;
+    },
+  });
+}
+
+function renderDetectTargetOption({ checked, processId, categoryKey = "", categoryLabel = "", value, text }) {
+  return `
+    <label class="detect-selection-item ${checked ? "is-selected" : ""}">
+      <input
+        class="selection-item-check detect-selection-input"
+        type="checkbox"
+        data-process-checkbox
+        data-process-id="${escapeAttribute(processId)}"
+        data-category-key="${escapeAttribute(categoryKey)}"
+        data-category-label="${escapeAttribute(categoryLabel)}"
+        value="${escapeAttribute(value)}"
+        ${checked ? "checked" : ""}
+      />
+      <span>${escapeHtml(text)}</span>
+    </label>
+  `;
+}
+
+function renderDetectTargetGroups(tool, existing) {
+  const targets = getDetectTargets(existing);
+  return tool.acquire
+    .map((acquire) => {
+      const processList = tool.process.filter((item) => item.inputId === acquire.id);
+      return `
+        <div class="detect-process-group">
+          <div class="detect-process-group-title">${escapeHtml(acquire.name)}</div>
+          ${
+            processList.length
+              ? `
+                <div class="detect-selection-list">
+                  ${processList
+                    .map((item) => {
+                      const mode = normalizeProcessMode(item.mode);
+                      const selectedTargets = targets.filter((target) => target.processId === item.id);
+                      if (mode === "model-roi") {
+                        const categories = getProcessCategoryOptions(item);
+                        return `
+                          <div class="detect-target-subgroup">
+                            <div class="detect-target-subtitle">${escapeHtml(item.name)}</div>
+                            ${
+                              categories.length
+                                ? `
+                                  <div class="detect-selection-list detect-selection-list-nested">
+                                    ${categories
+                                      .map((category) =>
+                                        renderDetectTargetOption({
+                                          checked: selectedTargets.some((target) => target.categoryKey === category),
+                                          processId: item.id,
+                                          categoryKey: category,
+                                          categoryLabel: category,
+                                          value: `${item.id}::${category}`,
+                                          text: category,
+                                        }),
+                                      )
+                                      .join("")}
+                                  </div>
+                                `
+                                : `<div class="builder-empty builder-empty-compact">当前 ROI 识别算子未提供可选类别</div>`
+                            }
+                          </div>
+                        `;
+                      }
+                      return renderDetectTargetOption({
+                        checked: selectedTargets.some((target) => !target.categoryKey),
+                        processId: item.id,
+                        value: item.id,
+                        text: item.name,
+                      });
+                    })
+                    .join("")}
+                </div>
+              `
+              : `<div class="builder-empty builder-empty-compact">当前没有可选图像，请前往上一步创建处理步骤。</div>`
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderDetectParameterSection(detect, modelId) {
+  if (getModelSceneTypeById(modelId) !== "尺寸") {
+    return `<div class="detect-param-empty">当前算子暂无可配置参数</div>`;
+  }
+  const draftDetect = {
+    ...(detect || {}),
+    modelId,
+    modelSceneType: "尺寸",
+  };
+  const rows = getDimensionOutputParamRows(draftDetect);
+  return `
+    <div class="detect-param-table">
+      <div class="detect-param-table-head">
+        <span>尺寸项</span>
+        <span>偏移量</span>
+      </div>
+      ${rows
+        .map(
+          (item) => `
+            <label class="detect-param-row">
+              <span>${escapeHtml(item.label)}</span>
+              <input
+                type="number"
+                step="any"
+                value="${escapeAttribute(String(item.offset ?? "0"))}"
+                data-detect-dimension-label="${escapeAttribute(item.label)}"
+                data-detect-dimension-offset
+              />
+            </label>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function canScrollElementByDelta(element, deltaY) {
+  if (!element) return false;
+  const maxScrollTop = element.scrollHeight - element.clientHeight;
+  if (maxScrollTop <= 0) return false;
+  if (deltaY < 0) return element.scrollTop > 0;
+  if (deltaY > 0) return element.scrollTop < maxScrollTop - 1;
+  return true;
+}
+
+function openDetectModal(detectId) {
+  if (!ensureToolItemCapacity("detect", detectId)) return;
+  const tool = getActiveTool();
+  if (!tool.process.length) {
+    showToast("请先添加处理步骤");
+    return;
+  }
+  const existing = tool.detect.find((item) => item.id === detectId);
+  const detectOperatorSummary = existing?.modelId
+    ? Demo.getModelLabel(state, existing.modelId)
+    : existing
+      ? "算子未关联"
+      : "";
+  openSharedModal({
+    title: existing ? "编辑图像检测项" : "新建图像检测项",
+    panelClass: "modal-detect-instance",
+    bodyClass: "modal-body-detect-instance",
+    body: `
+      <div class="detect-instance-form">
+        <label class="detect-instance-field">
+          <span class="detect-instance-label">检测项名称</span>
+          <input id="detectNameInput" type="text" maxlength="24" value="${escapeAttribute(existing?.name || "")}" placeholder="请输入检测项名称" />
+        </label>
+        <div class="detect-instance-field detect-instance-field-grow">
+          <span class="detect-instance-label">关联输入目标</span>
+          <div class="detect-process-group-list">
+            ${renderDetectTargetGroups(tool, existing)}
+          </div>
+        </div>
+        <div class="detect-instance-field">
+          <span class="detect-instance-label">算子</span>
+          <div class="model-picker-row detect-model-picker-row">
+            <div class="model-picker-value" id="detectModelSummary">${escapeHtml(detectOperatorSummary)}</div>
+            <button class="secondary-btn" id="openDetectModelDrawer" type="button">选择算子</button>
+          </div>
+          <input id="detectModelValue" type="hidden" value="${escapeAttribute(existing?.modelId || "")}" />
+        </div>
+      </div>
+    `,
+    confirmText: existing ? "保存" : "创建",
+    onOpen() {
+      const button = document.getElementById("openDetectModelDrawer");
+      const groupList = document.querySelector(".detect-process-group-list");
+      const modelValueInput = document.getElementById("detectModelValue");
+      button.addEventListener("click", () => {
+        openModelSelector({
+          valueId: "detectModelValue",
+          summaryId: "detectModelSummary",
+          selectedModelId: modelValueInput.value || existing?.modelId || null,
+          title: "选择算子",
+        });
+      });
+      groupList?.addEventListener("change", (event) => {
+        const checkbox = getClosestEventTarget(event, "[data-process-checkbox]");
+        if (!checkbox) return;
+        const item = checkbox.closest(".detect-selection-item");
+        item?.classList.toggle("is-selected", checkbox.checked);
+      });
+      els.sharedModal.onwheel = (event) => {
+        const scrollArea = getClosestEventTarget(event, ".detect-process-group-list");
+        if (scrollArea && canScrollElementByDelta(scrollArea, event.deltaY)) return;
+        event.preventDefault();
+      };
+    },
+    onConfirm() {
+      const name = document.getElementById("detectNameInput").value.trim();
+      const modelId = document.getElementById("detectModelValue").value;
+      const modelSceneType = getModelSceneTypeById(modelId);
+      const targets = Array.from(document.querySelectorAll("[data-process-checkbox]:checked")).map((input) => ({
+        processId: input.dataset.processId || input.value,
+        categoryKey: input.dataset.categoryKey || "",
+        categoryLabel: input.dataset.categoryLabel || "",
+      }));
+      if (!name) {
+        showToast("请输入检测项名称");
+        return false;
+      }
+      if (!targets.length) {
+        showToast("至少选择一个输入目标");
+        return false;
+      }
+      const next = existing || { id: Demo.makeId("det") };
+      next.name = name;
+      next.targets = targets;
+      next.processIds = Array.from(new Set(targets.map((target) => target.processId)));
+      next.modelId = modelId;
+      next.modelSceneType = modelSceneType;
+      if (modelSceneType === "尺寸") {
+        const previousConfig = getNormalizedDimensionConfig(next);
+        next.dimensionConfig = {
+          ...previousConfig,
+          outputOffsets: previousConfig?.outputOffsets || getDimensionOutputParamRows(next),
+        };
+      } else {
+        delete next.dimensionConfig;
+      }
+      upsertToolItem("detect", next);
+      closeSharedModal();
+      persistState(existing ? "检测步骤已更新" : "检测步骤已添加");
+      return true;
+    },
+  });
+}
+
+function openDetectParamModal(detectId) {
+  const tool = getActiveTool();
+  const detect = tool?.detect?.find((item) => item.id === detectId);
+  if (!tool || !detect) return;
+  if (!isDimensionDetect(detect)) {
+    showToast("当前类型暂无可配置参数");
+    return;
+  }
+  openSharedModal({
+    title: "参数配置",
+    panelClass: "modal-detect-params",
+    body: `
+      <div class="detect-param-modal">
+        <div class="detect-param-summary">
+          <span>检测项</span>
+          <strong>${escapeHtml(detect.name || "-")}</strong>
+        </div>
+        <div class="detect-param-summary">
+          <span>算子</span>
+          <strong>${escapeHtml(Demo.getModelLabel(state, detect.modelId) || "-")}</strong>
+        </div>
+        ${renderDetectParameterSection(detect, detect.modelId)}
+      </div>
+    `,
+    confirmText: "保存",
+    onConfirm() {
+      const outputOffsets = Array.from(document.querySelectorAll("[data-detect-dimension-offset]")).map((input) => ({
+        label: input.dataset.detectDimensionLabel || "",
+        offset: input.value || "0",
+      }));
+      const previousConfig = getNormalizedDimensionConfig(detect);
+      detect.dimensionConfig = {
+        ...previousConfig,
+        outputOffsets,
+      };
+      closeSharedModal();
+      persistState("参数配置已保存");
+      return true;
+    },
+  });
+}
+
+function deleteAcquire(id) {
+  const tool = getActiveTool();
+  const referenced = tool.process.some((item) => item.inputId === id);
+  if (referenced) {
+    showToast("当前图像已被引用，无法删除");
+    return;
+  }
+  const acquire = tool.acquire.find((item) => item.id === id);
+  if (!acquire) return;
+  const capturedImageCount = getAcquireCapturedImageCount(tool.id, id);
+  if (capturedImageCount > 0) {
+    openSharedModal({
+      title: "删除图像获取项",
+      body: `<p class="banner banner-warning">该图像获取项已有 ${capturedImageCount} 张采集图片。删除后，采图记录中对应图片将不再按该获取项展示。确认删除“${escapeHtml(acquire.name || "图像获取项")}”？</p>`,
+      confirmText: "确认删除",
+      confirmClass: "danger-btn",
+      onConfirm() {
+        closeSharedModal();
+        removeAcquireItem(tool, id);
+        return true;
+      },
+    });
+    return;
+  }
+  removeAcquireItem(tool, id);
+}
+
+function getAcquireCapturedImageCount(toolId, acquireId) {
+  return state.captureRecords
+    .filter((record) => record.toolId === toolId)
+    .reduce((sum, record) => {
+      const item = record.items?.find((entry) => entry.acquireId === acquireId);
+      return sum + (item?.images?.length || 0);
+    }, 0);
+}
+
+function removeAcquireItem(tool, id) {
+  tool.acquire = tool.acquire.filter((item) => item.id !== id);
+  syncToolCompletionState(tool);
+  persistState("图像来源已删除");
+}
+
+function deleteProcess(id) {
+  const tool = getActiveTool();
+  const referenced = tool.detect.some((item) => item.processIds.includes(id));
+  if (referenced) {
+    showToast("当前处理结果图像已被引用，无法删除");
+    return;
+  }
+  tool.process = tool.process.filter((item) => item.id !== id);
+  syncToolCompletionState(tool);
+  persistState("处理步骤已删除");
+}
+
+function deleteDetect(id) {
+  const tool = getActiveTool();
+  tool.detect = tool.detect.filter((item) => item.id !== id);
+  syncToolCompletionState(tool);
+  persistState("检测步骤已删除");
+}
+
+function upsertToolItem(type, nextItem) {
+  const tool = getActiveTool();
+  const list = tool[type];
+  const index = list.findIndex((item) => item.id === nextItem.id);
+  if (index >= 0) {
+    list[index] = nextItem;
+  } else {
+    list.push(nextItem);
+  }
+  syncToolCompletionState(tool);
+}
+
+function startDetectionRun() {
+  const tool = getActiveTool();
+  if (!tool || !isToolSessionRunning(tool)) {
+    showToast("请先进入检测状态。");
+    return;
+  }
+  if (Demo.isStorageBlocked(state)) {
+    showToast("剩余空间不足，暂时不能开始新的检测，请先清理数据。");
+    return;
+  }
+  if (ui.pendingDetectionToolId || tool.runtime?.status === "执行中") {
+    showToast(DETECTION_EXCEPTION_CATALOG.repeatedTrigger.text);
+    return;
+  }
+
+  const runToolId = tool.id;
+  clearRuntimeInitialState(runToolId);
+  if (!tool.runtime || typeof tool.runtime !== "object") tool.runtime = {};
+  const acquireCount = Math.max(1, Array.isArray(tool.acquire) ? tool.acquire.length : 0);
+  const currentSequenceCursor = Number.isFinite(Number(tool.runtime.sequenceCursor)) ? Number(tool.runtime.sequenceCursor) : 0;
+  const nextAcquireIndex = currentSequenceCursor >= acquireCount ? 0 : currentSequenceCursor;
+  if (nextAcquireIndex === 0) {
+    tool.runtime.cycleStartedAt = Date.now();
+    tool.runtime.currentCycleTime = "-";
+    tool.runtime.cycleTime = "-";
+    tool.runtime.currentCycleResult = "-";
+    tool.runtime.mockCycleNg = Demo.normalizeRunMode(tool.runtime.sessionMode || "detect") === "detect" && Math.random() < 0.3;
+    tool.runtime.mockCycleNgAcquireIndex = tool.runtime.mockCycleNg ? Math.floor(Math.random() * acquireCount) : -1;
+  } else if (!Number.isFinite(Number(tool.runtime.cycleStartedAt))) {
+    tool.runtime.cycleStartedAt = Date.now();
+  }
+  tool.runtime.activeTags = getRuntimeDraftTags(tool);
+  tool.runtime.pendingAcquireIndex = nextAcquireIndex;
+  tool.runtime.cycleActive = true;
+  ui.pendingDetectionToolId = runToolId;
+  ui.pendingDetectionStartedAt = Date.now();
+  tool.runtime.status = "执行中";
+  renderAll();
+
+  timers.detection = window.setTimeout(() => {
+    timers.detection = null;
+    const runtimeTool = state.tools.find((item) => item.id === runToolId);
+    try {
+      if (Demo.isStorageBlocked(state)) {
+        abortDetectionRun("剩余空间不足，当前任务已中断。", { toolId: runToolId });
+        return;
+      }
+
+      if (!runtimeTool) {
+        ui.pendingDetectionToolId = null;
+        ui.pendingDetectionStartedAt = 0;
+        persistState("运行已结束，当前工具不存在", { feedback: "error" });
+        return;
+      }
+
+      syncSystemNow();
+      const acquireCount = Math.max(1, Array.isArray(runtimeTool.acquire) ? runtimeTool.acquire.length : 0);
+      const pendingAcquireIndex = Number.isFinite(Number(runtimeTool.runtime.pendingAcquireIndex)) ? Number(runtimeTool.runtime.pendingAcquireIndex) : 0;
+      const completedAcquireCount = Math.min(acquireCount, pendingAcquireIndex + 1);
+      const cycleComplete = completedAcquireCount >= acquireCount;
+      const previousCycleRecord = pendingAcquireIndex > 0 ? getLatestToolRuntimeRecord(runtimeTool.id) : null;
+      runtimeTool.runtime.sequenceCursor = completedAcquireCount;
+      const latestRecord = buildDetectionRecord(runtimeTool, runtimeTool.runtime.sessionMode || "detect", {
+        completedAcquireCount,
+        activeAcquireIndex: pendingAcquireIndex,
+        mockCycleNg: Boolean(runtimeTool.runtime.mockCycleNg),
+        mockCycleNgAcquireIndex: Number(runtimeTool.runtime.mockCycleNgAcquireIndex),
+        previousImageResults: previousCycleRecord?.cycleComplete === false ? getRecordImageResults(previousCycleRecord) : [],
+      });
+      state.detectionRecords.unshift(latestRecord);
+      runtimeTool.runtime.lastRunAt = state.meta.now;
+      runtimeTool.runtime.status = "等待信号";
+      runtimeTool.runtime.primaryResult = latestRecord.totalResult || latestRecord.businessResult;
+      runtimeTool.runtime.pendingAcquireIndex = null;
+      if (cycleComplete) {
+        runtimeTool.runtime.currentCycleTime = Number.isFinite(Number(runtimeTool.runtime.cycleStartedAt))
+          ? formatRuntimeElapsed(Date.now() - Number(runtimeTool.runtime.cycleStartedAt))
+          : "-";
+        runtimeTool.runtime.cycleTime = runtimeTool.runtime.currentCycleTime;
+        runtimeTool.runtime.currentCycleResult = latestRecord.totalResult || latestRecord.businessResult || "-";
+        runtimeTool.runtime.cycleActive = false;
+        runtimeTool.runtime.mockCycleNg = false;
+        runtimeTool.runtime.mockCycleNgAcquireIndex = -1;
+      } else {
+        runtimeTool.runtime.cycleTime = "-";
+        runtimeTool.runtime.currentCycleResult = "-";
+        runtimeTool.runtime.cycleActive = true;
+      }
+      runtimeTool.runtime.draftTags = [];
+      runtimeTool.runtime.activeTags = [];
+      ui.activeRecordId = latestRecord.id;
+      ui.activeRuntimeImageId = latestRecord.imageResults?.[pendingAcquireIndex]?.id || latestRecord.imageResults?.[0]?.id || null;
+      ui.runtimePlaybackRecordId = null;
+      ui.pendingDetectionToolId = null;
+      ui.pendingDetectionStartedAt = 0;
+      persistState(runtimeTool.runtime.sessionMode === "detect" ? "检测完成。" : "采图完成。");
+    } catch (error) {
+      console.error("[JetCheck Demo] detection run failed", error);
+      ui.pendingDetectionToolId = null;
+      ui.pendingDetectionStartedAt = 0;
+      if (runtimeTool?.runtime) {
+        runtimeTool.runtime.status = "等待信号";
+        runtimeTool.runtime.activeTags = [];
+      }
+      persistState("运行异常，已返回待检测状态。", { feedback: "error" });
+    }
+  }, 650);
+}
+
+function abortDetectionRun(message, options = {}) {
+  const { keepSession = true, toolId = ui.pendingDetectionToolId || ui.activeToolId } = options;
+  if (timers.detection) clearTimeout(timers.detection);
+  timers.detection = null;
+  const tool = state.tools.find((item) => item.id === toolId) || getActiveTool();
+  if (tool) {
+    tool.runtime.status = keepSession ? "等待信号" : "未运行";
+    tool.runtime.sequenceCursor = 0;
+    tool.runtime.pendingAcquireIndex = null;
+    tool.runtime.cycleActive = false;
+    tool.runtime.cycleStartedAt = null;
+    tool.runtime.currentCycleTime = "-";
+    tool.runtime.cycleTime = "-";
+    tool.runtime.currentCycleResult = "-";
+    const activeTags = getRuntimeActiveTags(tool);
+    if (activeTags.length) tool.runtime.draftTags = activeTags;
+    tool.runtime.activeTags = [];
+    if (!keepSession) {
+      endToolRunSessionState(tool);
+      if (ui.activeToolId === tool.id && ui.toolView === "runtime") {
+        ui.toolView = "overview";
+      }
+    }
+  }
+  ui.pendingDetectionToolId = null;
+  ui.pendingDetectionStartedAt = 0;
+  if (keepSession && tool) activateRuntimeInitialState(tool.id);
+  persistState(message, { feedback: /(不足|中断|不存在|异常)/.test(String(message || "")) ? "error" : "silent" });
+}
+
+function resetCurrentRunTask() {
+  const tool = getActiveTool();
+  if (!tool || !isToolSessionRunning(tool)) return;
+  openSharedModal({
+    title: "重置",
+    body: `<p class="banner banner-warning">将会清空本条${getRunActionLabel(tool.runtime?.sessionMode || "detect")}结果，确认重置？</p>`,
+    confirmText: "确认重置",
+    onConfirm() {
+      closeSharedModal();
+      if (ui.pendingDetectionToolId === tool.id) {
+        abortDetectionRun("当前结果已重置，等待重新开始。");
+        return true;
+      }
+      tool.runtime.status = "等待信号";
+      tool.runtime.sequenceCursor = 0;
+      tool.runtime.pendingAcquireIndex = null;
+      tool.runtime.cycleActive = false;
+      tool.runtime.cycleStartedAt = null;
+      tool.runtime.currentCycleTime = "-";
+      tool.runtime.cycleTime = "-";
+      tool.runtime.currentCycleResult = "-";
+      activateRuntimeInitialState(tool.id);
+      persistState("当前结果已重置，等待重新开始。");
+      return true;
+    },
+  });
+}
+
+function stopToolRunSession() {
+  const tool = getActiveTool();
+  if (!tool || !isToolSessionRunning(tool)) return;
+  const captureBatch = Demo.normalizeRunMode(tool.runtime?.sessionMode) === "acquire" ? getActiveCaptureBatch(tool) : null;
+  openSharedModal({
+    title: captureBatch ? "结束采图" : "结束检测",
+    body: captureBatch
+      ? `<p class="modal-prompt">确认结束采图？</p>`
+      : `<p class="modal-prompt">确认结束检测？</p>`,
+    confirmText: "确认结束",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      closeSharedModal();
+      if (captureBatch) {
+        finishCaptureBatch(captureBatch);
+      } else if (ui.pendingDetectionToolId === tool.id) {
+        abortDetectionRun("当前工具已退出。", { keepSession: false });
+      } else {
+        endToolRunSessionState(tool);
+        ui.toolView = "overview";
+        persistState("当前工具已退出。");
+      }
+      return true;
+    },
+  });
+}
+
+function applyCameraFilters() {
+  ui.cameraFilters.keyword = els.cameraKeywordInput.value.trim();
+  renderCameraPage();
+}
+
+function resetCameraFilters() {
+  ui.cameraFilters.keyword = "";
+  renderCameraPage();
+}
+
+function refreshCameraList() {
+  Demo.advanceDemoClock(state, 1);
+  const offlineCamera = state.cameras.find((camera) => camera.status === "离线");
+  if (offlineCamera) offlineCamera.status = "空闲";
+  persistState();
+}
+
+function handleCameraTableClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, id } = actionEl.dataset;
+  if (action === "manage-param") return openParamModal(id);
+  if (action === "delete-camera") return deleteCamera(id);
+}
+
+function applyIoFilters() {
+  ui.ioFilters.keyword = els.ioKeywordInput.value.trim();
+  renderIoModulePage();
+}
+
+function resetIoFilters() {
+  ui.ioFilters.keyword = "";
+  renderIoModulePage();
+}
+
+function handleIoModuleTableClick(event) {
+  const actionEl = getClosestEventTarget(event, "[data-action]");
+  if (!actionEl) return;
+  const { action, id } = actionEl.dataset;
+  if (action === "edit-io-module") return openIoModuleModal(id);
+  if (action === "delete-io-module") return deleteIoModule(id);
+}
+
+function openIoModuleModal(moduleId = "") {
+  const module = state.ioModules.find((item) => item.id === moduleId) || null;
+  const model = module?.model || IO_MODULE_MODEL_OPTIONS[0].value;
+  const defaultName = `IO模块${state.ioModules.length + 1}`;
+  openSharedModal({
+    title: module ? "查看IO模块" : "添加IO模块",
+    panelClass: "modal-io-module",
+    body: `
+      <div class="io-module-modal-layout">
+        <div class="form-grid single-column">
+          <label class="field">
+            <span>设备名称</span>
+            <input id="ioModuleNameInput" type="text" maxlength="24" value="${escapeAttribute(module?.name || defaultName)}" />
+          </label>
+          <label class="field">
+            <span>型号</span>
+            ${
+              module
+                ? `<div class="readonly-field" id="ioModuleModelReadonly" data-value="${escapeAttribute(model)}">${escapeHtml(model)}</div>`
+                : `<select id="ioModuleModelInput">
+                    ${IO_MODULE_MODEL_OPTIONS.map((item) => `<option value="${item.value}" ${item.value === model ? "selected" : ""}>${item.label}</option>`).join("")}
+                  </select>`
+            }
+          </label>
+          <label class="field">
+            <span>IP地址</span>
+            <input id="ioModuleIpInput" type="text" value="${escapeAttribute(module?.ip || "")}" />
+          </label>
+          <label class="field">
+            <span>端口</span>
+            <input id="ioModulePortInput" type="number" min="1" max="65535" value="${escapeAttribute(module?.port || 28899)}" />
+          </label>
+          <label class="field">
+            <span>设备ID</span>
+            <input id="ioModuleDeviceIdInput" type="text" maxlength="24" value="${escapeAttribute(module?.deviceId || "17")}" />
+          </label>
+          <label class="field field-span-full inline-switch-field">
+            <span>工具并行</span>
+            <label class="switch-line">
+              <input id="ioModuleParallelInput" type="checkbox" ${module?.parallel ? "checked" : ""} />
+              <i></i>
+              <strong>允许该模块关联的多个工具同时启动并同时触发</strong>
+            </label>
+          </label>
+        </div>
+        <div id="ioModuleSchematicPreview">${renderIoModuleSchematic(model, module)}</div>
+      </div>
+    `,
+    confirmText: "保存",
+    onOpen() {
+      const modelSelect = document.getElementById("ioModuleModelInput");
+      const schematic = document.getElementById("ioModuleSchematicPreview");
+      modelSelect?.addEventListener("change", () => {
+        schematic.innerHTML = renderIoModuleSchematic(modelSelect.value, module);
+      });
+    },
+    onConfirm() {
+      const name = document.getElementById("ioModuleNameInput")?.value.trim() || "";
+      const nextModel = module?.model || document.getElementById("ioModuleModelInput")?.value || IO_MODULE_MODEL_OPTIONS[0].value;
+      const ip = document.getElementById("ioModuleIpInput")?.value.trim() || "";
+      const port = Number(document.getElementById("ioModulePortInput")?.value || 28899);
+      const deviceId = document.getElementById("ioModuleDeviceIdInput")?.value.trim() || "";
+      const parallel = Boolean(document.getElementById("ioModuleParallelInput")?.checked);
+      if (!name) return showToast("请输入设备名称");
+      if (!ip) return showToast("请输入IP地址");
+      if (!Number.isFinite(port) || port < 1 || port > 65535) return showToast("请输入正确的端口");
+      if (!deviceId) return showToast("请输入设备ID");
+      const pointCount = getIoModulePointCount(nextModel);
+      if (module) {
+        module.name = name;
+        module.model = nextModel;
+        module.ip = ip;
+        module.port = port;
+        module.deviceId = deviceId;
+        module.parallel = parallel;
+        module.inputs = normalizeIoPointList(module.inputs, "DI", pointCount);
+        module.outputs = normalizeIoPointList(module.outputs, "DO", pointCount);
+      } else {
+        state.ioModules.push({
+          id: Demo.makeId("io"),
+          name,
+          model: nextModel,
+          ip,
+          port,
+          deviceId,
+          parallel,
+          status: "在线",
+          inputs: normalizeIoPointList([], "DI", pointCount),
+          outputs: normalizeIoPointList([], "DO", pointCount),
+        });
+      }
+      closeSharedModal();
+      persistState(module ? "IO模块已更新" : "IO模块已添加");
+      return true;
+    },
+  });
+}
+
+function renderIoModuleSchematic(model, module = null) {
+  const normalizedModel = IO_MODULE_MODEL_OPTIONS.some((item) => item.value === model) ? model : IO_MODULE_MODEL_OPTIONS[0].value;
+  return `
+    <div class="io-module-schematic">
+      <img class="io-device-image" src="${escapeAttribute(getIoModuleImageUrl(normalizedModel))}" alt="${escapeAttribute(normalizedModel)} IO模块示意图" />
+    </div>
+  `;
+}
+
+function getIoModuleImageUrl(model) {
+  return `./sample-images/${model === "USR-IO808" ? "USR-IO808" : "USR-IO424T"}.png`;
+}
+
+function deleteIoModule(moduleId) {
+  const module = state.ioModules.find((item) => item.id === moduleId);
+  if (!module) return;
+  const referenced = state.tools.some((tool) => {
+    const config = getToolIoConfig(tool);
+    return [...config.input, ...config.output].some((item) => item.moduleId === moduleId);
+  });
+  openSharedModal({
+    title: "删除IO模块",
+    body: `<p class="banner ${referenced ? "banner-warning" : "banner-danger"}">${referenced ? "该IO模块已被工具配置引用，删除后相关IO配置会显示为未选择。是否继续？" : `是否删除“${escapeHtml(module.name)}”？`}</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.ioModules = state.ioModules.filter((item) => item.id !== moduleId);
+      state.tools.forEach((tool) => {
+        const config = getToolIoConfig(tool);
+        [...config.input, ...config.output].forEach((item) => {
+          if (item.moduleId === moduleId) {
+            item.moduleId = "";
+            item.point = "";
+          }
+        });
+      });
+      closeSharedModal();
+      persistState("IO模块已删除");
+      return true;
+    },
+  });
+}
+
+function previewCamera(cameraId) {
+  const camera = state.cameras.find((item) => item.id === cameraId);
+  if (!camera) return;
+  if (camera.status !== "空闲") {
+    showToast("仅空闲相机支持预览");
+    return;
+  }
+  openSharedModal({
+    title: `${Demo.getCameraLabel(camera)} · 预览`,
+    body: `
+      <div class="inspection-stage inspection-stage-compact">
+        <div class="stage-overlay"></div>
+        <div class="stage-caption">${escapeHtml(Demo.getCameraLabel(camera))} / ${escapeHtml(camera.vendor)} / ${escapeHtml(camera.model)}</div>
+      </div>
+      <div class="meta-list">
+        <span>相机 ID</span>
+        <span>${escapeHtml(camera.id)}</span>
+        <span>设备序列号</span>
+        <span>${escapeHtml(camera.serial)}</span>
+        <span>当前状态</span>
+        <span>${escapeHtml(camera.status)}</span>
+      </div>
+    `,
+    confirmText: "关闭",
+    hideCancel: true,
+    onConfirm() {
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function openRuntimeCameraPreview(acquireId) {
+  const tool = getActiveTool();
+  const acquire = tool?.acquire?.find((item) => item.id === acquireId) || null;
+  const camera = acquire?.cameraId ? state.cameras.find((item) => item.id === acquire.cameraId) || null : null;
+  if (!acquire || acquire.type !== "camera" || !camera) {
+    showToast("当前图像来源不是相机");
+    return;
+  }
+  const paramGroup = camera.paramGroups?.find((item) => item.id === acquire.paramGroupId) || null;
+  const fields = paramGroup ? getParamFieldSchema(camera.brand).slice(0, 6) : [];
+  const cameraStatusText = getRuntimeCameraStatusText(camera);
+  openSharedModal({
+    title: `${Demo.getCameraLabel(camera)} · 相机画面`,
+    panelClass: "modal-xl",
+    body: `
+      <div class="runtime-camera-preview-dialog">
+        <div class="sample-preview-frame runtime-camera-preview-frame zoomable-preview ${getAcquireSampleUrl(acquire) ? "" : "is-placeholder"}">
+          ${
+            getAcquireSampleUrl(acquire)
+              ? `<img src="${escapeAttribute(getAcquireSampleUrl(acquire))}" alt="${escapeAttribute(getAcquireSampleName(acquire))}" />`
+              : `<div class="sample-preview-grid"></div><span>${escapeHtml(getAcquireSampleName(acquire))}</span>`
+          }
+        </div>
+        <div class="runtime-camera-preview-side">
+          <div class="runtime-camera-preview-summary">
+            <span>相机状态</span>
+            <strong>${escapeHtml(cameraStatusText)}</strong>
+            <span>相机ID</span>
+            <strong>${escapeHtml(camera.id)}</strong>
+            <span>参数组</span>
+            <strong>${escapeHtml(paramGroup?.name || "-")}</strong>
+          </div>
+          <div class="runtime-camera-preview-meta-card">
+            <h4>参数信息</h4>
+            ${
+              fields.length
+                ? `<div class="meta-list runtime-camera-preview-meta">
+                    ${fields
+                      .map((field) => {
+                        const value = paramGroup?.settings?.[field.key] ?? field.defaultValue;
+                        return `<span>${escapeHtml(field.label)}</span><span>${escapeHtml(String(value))}</span>`;
+                      })
+                      .join("")}
+                  </div>`
+                : `<div class="builder-empty builder-empty-compact">当前暂无参数信息</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `,
+    confirmText: "关闭",
+    hideCancel: true,
+    onConfirm() {
+      closeSharedModal();
+      return true;
+    },
+  });
+  window.requestAnimationFrame(() => {
+    const frame = document.querySelector(".runtime-camera-preview-frame");
+    frame?.addEventListener("wheel", handleZoomablePreviewWheel, { passive: false });
+  });
+}
+
+function deleteCamera(cameraId) {
+  const camera = state.cameras.find((item) => item.id === cameraId);
+  if (!camera) return;
+  const referencedTools = getCameraReferencedToolNames(cameraId);
+  const referenceNotice = referencedTools.length
+    ? `
+      <p>当前相机被以下工具引用。删除后，这些工具的相机配置会被清空。</p>
+      <ul class="reference-confirm-list">
+        ${referencedTools.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}
+      </ul>
+    `
+    : `<p>确定删除相机“${escapeHtml(Demo.getCameraLabel(camera))}”吗？</p>`;
+  openSharedModal({
+    title: "删除相机",
+    body: `<div class="modal-prompt">${referenceNotice}</div>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      clearCameraReferences(cameraId);
+      state.cameras = state.cameras.filter((item) => item.id !== cameraId);
+      closeSharedModal();
+      persistState("相机已删除");
+      return true;
+    },
+  });
+}
+
+function getCameraReferencedToolNames(cameraId) {
+  return state.tools
+    .filter((tool) => Array.isArray(tool.acquire) && tool.acquire.some((item) => item.type === "camera" && item.cameraId === cameraId))
+    .map((tool) => tool.name);
+}
+
+function clearCameraReferences(cameraId) {
+  state.tools.forEach((tool) => {
+    let affected = false;
+    if (Array.isArray(tool.acquire)) {
+      tool.acquire.forEach((item) => {
+        if (item.type !== "camera" || item.cameraId !== cameraId) return;
+        item.cameraId = "";
+        item.paramGroupId = "";
+        item.sampleImageUrl = "";
+        affected = true;
+      });
+    }
+    if (affected) markToolConfigInvalid(tool);
+  });
+}
+
+function openAddCameraModal() {
+  ui.discoveryKeyword = "";
+  els.cameraDiscoveryKeyword.value = "";
+  openPanel(els.addCameraModal);
+  renderAddCameraModal();
+}
+
+function closeAddCameraModal() {
+  closePanel(els.addCameraModal);
+}
+
+function applyDiscoveryFilters() {
+  ui.discoveryKeyword = els.cameraDiscoveryKeyword.value.trim();
+  renderAddCameraModal();
+}
+
+function scanDiscoveryDevices() {
+  Demo.advanceDemoClock(state, 1);
+  ui.discoveryKeyword = els.cameraDiscoveryKeyword.value.trim();
+  renderAddCameraModal();
+}
+
+function confirmAddCamera() {
+  const selectedIds = Array.from(els.cameraDiscoveryBody.querySelectorAll("input:checked")).map((input) => input.value);
+  if (!selectedIds.length) {
+    showToast("请至少选择一台相机");
+    return;
+  }
+  selectedIds.forEach((id) => {
+    const source = state.availableCameras.find((item) => item.id === id);
+    if (!source || state.cameras.some((item) => item.id === id)) return;
+    state.cameras.push({
+      id: source.id,
+      name: source.name || "",
+      vendor: source.vendor,
+      brand: source.brand,
+      model: source.model,
+      serial: source.serial,
+      ip: source.ip,
+      status: source.status === "离线" ? "离线" : "空闲",
+      paramGroups: [
+        {
+          id: Demo.makeId("pg"),
+          name: "默认参数组1",
+          settings: getDefaultParamSettings(source.brand),
+        },
+      ],
+    });
+  });
+  closeAddCameraModal();
+  persistState("相机已添加到管理列表");
+}
+
+function openParamModal(cameraId) {
+  const camera = state.cameras.find((item) => item.id === cameraId);
+  if (!camera) return;
+  if (camera.status === "离线") {
+    showToast("未连接相机暂不支持参数组管理");
+    return;
+  }
+  ui.activeCameraId = cameraId;
+  ui.activeParamGroupId = camera.paramGroups?.[0]?.id || null;
+  ui.paramPreviewZoom = 1;
+  openPanel(els.paramModal);
+  renderParamModal();
+}
+
+function closeParamModal() {
+  closePanel(els.paramModal);
+  renderTools();
+}
+
+function handleParamGroupClick(event) {
+  const deleteBtn = getClosestEventTarget(event, "[data-action='delete-param-group']");
+  if (deleteBtn) {
+    deleteParamGroup(deleteBtn.dataset.groupId);
+    return;
+  }
+
+  const button = getClosestEventTarget(event, "[data-group-id]");
+  if (!button) return;
+  ui.activeParamGroupId = button.dataset.groupId;
+  renderParamModal();
+}
+
+function handleParamStepperClick(event) {
+  const button = getClosestEventTarget(event, "[data-action='param-step']");
+  if (!button) return;
+  const fieldKey = button.dataset.field;
+  const input = document.getElementById(`param_field_${fieldKey}`);
+  if (!input) return;
+  const delta = Number(button.dataset.delta || 0);
+  const current = Number(input.value || 0);
+  input.value = String(current + delta);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function handleParamPreviewWheel(event) {
+  ui.paramPreviewZoom = applyPreviewWheelZoom(event, els.paramPreviewStage, ui.paramPreviewZoom);
+  syncParamPreview(getActiveCamera(), getActiveParamGroup());
+}
+
+function handleZoomablePreviewWheel(event) {
+  const target = getClosestEventTarget(event, ".zoomable-preview");
+  if (!target) return;
+  const current = Number(target.dataset.zoom || 1);
+  const next = applyPreviewWheelZoom(event, target, current);
+  target.dataset.zoom = String(next);
+}
+
+function applyPreviewWheelZoom(event, element, currentZoom = 1) {
+  event.preventDefault();
+  const direction = event.deltaY > 0 ? -1 : 1;
+  const nextZoom = Math.min(3, Math.max(0.6, Number((Number(currentZoom || 1) + direction * 0.12).toFixed(2))));
+  element.style.setProperty("--preview-zoom", nextZoom);
+  return nextZoom;
+}
+
+function addParamGroup() {
+  const camera = getActiveCamera();
+  if (!camera) return;
+  const next = {
+    id: Demo.makeId("pg"),
+    name: `默认参数组${camera.paramGroups.length + 1}`,
+    settings: getDefaultParamSettings(camera.brand),
+  };
+  camera.paramGroups.push(next);
+  ui.activeParamGroupId = next.id;
+  persistState("参数组已新增");
+  window.requestAnimationFrame(() => {
+    const nameInput = document.getElementById("param_field_name");
+    nameInput?.focus();
+    nameInput?.select();
+  });
+}
+
+function handleParamFieldChange(event) {
+  const field = getClosestEventTarget(event, "input, select");
+  if (!field || !field.id || !field.id.startsWith("param_field_")) return;
+
+  const camera = getActiveCamera();
+  const group = getActiveParamGroup();
+  if (!camera || !group) return;
+
+  const fieldKey = field.id.replace("param_field_", "");
+  if (fieldKey === "name") {
+    group.name = field.value.trim() || "未命名参数组";
+  } else {
+    const schema = getParamFieldSchema(camera.brand).find((item) => item.key === fieldKey);
+    if (!schema) return;
+    if (schema.type === "boolean") {
+      group.settings[fieldKey] = field.value === "true";
+    } else if (schema.type === "number") {
+      group.settings[fieldKey] = Number(field.value || 0);
+    } else {
+      group.settings[fieldKey] = field.value;
+    }
+  }
+
+  syncParamPreview(camera, group);
+  if (fieldKey === "name") {
+    els.paramGroupList.innerHTML = renderParamGroupList(camera, Demo.getReferencedParamIds(state));
+  }
+  Demo.syncOfflineAt(state);
+  Demo.saveState(state);
+}
+
+function handleParamFieldWheel(event) {
+  const field = getClosestEventTarget(event, "input[type='number']");
+  if (!field) return;
+  if (document.activeElement === field) {
+    field.blur();
+  }
+}
+
+function deleteParamGroup(groupId = ui.activeParamGroupId) {
+  const camera = getActiveCamera();
+  const group = camera?.paramGroups?.find((item) => item.id === groupId) || null;
+  const referenced = Demo.getReferencedParamIds(state);
+  if (!camera || !group) return;
+  if (referenced.has(group.id)) {
+    showToast("当前参数组已被检测工具引用，无法删除");
+    return;
+  }
+  if (camera.paramGroups.length <= 1) {
+    showToast("至少保留一个参数组");
+    return;
+  }
+  camera.paramGroups = camera.paramGroups.filter((item) => item.id !== group.id);
+  ui.activeParamGroupId = camera.paramGroups[0]?.id || null;
+  persistState("参数组已删除");
+}
+
+function openModelSelector(target) {
+  const returnToSharedModal = !els.sharedModal.hidden;
+  ui.modelTarget = target ? { ...target, returnToSharedModal } : null;
+  ui.selectedModelId = target?.selectedModelId || state.localModels[0]?.id || null;
+  ui.modelDrawerMode = "select-local";
+  ui.modelSelectorFilters = { keyword: "", scene: target?.allowedScenes?.[0] || "all" };
+  if (returnToSharedModal) {
+    closePanel(els.sharedModal);
+  }
+  openPanel(els.modelDrawer);
+  renderModelDrawer();
+}
+
+function openCloudModelDrawer() {
+  ui.modelTarget = null;
+  ui.modelDrawerMode = "cloud-add";
+  openPanel(els.modelDrawer);
+  renderModelDrawer();
+}
+
+function closeModelDrawer() {
+  const shouldRestoreSharedModal = Boolean(ui.modelTarget?.returnToSharedModal);
+  ui.modelTarget = null;
+  closePanel(els.modelDrawer);
+  if (shouldRestoreSharedModal) {
+    openPanel(els.sharedModal);
+  }
+}
+
+function openSelectorCloudModelPanel() {
+  ui.modelDrawerMode = "cloud-add";
+  renderModelDrawer();
+}
+
+function openSelectorImportModelModal() {
+  openImportModelModal();
+}
+
+function handleLocalModelTableClick(event) {
+  const deleteButton = getClosestEventTarget(event, "[data-action='delete-local-model']");
+  if (deleteButton) {
+    deleteLocalModel(deleteButton.dataset.modelId);
+  }
+}
+
+function handleSelectorModelTableClick(event) {
+  const row = getClosestEventTarget(event, "[data-action='select-selector-model']");
+  if (!row) return;
+  ui.selectedModelId = row.dataset.modelId;
+  renderSelectorModels();
+}
+
+function handleCloudModelListClick(event) {
+  const button = getClosestEventTarget(event, "[data-action='download-model']");
+  if (!button) return;
+  startModelDownload(button.dataset.modelId, button.dataset.versionId);
+}
+
+function startModelDownload(modelId, versionId) {
+  if (!state.runtimeDevice.networkOnline) {
+    showToast("当前离线，无法从平台拉取算子");
+    return;
+  }
+  if (Demo.isStorageBlocked(state)) {
+    showToast("剩余空间不足，暂时无法拉取算子。");
+    return;
+  }
+  if (ui.pendingDownload) return;
+
+  const model = state.cloudModels.find((item) => item.id === modelId);
+  const version = model?.versions.find((item) => item.id === versionId);
+  if (!model || !version) return;
+  const alreadyDownloaded = state.localModels.some((item) => item.version === version.version);
+  if (alreadyDownloaded) {
+    showToast("当前算子版本已缓存到本地");
+    return;
+  }
+
+  ui.pendingDownload = { modelId, versionId };
+  renderModelDrawer();
+
+  timers.download = window.setTimeout(() => {
+    timers.download = null;
+    if (!state.runtimeDevice.networkOnline) {
+      abortModelDownload("客户端离线，算子拉取已中断");
+      return;
+    }
+    if (Demo.isStorageBlocked(state)) {
+      abortModelDownload("剩余空间低于阻断阈值，算子拉取已中断");
+      return;
+    }
+
+    Demo.advanceDemoClock(state, 3);
+    state.localModels.unshift({
+      id: version.id,
+      operatorId: model.operatorId || "",
+      weightId: version.weightId || "",
+      deploymentId: version.deploymentId || "",
+      configRevision: version.configRevision || "",
+      version: version.version,
+      displayVersion: Demo.getModelVersionLabel(version),
+      modelName: model.modelName,
+      sceneType: model.sceneType,
+      categories: model.sceneType === "分类" ? Demo.normalizeModelCategories(model) : [],
+      source: "平台拉取",
+      addedAt: state.meta.now,
+    });
+    ui.pendingDownload = null;
+    ui.selectedModelId = version.id;
+    if (ui.modelTarget) ui.modelDrawerMode = "select-local";
+    persistState("算子已缓存到本地");
+  }, 1800);
+}
+
+function abortModelDownload(message) {
+  if (timers.download) clearTimeout(timers.download);
+  timers.download = null;
+  ui.pendingDownload = null;
+  persistState(message, { feedback: "error" });
+}
+
+function openImportModelModal() {
+  if (Demo.isStorageBlocked(state)) {
+    showToast("剩余空间不足，暂时无法导入算子包。");
+    return;
+  }
+  els.importModelFileInput.value = "";
+  els.importModelFileInput.click();
+}
+
+function handleImportModelFileChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (Demo.isStorageBlocked(state)) {
+    showToast("剩余空间不足，暂时无法导入算子包。");
+    event.target.value = "";
+    return;
+  }
+
+  const meta = inferImportedModelMeta(file.name);
+  const duplicated = state.localModels.some((item) => item.version === meta.version);
+  if (duplicated) {
+    showToast("算子版本编号已存在，上传被拒绝");
+    event.target.value = "";
+    return;
+  }
+
+  Demo.advanceDemoClock(state, 2);
+  const id = Demo.makeId("mdl_local");
+  state.localModels.unshift({
+    id,
+    operatorId: "",
+    weightId: "",
+    deploymentId: "",
+    configRevision: "",
+    version: meta.version,
+    displayVersion: "V1",
+    modelName: meta.modelName,
+    sceneType: meta.sceneType,
+    categories: meta.sceneType === "分类" ? Demo.normalizeModelCategories(meta) : [],
+    source: "本地导入",
+    addedAt: state.meta.now,
+  });
+  ui.selectedModelId = id;
+  if (ui.modelTarget) ui.modelDrawerMode = "select-local";
+  event.target.value = "";
+  persistState(`算子已导入：${file.name}`);
+}
+
+function inferImportedModelMeta(fileName) {
+  const baseName = String(fileName || "")
+    .replace(/\.(zip|7z|rar|tar|gz|tgz)$/i, "")
+    .trim();
+  const normalizedName = baseName.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || "本地算子";
+  const matched = normalizedName.match(/^(.*?)[\s]+([A-Za-z]?\d[\w.-]{5,})$/);
+  const modelName = (matched?.[1] || normalizedName).trim();
+  const fallbackVersion = `UP${state.meta.now.slice(0, 19).replace(/[-:T]/g, "")}`;
+  const version = (matched?.[2] || fallbackVersion).trim();
+  return {
+    modelName,
+    version,
+    sceneType: inferSceneTypeFromModelName(modelName),
+  };
+}
+
+function inferSceneTypeFromModelName(modelName) {
+  const text = String(modelName || "");
+  if (/尺寸/.test(text)) return "尺寸";
+  if (/分类|识别/.test(text)) return "分类";
+  return "缺陷检测";
+}
+
+function buildMockAlgorithmOutput(output, businessResult, modelSceneType = "") {
+  if (modelSceneType === "尺寸") {
+    return businessResult === "NG" ? "点点距离 14.20 mm" : "点点距离 12.84 mm";
+  }
+  if (output.outputType === "classifier") {
+    return businessResult === "NG" ? "异常类别 84.7%" : "目标类别 97.5%";
+  }
+  return businessResult === "NG" ? "缺陷 84.7%" : "正常边界 97.5%";
+}
+
+function getExceptionByCode(code) {
+  const key = String(code || "");
+  const item = DETECTION_EXCEPTION_CATALOG[key] || DETECTION_EXCEPTION_CATALOG[code];
+  if (!item) return null;
+  return { code: key, title: item.title, text: item.text };
+}
+
+function getImageResultExceptions(tool, acquire) {
+  const exceptions = [];
+  if (acquire?.type === "camera") {
+    const camera = state.cameras.find((item) => item.id === acquire.cameraId);
+    const paramGroup = camera?.paramGroups?.find((item) => item.id === acquire.paramGroupId);
+    if (!camera || camera.status === "离线") {
+      exceptions.push(getExceptionByCode(9004));
+    }
+    if (paramGroup?.settings?.autoExposure && Number(paramGroup?.settings?.exposure) > 0) {
+      exceptions.push(getExceptionByCode(9009));
+    }
+    if (paramGroup?.settings?.autoGain && Number(paramGroup?.settings?.gain) > 0) {
+      exceptions.push(getExceptionByCode(9011));
+    }
+    if (camera && (camera.status === "占用" || !String(camera.ip || "").trim())) {
+      exceptions.push(getExceptionByCode(9012));
+    }
+  }
+  (tool.detect || []).forEach((detect) => {
+    const targetsAcquire = getDetectTargets(detect).some((target) => {
+      const process = (tool.process || []).find((item) => item.id === target.processId);
+      return process?.inputId === acquire?.id;
+    });
+    if (!targetsAcquire) return;
+    if (detect.modelId && !findModelMetaById(detect.modelId)) {
+      exceptions.push(getExceptionByCode(3401));
+    }
+  });
+  return exceptions.filter(Boolean);
+}
+
+function getRecordExceptions(record) {
+  if (!record) return [];
+  const direct = Array.isArray(record.exceptions) ? record.exceptions : [];
+  const imageExceptions = getRecordImageResults(record).flatMap((item) => item.exceptions || []);
+  const subExceptions = (record.subResults || []).flatMap((item) => item.exceptions || []);
+  const byText = new Map([...direct, ...imageExceptions, ...subExceptions].filter(Boolean).map((item) => [item.text || item.title, item]));
+  return Array.from(byText.values());
+}
+
+function deleteLocalModel(modelId) {
+  const model = state.localModels.find((item) => item.id === modelId);
+  if (!model) return;
+  const referencedTools = getModelReferencedToolNames(modelId);
+  const referenceNotice = referencedTools.length
+    ? `
+      <p>当前算子被以下工具引用。删除后，这些工具的相关配置会被清空。</p>
+      <ul class="reference-confirm-list">
+        ${referencedTools.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}
+      </ul>
+    `
+    : `<p>确定删除算子“${escapeHtml(model.modelName)} / ${escapeHtml(Demo.getModelVersionLabel(model))}”吗？</p>`;
+
+  openSharedModal({
+    title: "删除算子",
+    body: `<div class="modal-prompt">${referenceNotice}</div>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      clearModelReferences(modelId);
+      state.localModels = state.localModels.filter((item) => item.id !== modelId);
+      if (ui.selectedModelId === modelId) {
+        ui.selectedModelId = state.localModels[0]?.id || null;
+      }
+      closeSharedModal();
+      persistState("算子已删除");
+      return true;
+    },
+  });
+}
+
+function getModelReferencedToolNames(modelId) {
+  const names = state.tools
+    .filter((tool) => {
+      const processHit = Array.isArray(tool.process) && tool.process.some((item) => item.modelId === modelId);
+      const detectHit = Array.isArray(tool.detect) && tool.detect.some((item) => item.modelId === modelId);
+      return processHit || detectHit;
+    })
+    .map((tool) => tool.name);
+  return Array.from(new Set(names));
+}
+
+function clearModelReferences(modelId) {
+  state.tools.forEach((tool) => {
+    let affected = false;
+    if (Array.isArray(tool.process)) {
+      tool.process.forEach((item) => {
+        if (item.modelId !== modelId) return;
+        item.modelId = null;
+        item.modelSceneType = "";
+        item.categoryOptions = [];
+        affected = true;
+      });
+    }
+    if (Array.isArray(tool.detect)) {
+      tool.detect.forEach((item) => {
+        if (item.modelId !== modelId) return;
+        item.modelId = null;
+        item.modelSceneType = "";
+        item.categoryOptions = [];
+        item.dimensionConfig = null;
+        affected = true;
+      });
+    }
+    if (affected) markToolConfigInvalid(tool);
+  });
+}
+
+function markToolConfigInvalid(tool) {
+  if (!tool) return;
+  tool.configInvalid = true;
+  if (!tool.runtime) tool.runtime = {};
+  tool.runtime.status = "配置异常";
+  tool.runtime.primaryResult = "-";
+  tool.runtime.sessionActive = false;
+}
+
+function confirmModelSelection() {
+  if (!ui.selectedModelId) {
+    showToast("请先选择一个算子");
+    return;
+  }
+  let targetInput = null;
+  if (ui.modelTarget?.valueId) {
+    const input = document.getElementById(ui.modelTarget.valueId);
+    if (input) {
+      input.value = ui.selectedModelId;
+      targetInput = input;
+    }
+  }
+  if (ui.modelTarget?.summaryId) {
+    const summary = document.getElementById(ui.modelTarget.summaryId);
+    if (summary) summary.textContent = Demo.getModelLabel(state, ui.selectedModelId) || "未选择算子";
+  }
+  if (targetInput) {
+    targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+    targetInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  closeModelDrawer();
+}
+
+function resetLocalFilters() {
+  ui.localFilters = {
+    keyword: "",
+    scene: "all",
+  };
+  renderLocalModels();
+}
+
+function applyLocalFilters() {
+  ui.localFilters = {
+    keyword: els.localModelKeywordFilter.value.trim(),
+    scene: els.localSceneFilter.value,
+  };
+  renderLocalModels();
+}
+
+function resetModelSelectorFilters() {
+  ui.modelSelectorFilters = {
+    keyword: "",
+    scene: "all",
+  };
+  renderSelectorModels();
+}
+
+function applyModelSelectorFilters() {
+  ui.modelSelectorFilters = {
+    keyword: els.selectorModelKeywordFilter.value.trim(),
+    scene: els.selectorModelSceneFilter.value,
+  };
+  renderSelectorModels();
+}
+
+function resetCloudFilters() {
+  ui.cloudFilters = {
+    keyword: "",
+    scene: "all",
+  };
+  renderCloudModels();
+}
+
+function applyCloudFilters() {
+  ui.cloudFilters = {
+    keyword: els.cloudModelKeywordFilter.value.trim(),
+    scene: els.cloudSceneFilter.value,
+  };
+  renderCloudModels();
+}
+
+function applyRecordFilters() {
+  const startAt = els.recordStartTimeInput.value;
+  const endAt = els.recordEndTimeInput.value;
+  if (startAt && endAt) {
+    const startMs = new Date(startAt).getTime();
+    const endMs = new Date(endAt).getTime();
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && startMs > endMs) {
+      showToast("开始时间不能晚于结束时间");
+      return;
+    }
+  }
+  ui.recordFilters.runMode = els.recordRunModeFilter.value;
+  ui.recordFilters.startAt = startAt;
+  ui.recordFilters.endAt = endAt;
+  ui.recordFilters.keyword = els.recordKeywordInput.value.trim();
+  ui.recordPagination.page = 1;
+  renderRecords();
+}
+
+function resetRecordFilters() {
+  ui.recordFilters = {
+    runMode: "all",
+    business: "all",
+    startAt: "",
+    endAt: "",
+    keyword: "",
+  };
+  ui.selectedRecordIds.clear();
+  ui.recordPagination.page = 1;
+  renderRecords();
+}
+
+function handleRecordTableClick(event) {
+  const button = getClosestEventTarget(event, "[data-action]");
+  if (!button) return;
+  const { action, id } = button.dataset;
+  if (!id) return;
+  if (action === "view-record-detail") {
+    openRecordDetailModal(id);
+    return;
+  }
+  if (action === "export-capture-record") {
+    openCaptureBatchExportModal([id]);
+    return;
+  }
+  if (action === "delete-record") {
+    confirmDeleteRecords([id]);
+  }
+}
+
+function handleRecordTableChange(event) {
+  const checkbox = getClosestEventTarget(event, "[data-action='select-record']");
+  if (!checkbox?.dataset.id) return;
+  if (checkbox.checked) {
+    ui.selectedRecordIds.add(checkbox.dataset.id);
+  } else {
+    ui.selectedRecordIds.delete(checkbox.dataset.id);
+  }
+  renderRecordTable();
+}
+
+function handleRecordSelectAllChange() {
+  const rows = getFilteredRecords();
+  const pagination = getRecordPaginationState(rows);
+  const pageRows = rows.slice(pagination.startIndex, pagination.endIndex);
+  pageRows.forEach((record) => {
+    if (els.recordSelectAll.checked) {
+      ui.selectedRecordIds.add(record.id);
+    } else {
+      ui.selectedRecordIds.delete(record.id);
+    }
+  });
+  renderRecordTable();
+}
+
+function selectAllFilteredRecords() {
+  const rows = getFilteredRecords();
+  const allFilteredSelected = rows.length > 0 && rows.every((record) => ui.selectedRecordIds.has(record.id));
+  rows.forEach((record) => {
+    if (allFilteredSelected) {
+      ui.selectedRecordIds.delete(record.id);
+    } else {
+      ui.selectedRecordIds.add(record.id);
+    }
+  });
+  renderRecordTable();
+}
+
+function confirmDeleteRecords(recordIds) {
+  const ids = Array.from(new Set(recordIds)).filter(Boolean);
+  if (!ids.length) return;
+  const records = getAllRecordRows().filter((record) => ids.includes(record.id));
+  if (!records.length) return;
+  if (records.some((record) => record.kind === "capture" && record.status === "采集中")) {
+    showToast("进行中的采图批次不能删除，请先结束采图");
+    return;
+  }
+  openSharedModal({
+    title: records.length > 1 ? "批量删除记录" : "删除记录",
+    body: `<p class="modal-prompt">确定删除 ${records.length} 条记录吗？删除后不可恢复。</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      const deleteIds = new Set(records.map((record) => record.id));
+      const deleteDetectionIds = new Set(records.flatMap((record) => (record.kind === "detection-session" ? record.recordIds : [record.id])));
+      state.detectionRecords = state.detectionRecords.filter((record) => !deleteDetectionIds.has(record.id));
+      state.captureRecords = state.captureRecords.filter((record) => !deleteIds.has(record.id));
+      deleteIds.forEach((id) => ui.selectedRecordIds.delete(id));
+      if (deleteIds.has(ui.activeRecordId)) {
+        ui.activeRecordId = state.detectionRecords[0]?.id || null;
+      }
+      closeSharedModal();
+      persistState(records.length > 1 ? "记录已批量删除" : "记录已删除");
+      return true;
+    },
+  });
+}
+
+function handleRecordPaginationClick(event) {
+  const button = getClosestEventTarget(event, "[data-action]");
+  if (!button) return;
+  const { action, page } = button.dataset;
+  const pagination = getRecordPaginationState();
+  if (action === "prev-page" && pagination.page > 1) {
+    ui.recordPagination.page -= 1;
+    renderRecords();
+    return;
+  }
+  if (action === "next-page" && pagination.page < pagination.totalPages) {
+    ui.recordPagination.page += 1;
+    renderRecords();
+    return;
+  }
+  if (action === "go-page" && Number.isInteger(Number(page))) {
+    ui.recordPagination.page = Number(page);
+    renderRecords();
+  }
+}
+
+function handleRuntimeImageResultClick(event) {
+  const detailButton = getClosestEventTarget(event, "[data-action='open-runtime-image-detail']");
+  if (detailButton?.dataset.id) {
+    ui.activeRuntimeImageId = detailButton.dataset.id;
+    openRuntimeImageResultsModal(detailButton.dataset.id);
+    return;
+  }
+  const button = getClosestEventTarget(event, "[data-action='select-runtime-image']");
+  if (!button) return;
+  ui.activeRuntimeImageId = button.dataset.id;
+  renderToolRuntime();
+}
+
+function handleToolRuntimeClick(event) {
+  const captureAction = getClosestEventTarget(event, "[data-action]");
+  if (captureAction && getActiveTool()?.runtime?.sessionMode === "acquire") {
+    const action = captureAction.dataset.action;
+    if (action === "back-to-tool-overview") return switchToolView("overview");
+    if (action === "finish-capture-run") return stopToolRunSession();
+    if (action === "select-capture-item") {
+      if (captureAction.dataset.dragged === "true") {
+        captureAction.dataset.dragged = "";
+        return;
+      }
+      ui.activeCaptureItemId = captureAction.dataset.id || "";
+      ui.activeCaptureImageId = "";
+      ui.recentCaptureImageId = "";
+      renderToolRuntime();
+      return;
+    }
+    if (action === "open-capture-config") return openCaptureRuntimeConfiguration();
+    if (action === "capture-item") return captureCaptureItem(captureAction.dataset.id || "");
+    if (action === "select-capture-item-tag") {
+      return selectCaptureItemTag(captureAction.dataset.id || "", captureAction.dataset.tag || "");
+    }
+    if (action === "configure-capture-item-tags") {
+      return openCaptureItemTagSettings(captureAction.dataset.id || "");
+    }
+    if (action === "zoom-capture-camera") {
+      const acquireId = captureAction.dataset.id || "";
+      const current = Number(ui.captureCameraZoom[acquireId] || 1);
+      ui.captureCameraZoom[acquireId] = Math.min(3, Math.max(0.5, Number((current + Number(captureAction.dataset.delta || 0)).toFixed(1))));
+      renderToolRuntime();
+      return;
+    }
+    if (action === "reset-capture-camera-zoom") {
+      const acquireId = captureAction.dataset.id || "";
+      ui.captureCameraZoom[acquireId] = 1;
+      ui.captureCameraPan[acquireId] = { x: 0, y: 0 };
+      renderToolRuntime();
+      return;
+    }
+    if (action === "open-capture-image-detail") {
+      ui.recentCaptureImageId = "";
+      return openCaptureToolLibrary(getActiveTool()?.id, {
+        activeAcquireId: captureAction.dataset.itemId || "",
+        activeImageId: captureAction.dataset.id || "",
+      });
+    }
+    if (action === "manage-capture-images") {
+      return openCaptureBatchDetail(getActiveCaptureBatch()?.id, { activeAcquireId: captureAction.dataset.id || "" });
+    }
+  }
+  const subResultButton = getClosestEventTarget(event, "[data-action='focus-runtime-subresult']");
+  if (subResultButton?.dataset.imageId && subResultButton?.dataset.subId) {
+    openRuntimeImageResultsModal(subResultButton.dataset.imageId, subResultButton.dataset.subId);
+    return;
+  }
+  const previewButton = getClosestEventTarget(event, "[data-action='preview-runtime-camera']");
+  if (previewButton?.dataset.acquireId) {
+    openRuntimeCameraPreview(previewButton.dataset.acquireId);
+    return;
+  }
+  if (getClosestEventTarget(event, "[data-action='open-runtime-record-drawer']")) {
+    openRuntimeRecordDrawer();
+    return;
+  }
+  const runtimeRecordButton = getClosestEventTarget(event, "[data-action='open-runtime-record-detail']");
+  if (runtimeRecordButton?.dataset.recordId) {
+    openRuntimeRecordDrawer(runtimeRecordButton.dataset.recordId);
+    return;
+  }
+  if (getClosestEventTarget(event, "[data-action='add-runtime-tag']")) {
+    addRuntimeTag();
+    return;
+  }
+  const removeButton = getClosestEventTarget(event, "[data-action='remove-runtime-tag']");
+  if (removeButton) {
+    removeRuntimeTag(removeButton.dataset.index);
+  }
+}
+
+function handleCaptureRuntimeChange() {}
+
+function normalizeCaptureSelectedTags(item, availableTags = []) {
+  const tags = Array.isArray(item?.selectedTags) && item.selectedTags.length ? item.selectedTags : item?.selectedTag ? [item.selectedTag] : [];
+  return tags.filter((tag) => availableTags.includes(tag)).slice(0, CAPTURE_TAG_MAX_COUNT);
+}
+
+function getCaptureItemSelectedTags(item) {
+  const availableTags = (item?.availableTags || ["OK", "NG"]).slice(0, CAPTURE_TAG_MAX_COUNT);
+  const normalizedTags = normalizeCaptureSelectedTags(item, availableTags);
+  if (item?.tagSelectMode === "multiple") return normalizedTags;
+  const selectedTag = availableTags.includes(item?.selectedTag) ? item.selectedTag : normalizedTags[0] || "";
+  return selectedTag ? [selectedTag] : [];
+}
+
+function isCaptureItemTagSelected(item, tag) {
+  return getCaptureItemSelectedTags(item).includes(tag);
+}
+
+function getCaptureItemVisibleTags(item) {
+  return item?.images?.[0] ? (item.images[0].tags || []).slice(0, CAPTURE_TAG_MAX_COUNT) : getCaptureItemSelectedTags(item);
+}
+
+function selectCaptureItemTag(acquireId, tag) {
+  const batch = getActiveCaptureBatch();
+  const item = batch?.items?.find((entry) => entry.acquireId === acquireId);
+  if (!item || !item.availableTags?.includes(tag)) return;
+  const targetImage = item.images[0] || null;
+  if (item.tagSelectMode === "multiple") {
+    const current = new Set(targetImage ? getCaptureItemVisibleTags(item) : getCaptureItemSelectedTags(item));
+    if (current.has(tag)) current.delete(tag);
+    else current.add(tag);
+    item.selectedTags = Array.from(current).slice(0, CAPTURE_TAG_MAX_COUNT);
+    item.selectedTag = item.selectedTags[0] || "";
+  } else {
+    const selected = getCaptureItemSelectedTags(item);
+    const nextTag = selected.includes(tag) ? "" : tag;
+    item.selectedTag = nextTag;
+    item.selectedTags = nextTag ? [nextTag] : [];
+  }
+  if (targetImage) {
+    targetImage.tags = getCaptureItemSelectedTags(item);
+    ui.activeCaptureImageId = targetImage.id;
+  }
+  saveStateSilently();
+  renderToolRuntime();
+}
+
+function openCaptureItemTagSettings(acquireId) {
+  const tool = getActiveTool();
+  const batch = getActiveCaptureBatch(tool);
+  const item = batch?.items?.find((entry) => entry.acquireId === acquireId);
+  if (!tool || !batch || !item) return;
+  let tags = [...(item.availableTags || ["OK", "NG"])].slice(0, CAPTURE_TAG_MAX_COUNT);
+  let tagSelectMode = item.tagSelectMode === "multiple" ? "multiple" : "single";
+  const renderTagSettings = () => {
+    els.sharedModalBody.innerHTML = `
+      <div class="capture-tag-settings">
+        <div class="capture-tag-mode-row">
+          <span>选择方式</span>
+          <div class="segmented-control capture-tag-mode-toggle">
+            <button class="${tagSelectMode === "single" ? "is-active" : ""}" data-action="set-capture-tag-mode" data-mode="single" type="button">单选</button>
+            <button class="${tagSelectMode === "multiple" ? "is-active" : ""}" data-action="set-capture-tag-mode" data-mode="multiple" type="button">多选</button>
+          </div>
+        </div>
+        <div class="capture-tag-settings-add">
+          <input id="captureOptionTagInput" maxlength="${CAPTURE_TAG_MAX_LENGTH}" placeholder="输入新标签（最多${CAPTURE_TAG_MAX_LENGTH}字符）" />
+          <button class="secondary-btn" data-action="add-capture-option-tag" type="button" ${tags.length >= CAPTURE_TAG_MAX_COUNT ? "disabled" : ""}>添加</button>
+        </div>
+        <div class="capture-tag-settings-list">
+          ${tags
+            .map(
+              (tag) => `
+                <span>${escapeHtml(tag)}
+                  <button data-action="remove-capture-option-tag" data-tag="${escapeAttribute(tag)}" type="button" aria-label="删除标签${escapeAttribute(tag)}">×</button>
+                </span>
+              `,
+            )
+            .join("")}
+        </div>
+        <span class="capture-tag-limit">${tags.length} / ${CAPTURE_TAG_MAX_COUNT} 个标签</span>
+      </div>
+    `;
+    const root = els.sharedModalBody.querySelector(".capture-tag-settings");
+    root?.addEventListener("click", (event) => {
+      const actionEl = getClosestEventTarget(event, "[data-action]");
+      if (!actionEl) return;
+      if (actionEl.dataset.action === "set-capture-tag-mode") {
+        tagSelectMode = actionEl.dataset.mode === "multiple" ? "multiple" : "single";
+        renderTagSettings();
+      }
+      if (actionEl.dataset.action === "remove-capture-option-tag") {
+        tags = tags.filter((tag) => tag !== actionEl.dataset.tag);
+        renderTagSettings();
+      }
+      if (actionEl.dataset.action === "add-capture-option-tag") {
+        const input = document.getElementById("captureOptionTagInput");
+        const tag = input?.value.trim() || "";
+        if (!tag) return showToast("请输入标签内容");
+        if (tag.length > CAPTURE_TAG_MAX_LENGTH) return showToast(`标签最多 ${CAPTURE_TAG_MAX_LENGTH} 个字符`);
+        if (tags.length >= CAPTURE_TAG_MAX_COUNT) return showToast(`最多添加 ${CAPTURE_TAG_MAX_COUNT} 个标签`);
+        if (tags.includes(tag)) return showToast("标签已存在");
+        tags.push(tag);
+        renderTagSettings();
+      }
+    });
+  };
+  openSharedModal({
+    title: `${item.acquireName} · 标签设置`,
+    body: "",
+    confirmText: "保存",
+    onOpen: renderTagSettings,
+    onConfirm() {
+      item.availableTags = tags;
+      item.tagSelectMode = tagSelectMode;
+      item.selectedTags = normalizeCaptureSelectedTags(item, tags);
+      if (!tags.includes(item.selectedTag)) item.selectedTag = item.selectedTags[0] || "";
+      if (item.tagSelectMode === "single") item.selectedTags = item.selectedTag ? [item.selectedTag] : [];
+      closeSharedModal();
+      persistState("可选标签已更新");
+      return true;
+    },
+  });
+}
+
+function appendCapturedImage(item, tool, capturedAt) {
+  const acquire = getCaptureItemAcquire(item, tool);
+  const imageIndex = item.images.length + 1;
+  const image = {
+    id: Demo.makeId("capimg"),
+    acquireId: item.acquireId,
+    capturedAt,
+    cameraId: acquire?.cameraId || "",
+    paramGroupId: acquire?.paramGroupId || "",
+    fileName: `${item.acquireName}_${String(imageIndex).padStart(3, "0")}.png`,
+    imageUrl: getAcquireSampleUrl(acquire),
+    tags: getCaptureItemSelectedTags(item),
+  };
+  item.images.unshift(image);
+  return image;
+}
+
+function captureCaptureItem(acquireId) {
+  const tool = getActiveTool();
+  const batch = getActiveCaptureBatch(tool);
+  if (!tool || !batch) return;
+  if (Demo.isStorageBlocked(state)) {
+    showToast("剩余空间不足，暂时不能继续采图");
+    return;
+  }
+  const item = batch.items.find((entry) => entry.acquireId === acquireId && entry.enabled);
+  if (!item) {
+    showToast("当前图像获取项未参与本次采集");
+    return;
+  }
+  syncSystemNow();
+  const image = appendCapturedImage(item, tool, state.meta.now);
+  batch.capturedTotal = getCaptureBatchImages(batch).length;
+  ui.activeCaptureItemId = item.acquireId;
+  ui.activeCaptureImageId = image.id;
+  ui.recentCaptureImageId = image.id;
+  persistState();
+  if (timers.captureFresh) clearTimeout(timers.captureFresh);
+  timers.captureFresh = window.setTimeout(() => {
+    if (ui.recentCaptureImageId === image.id) {
+      ui.recentCaptureImageId = "";
+      renderAll();
+    }
+    timers.captureFresh = null;
+  }, 1100);
+}
+
+function confirmFinishCaptureBatch() {
+  const batch = getActiveCaptureBatch();
+  if (!batch) return;
+  openSharedModal({
+    title: "结束本批采图",
+    body: `<p class="banner banner-warning">当前已采集 ${batch.capturedTotal} 张。结束后本批次将进入该工具的采图记录，不能继续追加。</p>`,
+    confirmText: "确认结束",
+    onConfirm() {
+      finishCaptureBatch(batch);
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function finishCaptureBatch(batch) {
+  const tool = state.tools.find((item) => item.id === batch.toolId);
+  syncSystemNow();
+  batch.status = "已结束";
+  batch.completedAt = state.meta.now;
+  if (tool) {
+    tool.runtime.captureBatchId = "";
+    endToolRunSessionState(tool);
+  }
+  ui.toolView = "overview";
+  ui.activeCaptureItemId = "";
+  ui.activeCaptureImageId = "";
+  ui.selectedCaptureImageIds.clear();
+  persistState(`采图已结束，共采集 ${batch.capturedTotal} 张`);
+}
+
+function findCaptureImage(imageId, batch = getActiveCaptureBatch()) {
+  for (const item of batch?.items || []) {
+    const image = item.images.find((entry) => entry.id === imageId);
+    if (image) return { image, item };
+  }
+  return null;
+}
+
+function exportCaptureImages(imageIds, batch = getActiveCaptureBatch()) {
+  const ids = new Set(imageIds);
+  const images = getCaptureBatchImages(batch).filter((image) => ids.has(image.id));
+  if (!images.length) {
+    showToast("请先选择要导出的图像");
+    return;
+  }
+  showToast(`下载任务已开始：${batch.id}_${images.length}张图像.zip`, { tone: "success" });
+}
+
+function applyCaptureImageTag(batch, imageIds, tag) {
+  const ids = new Set(imageIds);
+  if (!ids.size || !tag) return;
+  const selectedImages = getCaptureBatchImages(batch).filter((image) => ids.has(image.id));
+  const shouldRemove = selectedImages.length > 0 && selectedImages.every((image) => image.tags?.includes(tag));
+  batch.items.forEach((item) => {
+    item.images.forEach((image) => {
+      if (!ids.has(image.id)) return;
+      const tags = Array.isArray(image.tags) ? image.tags : [];
+      image.tags = shouldRemove ? tags.filter((itemTag) => itemTag !== tag) : tags.includes(tag) ? tags : [...tags, tag];
+    });
+  });
+  saveStateSilently();
+}
+
+function confirmDeleteCaptureImages(imageIds, targetBatch = getActiveCaptureBatch(), onDeleted = null) {
+  const ids = new Set(imageIds);
+  if (!ids.size || !targetBatch) return;
+  openSharedModal({
+    title: "删除采集图像",
+    body: `<p class="banner banner-danger">确定删除选中的 ${ids.size} 张图像吗？删除后对应采集数量会同步减少。</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      targetBatch.items.forEach((item) => {
+        item.images = item.images.filter((image) => !ids.has(image.id));
+      });
+      targetBatch.capturedTotal = getCaptureBatchImages(targetBatch).length;
+      ids.forEach((id) => ui.selectedCaptureImageIds.delete(id));
+      if (ids.has(ui.activeCaptureImageId)) ui.activeCaptureImageId = "";
+      closeSharedModal();
+      persistState("采集图像已删除");
+      if (typeof onDeleted === "function") onDeleted();
+      return true;
+    },
+  });
+}
+
+function getToolCaptureBatches(toolId) {
+  return state.captureRecords
+    .filter((record) => record.toolId === toolId)
+    .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
+}
+
+function getCaptureImageContextFromBatches(imageId, batches) {
+  for (const batch of batches) {
+    for (const item of batch.items || []) {
+      const image = item.images.find((entry) => entry.id === imageId);
+      if (image) return { batch, item, image };
+    }
+  }
+  return null;
+}
+
+function replaceCaptureImageTags(batches, imageIds, tags) {
+  const ids = new Set(imageIds);
+  batches.forEach((batch) => {
+    batch.items.forEach((item) => {
+      item.images.forEach((image) => {
+        if (ids.has(image.id)) image.tags = [...tags];
+      });
+    });
+  });
+  saveStateSilently();
+}
+
+function getSharedCaptureImageTags(batches, imageIds) {
+  const contexts = imageIds.map((imageId) => getCaptureImageContextFromBatches(imageId, batches)).filter(Boolean);
+  if (!contexts.length) return [];
+  const first = JSON.stringify(contexts[0].image.tags || []);
+  return contexts.every((context) => JSON.stringify(context.image.tags || []) === first) ? [...(contexts[0].image.tags || [])] : [];
+}
+
+function openCaptureTagBubble(anchor, batches, imageIds) {
+  document.querySelector(".capture-tag-popover")?.remove();
+  if (!imageIds.length) return;
+  const initialTags = getSharedCaptureImageTags(batches, imageIds);
+  const popover = document.createElement("div");
+  popover.className = "capture-tag-popover";
+  popover.innerHTML = `
+    <strong>${imageIds.length > 1 ? `批量修改 ${imageIds.length} 张图像标签` : "修改图像标签"}</strong>
+    <input maxlength="${CAPTURE_TAG_MAX_COUNT * (CAPTURE_TAG_MAX_LENGTH + 1)}" value="${escapeAttribute(initialTags.join("；"))}" placeholder="多个标签使用；分隔" />
+    <span>最多 ${CAPTURE_TAG_MAX_COUNT} 个标签，每个不超过 ${CAPTURE_TAG_MAX_LENGTH} 个字符，多个用“；”隔开</span>
+    <div>
+      <button class="secondary-btn" data-tag-popover-action="cancel" type="button">取消</button>
+      <button class="primary-btn" data-tag-popover-action="apply" type="button">确认修改</button>
+    </div>
+  `;
+  document.body.appendChild(popover);
+  const anchorRect = anchor.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - popoverRect.width - 12, Math.max(12, anchorRect.right - popoverRect.width));
+  const top =
+    anchorRect.bottom + popoverRect.height + 10 <= window.innerHeight
+      ? anchorRect.bottom + 8
+      : Math.max(12, anchorRect.top - popoverRect.height - 8);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+  const input = popover.querySelector("input");
+  input?.focus();
+  input?.select();
+  popover.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-tag-popover-action]")?.dataset.tagPopoverAction;
+    if (action === "cancel") popover.remove();
+    if (action === "apply") {
+      const tags = Array.from(
+        new Set(
+          String(input?.value || "")
+            .split(/[；;]/)
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      );
+      if (tags.length > CAPTURE_TAG_MAX_COUNT) {
+        showToast(`最多设置 ${CAPTURE_TAG_MAX_COUNT} 个标签`);
+        return;
+      }
+      if (tags.some((tag) => tag.length > CAPTURE_TAG_MAX_LENGTH)) {
+        showToast(`每个标签最多 ${CAPTURE_TAG_MAX_LENGTH} 个字符`);
+        return;
+      }
+      replaceCaptureImageTags(batches, imageIds, tags);
+      popover.remove();
+      ui.modalConfig?.onOpen?.();
+    }
+  });
+}
+
+function getCaptureImageMetadata(tool, item) {
+  const acquire = tool.acquire.find((entry) => entry.id === item.acquireId);
+  if (acquire?.type !== "camera") {
+    return { size: "-", device: acquire?.endpoint || "外部输入" };
+  }
+  const camera = state.cameras.find((entry) => entry.id === acquire.cameraId);
+  const paramGroup = camera?.paramGroups?.find((entry) => entry.id === acquire.paramGroupId);
+  const width = Number(paramGroup?.settings?.width) || 1920;
+  const height = Number(paramGroup?.settings?.height) || 1080;
+  return {
+    size: `${width} × ${height}`,
+    device: camera ? `${camera.vendor || ""} ${camera.model || Demo.getCameraLabel(camera)}`.trim() : "-",
+  };
+}
+
+function getCaptureImagesForSync(toolId, imageIds) {
+  const ids = new Set(imageIds);
+  const images = [];
+  getToolCaptureBatches(toolId).forEach((batch) => {
+    batch.items.forEach((item) => {
+      item.images.forEach((image) => {
+        if (!ids.has(image.id)) return;
+        images.push({
+          ...image,
+          acquireName: item.acquireName,
+          batchStartedAt: batch.startedAt,
+        });
+      });
+    });
+  });
+  return images;
+}
+
+function getPlatformLibrarySnapshot() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PLATFORM_LIBRARY_STORAGE_KEY) || "");
+    if (parsed?.version === 2) {
+      return {
+        state: parsed,
+        folders: Array.isArray(parsed.folders) ? parsed.folders : [],
+      };
+    }
+  } catch (_error) {
+    // The platform demo will rebuild invalid cache and consume the queued sync.
+  }
+  return {
+    state: null,
+    folders: [
+      { id: "folder_codex", name: "codex-test-data" },
+      { id: "folder_parts", name: "螺杆样本" },
+      { id: "folder_xray", name: "X光缺陷样本" },
+    ],
+  };
+}
+
+function buildCloudLibraryImages(images, folderId) {
+  return images.map((image) => ({
+    id: `client_${image.id}`,
+    name: image.fileName,
+    folderId,
+    url: image.imageUrl || "",
+    size: "1920 × 1080",
+    device: state.runtimeDevice?.clientName || "客户端",
+    tag: (image.tags || []).join("、"),
+    tags: [...(image.tags || [])],
+    capturedAt: image.capturedAt,
+    source: "client-capture",
+  }));
+}
+
+function syncCaptureImagesToCloud(toolId, imageIds, destination) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  const images = getCaptureImagesForSync(toolId, imageIds);
+  if (!tool || !images.length) return false;
+  const snapshot = getPlatformLibrarySnapshot();
+  const now = new Date().toISOString();
+  const existingFolder = destination.folderId
+    ? snapshot.folders.find((folder) => folder.id === destination.folderId)
+    : null;
+  const folder = existingFolder || {
+    id: Demo.makeId("folder_client"),
+    name: destination.newFolderName,
+    count: 0,
+    cover: images[0]?.imageUrl || "",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const cloudImages = buildCloudLibraryImages(images, folder.id);
+
+  if (snapshot.state) {
+    if (!existingFolder) snapshot.state.folders.unshift(folder);
+    const existingIds = new Set((snapshot.state.images || []).map((image) => image.id));
+    snapshot.state.images = [
+      ...(snapshot.state.images || []),
+      ...cloudImages.filter((image) => !existingIds.has(image.id)),
+    ];
+    const targetFolder = snapshot.state.folders.find((item) => item.id === folder.id);
+    if (targetFolder) {
+      const folderImages = snapshot.state.images.filter((image) => image.folderId === folder.id);
+      targetFolder.count = folderImages.length;
+      targetFolder.cover = folderImages[0]?.url || targetFolder.cover || "";
+      targetFolder.updatedAt = now;
+    }
+    localStorage.setItem(PLATFORM_LIBRARY_STORAGE_KEY, JSON.stringify(snapshot.state));
+  } else {
+    let queue = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CLIENT_CLOUD_SYNC_QUEUE_KEY) || "[]");
+      if (Array.isArray(parsed)) queue = parsed;
+    } catch (_error) {
+      queue = [];
+    }
+    queue.push({
+      id: Demo.makeId("cloudsync"),
+      folder: existingFolder ? { id: existingFolder.id, name: existingFolder.name } : folder,
+      images: cloudImages,
+      syncedAt: now,
+    });
+    localStorage.setItem(CLIENT_CLOUD_SYNC_QUEUE_KEY, JSON.stringify(queue));
+  }
+  return true;
+}
+
+function openCaptureCloudSyncModal(toolId, imageIds) {
+  const images = getCaptureImagesForSync(toolId, imageIds);
+  if (!images.length) {
+    showToast("请先选择要同步的图像");
+    return;
+  }
+  const folders = getPlatformLibrarySnapshot().folders;
+  openSharedModal({
+    title: "同步到云端",
+    panelClass: "modal-md",
+    body: `
+      <div class="capture-cloud-sync">
+        <div class="capture-cloud-sync-summary">已选择 <strong>${images.length}</strong> 张图像</div>
+        <label class="capture-cloud-sync-mode">
+          <input type="radio" name="captureCloudFolderMode" value="existing" checked />
+          <span>同步到已有文件夹</span>
+        </label>
+        <select id="captureCloudFolderSelect" ${folders.length ? "" : "disabled"}>
+          ${folders.map((folder) => `<option value="${escapeAttribute(folder.id)}">${escapeHtml(folder.name)}</option>`).join("")}
+        </select>
+        <label class="capture-cloud-sync-mode">
+          <input type="radio" name="captureCloudFolderMode" value="new" />
+          <span>新建文件夹并同步</span>
+        </label>
+        <input id="captureCloudNewFolderInput" maxlength="30" placeholder="输入新文件夹名称" disabled />
+      </div>
+    `,
+    confirmText: "开始同步",
+    onCancel() {
+      closeSharedModal();
+      openCaptureToolLibrary(toolId);
+    },
+    onOpen() {
+      const modeInputs = Array.from(document.querySelectorAll("input[name='captureCloudFolderMode']"));
+      const folderSelect = document.getElementById("captureCloudFolderSelect");
+      const folderInput = document.getElementById("captureCloudNewFolderInput");
+      const updateMode = () => {
+        const mode = modeInputs.find((input) => input.checked)?.value || "existing";
+        folderSelect.disabled = mode !== "existing" || !folders.length;
+        folderInput.disabled = mode !== "new";
+        if (mode === "new") folderInput.focus();
+      };
+      modeInputs.forEach((input) => input.addEventListener("change", updateMode));
+      if (!folders.length) {
+        modeInputs.find((input) => input.value === "new").checked = true;
+        updateMode();
+      }
+    },
+    onConfirm() {
+      if (!state.runtimeDevice.networkOnline) {
+        showToast("客户端离线，暂时不能同步到云端");
+        return false;
+      }
+      const mode = document.querySelector("input[name='captureCloudFolderMode']:checked")?.value || "existing";
+      const folderId = document.getElementById("captureCloudFolderSelect")?.value || "";
+      const newFolderName = document.getElementById("captureCloudNewFolderInput")?.value.trim() || "";
+      if (mode === "existing" && !folderId) {
+        showToast("请选择云端文件夹");
+        return false;
+      }
+      if (mode === "new" && !newFolderName) {
+        showToast("请输入新文件夹名称");
+        return false;
+      }
+      if (!syncCaptureImagesToCloud(toolId, imageIds, { folderId: mode === "existing" ? folderId : "", newFolderName })) {
+        showToast("没有可同步的图像");
+        return false;
+      }
+      closeSharedModal();
+      showToast(`已同步 ${images.length} 张图像到云端图像库`, { tone: "success" });
+      openCaptureToolLibrary(toolId);
+      return true;
+    },
+  });
+}
+
+function readClientDataReturnQueue() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLIENT_DATA_RETURN_QUEUE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function writeClientDataReturnQueue(queue) {
+  try {
+    localStorage.setItem(CLIENT_DATA_RETURN_QUEUE_KEY, JSON.stringify(Array.isArray(queue) ? queue : []));
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function getDataReturnSessionForRecord(record) {
+  if (!record) return null;
+  const viewerSessionId = String(ui.recordImageViewer?.sessionId || "").trim();
+  const sessions = getDetectionSessions();
+  return (
+    (viewerSessionId ? sessions.find((session) => session.id === viewerSessionId) : null) ||
+    sessions.find((session) => session.recordIds.includes(record.id)) ||
+    buildDetectionSessionRow(record.sessionId || record.id, state.detectionRecords.filter((item) => item.sessionId === record.sessionId))
+  );
+}
+
+function makeDataReturnGroup(groupMap, key, base) {
+  if (!groupMap.has(key)) {
+    groupMap.set(key, {
+      key,
+      localResourceId: base.localResourceId || "",
+      operatorId: base.operatorId || "",
+      operatorName: base.operatorName || "未关联平台算子",
+      operatorType: base.operatorType || "",
+      linked: Boolean(base.operatorId),
+      destination: base.operatorId ? "operator" : "library",
+      weightIds: new Set(base.weightId ? [base.weightId] : []),
+      deploymentIds: new Set(base.deploymentId ? [base.deploymentId] : []),
+      configRevisions: new Set(base.configRevision ? [base.configRevision] : []),
+      stage: base.stage || "",
+      inputLabels: new Set(base.inputLabel ? [base.inputLabel] : []),
+      samples: new Map(),
+      resultLabels: new Map(),
+      records: new Set(),
+      images: new Set(),
+      instances: new Map(),
+      stages: new Set(),
+    });
+  }
+  const group = groupMap.get(key);
+  if (base.stage) group.stages.add(base.stage);
+  if (base.inputLabel) group.inputLabels.add(base.inputLabel);
+  if (base.weightId) group.weightIds.add(base.weightId);
+  if (base.deploymentId) group.deploymentIds.add(base.deploymentId);
+  if (base.configRevision) group.configRevisions.add(base.configRevision);
+  return group;
+}
+
+function getDataReturnOperatorName(modelId, fallback = "") {
+  const meta = findModelMetaById(modelId);
+  const rawName = meta?.modelName || fallback || modelId || "未选择算子";
+  return String(rawName).split(" / ")[0].trim() || "未选择算子";
+}
+
+function getDataReturnOperatorBinding(localResourceId, fallbackName = "") {
+  const meta = findModelMetaById(localResourceId);
+  return {
+    localResourceId: localResourceId || "",
+    operatorId: meta?.operatorId || "",
+    operatorName: getDataReturnOperatorName(localResourceId, fallbackName),
+    operatorType: meta?.sceneType || "",
+    weightId: meta?.weightId || "",
+    deploymentId: meta?.deploymentId || "",
+    configRevision: meta?.configRevision || "",
+  };
+}
+
+function getDataReturnToolName(record) {
+  const tool = state.tools.find((item) => item.id === record?.toolId);
+  return record?.toolName || tool?.name || "未知工具";
+}
+
+function addDataReturnSample(group, sample, instanceName) {
+  if (!sample?.id) return;
+  if (!group.samples.has(sample.id)) group.samples.set(sample.id, sample);
+  const name = String(instanceName || "未知实例").trim() || "未知实例";
+  if (!group.instances.has(name)) {
+    group.instances.set(name, {
+      name,
+      sampleKeys: new Set(),
+    });
+  }
+  const instance = group.instances.get(name);
+  instance.sampleKeys.add(sample.id);
+}
+
+function addDataReturnLabelCount(group, label, count = 1) {
+  const text = String(label || "").trim();
+  if (!text || count <= 0) return;
+  group.resultLabels.set(text, (group.resultLabels.get(text) || 0) + count);
+}
+
+function getDataReturnDetectionResultCount(detectResult) {
+  if (Array.isArray(detectResult?.detectionBoxes) && detectResult.detectionBoxes.length) return detectResult.detectionBoxes.length;
+  if (detectResult?.detectionBox) return 1;
+  const output = String(detectResult?.algorithmOutput || "").trim();
+  return output ? 1 : 0;
+}
+
+function getDataReturnSourceAsset(record, imageResult) {
+  const acquire = getImageResultAcquire(imageResult, record?.toolId || "");
+  const width = Number(imageResult?.sourceImageWidth || acquire?.sampleImageWidth || 0);
+  const height = Number(imageResult?.sourceImageHeight || acquire?.sampleImageHeight || 0);
+  return {
+    id: `${record.id}:${imageResult.id}:source`,
+    name: imageResult?.sourceImageName || imageResult?.imageLabel || acquire?.sampleImageName || `${imageResult?.acquireName || "客户端图像"}.jpg`,
+    url: getImageResultSourceUrl(imageResult, record?.toolId || ""),
+    width,
+    height,
+    inputType: "original-image",
+    capturedAt: imageResult?.capturedAt || record?.triggeredAt || syncSystemNow(),
+  };
+}
+
+function getDataReturnProcessedAsset(record, imageResult, subResult) {
+  const source = getDataReturnSourceAsset(record, imageResult);
+  const isFullImage = isFullImageSubResult(subResult);
+  return {
+    id: `${record.id}:${imageResult.id}:${subResult?.id || subResult?.processId || "processed"}`,
+    name: isFullImage ? source.name : `${subResult?.name || subResult?.imageLabel || "处理结果"}.jpg`,
+    url: source.url,
+    width: source.width,
+    height: source.height,
+    inputType: isFullImage ? "full-image-result" : "processed-crop",
+    cropBox: isFullImage ? null : subResult?.regionBox || null,
+    capturedAt: source.capturedAt,
+  };
+}
+
+function buildProcessPredictions(outputs = []) {
+  return outputs
+    .filter((output) => output && !isFullImageSubResult(output))
+    .map((output, index) => ({
+      id: output.id || `${output.processId || "process"}:${index}`,
+      type: "region",
+      label: getMappedRegionLabel(output, index),
+      box: output.regionBox || null,
+      category: output.categoryKey || "",
+    }));
+}
+
+function buildDetectPredictions(detectResults = []) {
+  return detectResults.flatMap((result, resultIndex) => {
+    const boxes = Array.isArray(result?.detectionBoxes) && result.detectionBoxes.length
+      ? result.detectionBoxes
+      : result?.detectionBox
+        ? [result.detectionBox]
+        : [];
+    const title = getDetectResultTitle(result, resultIndex);
+    if (boxes.length) {
+      return boxes.map((box, boxIndex) => ({
+        id: `${result?.id || `result-${resultIndex}`}:${boxIndex}`,
+        type: "region",
+        label: title,
+        box,
+        output: String(result?.algorithmOutput || ""),
+      }));
+    }
+    const output = String(result?.algorithmOutput || "").trim();
+    return output
+      ? [{ id: result?.id || `result-${resultIndex}`, type: "result", label: title, output }]
+      : [];
+  });
+}
+
+function getDataReturnDetectResultsForInstance(subResult, detect) {
+  return getSubResultDetectResults(subResult).filter((result) => {
+    if (detect?.id && result?.detectId) return result.detectId === detect.id;
+    return Boolean(detect?.modelId && result?.modelId === detect.modelId);
+  });
+}
+
+function getDataReturnGroupKey(binding, stage, instanceId) {
+  return binding.operatorId ? `operator:${binding.operatorId}` : `unlinked:${stage}:${instanceId}`;
+}
+
+function buildDataReturnGroups(records = []) {
+  const groupMap = new Map();
+  records.forEach((record) => {
+    const tool = state.tools.find((item) => item.id === record?.toolId);
+    if (!tool) return;
+    getRecordImageResults(record).forEach((imageResult) => {
+      const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+      const sourceAsset = getDataReturnSourceAsset(record, imageResult);
+      const processes = (tool.process || []).filter((process) => process.inputId === imageResult.acquireId);
+
+      processes.forEach((process) => {
+        const binding = getDataReturnOperatorBinding(process.modelId, process.name);
+        const outputs = subResults.filter((subResult) => subResult.processId === process.id);
+        const predictions = binding.operatorId ? buildProcessPredictions(outputs) : [];
+        const group = makeDataReturnGroup(groupMap, getDataReturnGroupKey(binding, "process", process.id), {
+          ...binding,
+          operatorName: binding.operatorId ? binding.operatorName : process.name || "未关联平台算子",
+          stage: "图像处理",
+          inputLabel: "原始图像",
+        });
+        const sample = {
+          id: `${sourceAsset.id}:process:${process.id}`,
+          input: sourceAsset,
+          predictions,
+          hasPrediction: predictions.length > 0,
+          source: {
+            clientName: state.runtimeDevice?.clientName || "客户端",
+            toolId: tool.id,
+            toolName: tool.name,
+            instanceId: process.id,
+            instanceName: process.name,
+            stage: "process",
+            sessionId: record.sessionId || "",
+            recordId: record.id,
+          },
+        };
+        addDataReturnSample(group, sample, `${tool.name} / ${process.name}`);
+        group.records.add(record.id);
+        group.images.add(imageResult.id);
+        predictions.forEach((prediction) => addDataReturnLabelCount(group, prediction.label, 1));
+      });
+
+      (tool.detect || []).forEach((detect) => {
+        const targets = getDetectTargets(detect).filter((target) => {
+          const process = (tool.process || []).find((item) => item.id === target.processId);
+          return process?.inputId === imageResult.acquireId;
+        });
+        if (!targets.length) return;
+        const binding = getDataReturnOperatorBinding(detect.modelId, detect.name);
+        const matchingSubResults = subResults.filter((subResult) =>
+          targets.some((target) => doesDetectTargetMatchOutput(target, (tool.process || []).find((item) => item.id === target.processId), subResult)),
+        );
+        const inputs = matchingSubResults.length ? matchingSubResults : [null];
+        inputs.forEach((subResult, inputIndex) => {
+          const detectResults = subResult ? getDataReturnDetectResultsForInstance(subResult, detect) : [];
+          const predictions = binding.operatorId ? buildDetectPredictions(detectResults) : [];
+          const input = subResult ? getDataReturnProcessedAsset(record, imageResult, subResult) : sourceAsset;
+          const inputLabel = subResult ? (isFullImageSubResult(subResult) ? "全图处理结果" : "处理后子图") : "实例输入";
+          const group = makeDataReturnGroup(groupMap, getDataReturnGroupKey(binding, "detect", detect.id), {
+            ...binding,
+            operatorName: binding.operatorId ? binding.operatorName : detect.name || "未关联平台算子",
+            stage: "图像检测",
+            inputLabel,
+          });
+          const sample = {
+            id: `${record.id}:${imageResult.id}:detect:${detect.id}:${subResult?.id || inputIndex}`,
+            input,
+            predictions,
+            hasPrediction: detectResults.length > 0,
+            source: {
+              clientName: state.runtimeDevice?.clientName || "客户端",
+              toolId: tool.id,
+              toolName: tool.name,
+              instanceId: detect.id,
+              instanceName: detect.name,
+              stage: "detect",
+              sessionId: record.sessionId || "",
+              recordId: record.id,
+            },
+          };
+          addDataReturnSample(group, sample, `${tool.name} / ${detect.name}`);
+          group.records.add(record.id);
+          group.images.add(imageResult.id);
+          predictions.forEach((prediction) => addDataReturnLabelCount(group, prediction.label, 1));
+        });
+      });
+    });
+  });
+  return Array.from(groupMap.values()).map((group) => {
+    const samples = Array.from(group.samples.values());
+    return {
+      ...group,
+      samples,
+      sampleCount: samples.length,
+      resultCount: samples.filter((sample) => sample.hasPrediction).length,
+      recordCount: group.records.size,
+      imageCount: group.images.size,
+      stageText: Array.from(group.stages).join(" / "),
+      inputLabel: Array.from(group.inputLabels).join(" / "),
+      weightIds: Array.from(group.weightIds),
+      deploymentIds: Array.from(group.deploymentIds),
+      configRevisions: Array.from(group.configRevisions),
+      instanceStats: Array.from(group.instances.values()).map((instance) => {
+        const instanceSamples = Array.from(instance.sampleKeys).map((id) => group.samples.get(id)).filter(Boolean);
+        return {
+          name: instance.name,
+          imageCount: instanceSamples.length,
+          resultCount: instanceSamples.filter((sample) => sample.hasPrediction).length,
+        };
+      }),
+      resultLabelText: Array.from(group.resultLabels.entries())
+        .map(([label, count]) => `${label} ${count}`)
+        .join("，"),
+    };
+  });
+}
+
+function renderDataReturnGroupRows(groups = []) {
+  if (!groups.length) {
+    return `<div class="builder-empty builder-empty-compact">当前范围暂无可回流的算子推理数据</div>`;
+  }
+  return groups
+    .map(
+      (group) => `
+        <article class="data-return-model-row">
+          <div class="data-return-operator-main">
+            <div>
+              <strong>${escapeHtml(group.operatorName)}</strong>
+              <small>${escapeHtml(group.stageText || group.stage)} · ${escapeHtml(group.linked ? group.operatorType || "算子" : "未关联平台算子")}</small>
+              <small>${group.linked ? "回流至算子样本池" : "仅回流输入图像至图像库"}</small>
+            </div>
+            <div class="data-return-operator-total">
+              <span>输入图像 <b>${group.sampleCount}</b></span>
+              <span>推理结果 <b>${group.resultCount}</b></span>
+            </div>
+          </div>
+          <details class="data-return-instance-detail">
+            <summary>
+              <span>实例明细</span>
+              <em>${group.instanceStats.length} 个实例</em>
+            </summary>
+            <div class="data-return-source-list">
+              ${group.instanceStats
+                .map(
+                  (instance) => `
+                    <div class="data-return-source-row">
+                      <span>${escapeHtml(instance.name)}</span>
+                      <em>图像 ${instance.imageCount}</em>
+                      <em>推理结果 ${instance.resultCount}</em>
+                    </div>
+                  `,
+                )
+                .join("")}
+            </div>
+          </details>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function getDataReturnModalRowIds() {
+  return String(document.querySelector(".data-return-modal")?.dataset.rowIds || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function getDataReturnRecordsForRows(rowIds = []) {
+  const ids = new Set(rowIds);
+  const records = [];
+  const seenRecordIds = new Set();
+  getDetectionSessions().forEach((session) => {
+    const selectedSession = ids.has(session.id);
+    session.records.forEach((record) => {
+      if ((!selectedSession && !ids.has(record.id)) || seenRecordIds.has(record.id)) return;
+      seenRecordIds.add(record.id);
+      records.push(record);
+    });
+  });
+  return records;
+}
+
+function refreshDataReturnModal() {
+  const rowIds = getDataReturnModalRowIds();
+  const records = getDataReturnRecordsForRows(rowIds);
+  const groups = buildDataReturnGroups(records);
+  const groupList = document.getElementById("dataReturnGroupList");
+  if (groupList) {
+    groupList.innerHTML = renderDataReturnGroupRows(groups);
+  }
+  if (els.sharedModalConfirm) {
+    els.sharedModalConfirm.disabled = !groups.length;
+  }
+}
+
+function queueUnlinkedDataReturnImages(groups, now) {
+  const imageMap = new Map();
+  groups.forEach((group) => {
+    (group.samples || []).forEach((sample) => {
+      const input = sample?.input;
+      if (!input?.id || imageMap.has(input.id)) return;
+      imageMap.set(input.id, {
+        id: `client_unlinked_${String(input.id).replace(/[^a-zA-Z0-9_-]+/g, "_")}`,
+        name: input.name || "客户端实例输入.jpg",
+        folderId: "folder_client_unlinked",
+        url: input.url || "",
+        size: input.width && input.height ? `${input.width} × ${input.height}` : "-",
+        device: sample.source?.clientName || state.runtimeDevice?.clientName || "客户端",
+        tag: "",
+        tags: [],
+        capturedAt: input.capturedAt || now,
+        source: "client-unlinked-operator",
+        sourceContext: sample.source || {},
+        inputType: input.inputType || "original-image",
+        cropBox: input.cropBox || null,
+      });
+    });
+  });
+  const images = Array.from(imageMap.values());
+  if (!images.length) return true;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLIENT_CLOUD_SYNC_QUEUE_KEY) || "[]");
+    const queue = Array.isArray(parsed) ? parsed : [];
+    queue.push({
+      id: Demo.makeId("cloudsync-unlinked"),
+      folder: { id: "folder_client_unlinked", name: "客户端未关联算子数据" },
+      images,
+      syncedAt: now,
+      source: "manual-unlinked-operator-return",
+    });
+    localStorage.setItem(CLIENT_CLOUD_SYNC_QUEUE_KEY, JSON.stringify(queue.slice(-80)));
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function openBatchDataReturnModal(rowIds) {
+  const selectedRowIds = Array.from(new Set(rowIds)).filter(Boolean);
+  if (!selectedRowIds.length) {
+    showToast("请先选择要回流的检测记录");
+    return;
+  }
+  const records = getDataReturnRecordsForRows(selectedRowIds);
+  if (!records.length) {
+    showToast("当前选择暂无可回流的检测数据");
+    return;
+  }
+  openSharedModal({
+    title: "数据回流",
+    panelClass: "modal-lg modal-data-return",
+    body: `
+      <div class="data-return-modal" data-row-ids="${escapeAttribute(selectedRowIds.join(","))}">
+        <div class="data-return-group-list" id="dataReturnGroupList"></div>
+      </div>
+    `,
+    confirmText: "确认回流",
+    onOpen() {
+      refreshDataReturnModal();
+    },
+    onConfirm() {
+      const records = getDataReturnRecordsForRows(selectedRowIds);
+      const groups = buildDataReturnGroups(records);
+      if (!groups.length) {
+        showToast("当前选择暂无可回流的算子数据");
+        return false;
+      }
+      const now = syncSystemNow();
+      const queue = readClientDataReturnQueue();
+      const linkedGroups = groups.filter((group) => group.linked);
+      const unlinkedGroups = groups.filter((group) => !group.linked);
+      const batchId = Demo.makeId("return-batch");
+      linkedGroups.forEach((group) => {
+        queue.unshift({
+          id: Demo.makeId("return"),
+          schemaVersion: 2,
+          batchId,
+          createdAt: now,
+          status: "pending",
+          scope: "selected-records",
+          sessionIds: selectedRowIds,
+          recordIds: records.map((item) => item.id),
+          operatorId: group.operatorId,
+          operatorName: group.operatorName,
+          operatorType: group.operatorType,
+          weightIds: group.weightIds,
+          deploymentIds: group.deploymentIds,
+          configRevisions: group.configRevisions,
+          stage: group.stageText || group.stage,
+          inputLabel: group.inputLabel,
+          sampleCount: group.sampleCount,
+          resultCount: group.resultCount,
+          resultLabelText: group.resultLabelText,
+          instances: group.instanceStats,
+          samples: group.samples,
+        });
+      });
+      if (!writeClientDataReturnQueue(queue.slice(0, 80))) {
+        showToast("浏览器本地缓存已满，数据回流队列保存失败", { tone: "error" });
+        return false;
+      }
+      if (!queueUnlinkedDataReturnImages(unlinkedGroups, now)) {
+        showToast("浏览器本地缓存已满，未关联算子输入保存失败", { tone: "error" });
+        return false;
+      }
+      closeSharedModal();
+      const feedback = [
+        linkedGroups.length ? `${linkedGroups.length} 个算子已加入回流队列` : "",
+        unlinkedGroups.length ? `${unlinkedGroups.reduce((sum, group) => sum + group.sampleCount, 0)} 张未关联输入已回流至图像库` : "",
+      ].filter(Boolean).join("，");
+      showToast(feedback || "数据回流已提交", { tone: "success" });
+      return true;
+    },
+  });
+}
+
+function confirmDeleteCaptureImagesAcrossBatches(imageIds, toolId) {
+  const ids = new Set(imageIds);
+  if (!ids.size) return;
+  openSharedModal({
+    title: "删除采集图像",
+    body: `<p class="banner banner-danger">确定删除选中的 ${ids.size} 张图像吗？删除后各批次的采集数量会同步更新。</p>`,
+    confirmText: "确认删除",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      state.captureRecords
+        .filter((batch) => batch.toolId === toolId)
+        .forEach((batch) => {
+          batch.items.forEach((item) => {
+            item.images = item.images.filter((image) => !ids.has(image.id));
+          });
+          batch.capturedTotal = getCaptureBatchImages(batch).length;
+        });
+      ids.forEach((id) => ui.selectedCaptureImageIds.delete(id));
+      ui.activeCaptureImageId = "";
+      closeSharedModal();
+      persistState("采集图像已删除");
+      openCaptureToolLibrary(toolId);
+      return true;
+    },
+  });
+}
+
+function openCaptureBatchDetail(batchId, options = {}) {
+  const batch = state.captureRecords.find((record) => record.id === batchId);
+  if (batch) openCaptureToolLibrary(batch.toolId, options);
+}
+
+function openCaptureToolLibrary(toolId, options = {}) {
+  const tool = state.tools.find((item) => item.id === toolId);
+  if (!tool) return;
+  const batches = getToolCaptureBatches(toolId);
+  const initialImageContext = options.activeImageId ? getCaptureImageContextFromBatches(options.activeImageId, batches) : null;
+  const acquireSummaries = tool.acquire.map((acquire) => {
+    const count = batches.reduce(
+      (sum, batch) => sum + (batch.items.find((item) => item.acquireId === acquire.id)?.images.length || 0),
+      0,
+    );
+    return { acquireId: acquire.id, acquireName: acquire.name || "图像获取", count };
+  });
+  let activeAcquireId =
+    initialImageContext?.item.acquireId ||
+    acquireSummaries.find((item) => item.acquireId === options.activeAcquireId)?.acquireId ||
+    acquireSummaries.find((item) => item.count > 0)?.acquireId ||
+    acquireSummaries[0]?.acquireId ||
+    "";
+  const expandedAlbumIds = new Set();
+  let albumExpansionInitialized = false;
+  let activeTagFilter = "all";
+  let lastSelectedCaptureImageId = "";
+  ui.selectedCaptureImageIds.clear();
+  ui.captureLibraryZoom = 1;
+  if (initialImageContext) {
+    ui.activeCaptureImageId = initialImageContext.image.id;
+    ui.captureLibraryPan = { x: 0, y: 0 };
+  }
+
+  const render = () => {
+    const sourceAlbums = batches
+      .map((batch) => {
+        const item = batch.items.find((entry) => entry.acquireId === activeAcquireId);
+        return {
+          id: batch.id,
+          startedAt: batch.startedAt,
+          folderName: Demo.formatDateTime(batch.startedAt),
+          images: (item?.images || []).map((image) => ({ ...image, acquireName: item.acquireName })),
+        };
+      })
+      .filter((album) => album.images.length > 0);
+    const allSourceImages = sourceAlbums.flatMap((album) => album.images);
+    const tagOptions = Array.from(new Set(allSourceImages.flatMap((image) => image.tags || [])));
+    if (activeTagFilter !== "all" && activeTagFilter !== "untagged" && !tagOptions.includes(activeTagFilter)) activeTagFilter = "all";
+    const albums = sourceAlbums
+      .map((album) => ({
+        ...album,
+        images: album.images.filter((image) => {
+          if (activeTagFilter === "all") return true;
+          if (activeTagFilter === "untagged") return !image.tags?.length;
+          return image.tags?.includes(activeTagFilter);
+        }),
+      }))
+      .filter((album) => album.images.length > 0);
+    if (!albumExpansionInitialized) {
+      const targetAlbum = albums.find((album) => album.images.some((image) => image.id === ui.activeCaptureImageId));
+      if (targetAlbum) expandedAlbumIds.add(targetAlbum.id);
+      else if (albums[0]) expandedAlbumIds.add(albums[0].id);
+      albumExpansionInitialized = true;
+    }
+    const allImages = albums.flatMap((album) => album.images);
+    Array.from(ui.selectedCaptureImageIds).forEach((id) => {
+      if (!allImages.some((image) => image.id === id)) ui.selectedCaptureImageIds.delete(id);
+    });
+    const activeContext =
+      getCaptureImageContextFromBatches(ui.activeCaptureImageId, batches) ||
+      getCaptureImageContextFromBatches(allImages[0]?.id, batches);
+    if (activeContext) ui.activeCaptureImageId = activeContext.image.id;
+    const activeMetadata = activeContext ? getCaptureImageMetadata(tool, activeContext.item) : null;
+    const allSelected = allImages.length > 0 && allImages.every((image) => ui.selectedCaptureImageIds.has(image.id));
+    const tagFilterLabel = activeTagFilter === "all" ? "全部标签" : activeTagFilter === "untagged" ? "未标注" : activeTagFilter;
+    els.sharedModalBody.innerHTML = `
+      <div class="capture-library-detail" id="captureRecordDetailRoot">
+        <aside class="capture-record-items capture-library-acquires">
+          ${acquireSummaries
+            .map(
+              (item) => `
+                <button class="capture-record-item ${item.acquireId === activeAcquireId ? "is-active" : ""}" data-action="select-capture-library-acquire" data-id="${escapeAttribute(item.acquireId)}" type="button">
+                  <strong>${escapeHtml(item.acquireName)}</strong>
+                  <b>${item.count} 张</b>
+                </button>
+              `,
+            )
+            .join("")}
+        </aside>
+        <section class="capture-library-main">
+          <div class="capture-library-toolbar">
+            <div class="capture-library-toolbar-left">
+              <label><input type="checkbox" data-action="select-all-capture-library" ${allSelected ? "checked" : ""} /> 全选</label>
+              <span>已选 ${ui.selectedCaptureImageIds.size} 张</span>
+              <div class="capture-record-toolbar-actions">
+                <button class="table-btn" data-action="open-capture-batch-tag-editor" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>修改标签（${ui.selectedCaptureImageIds.size}）</button>
+                <button class="table-btn table-btn-danger" data-action="delete-capture-library-images" ${ui.selectedCaptureImageIds.size ? "" : "disabled"}>删除所选（${ui.selectedCaptureImageIds.size}）</button>
+              </div>
+            </div>
+            <select class="capture-library-tag-filter" data-action="filter-capture-library-tag" aria-label="按标签筛选">
+              <option value="all" ${activeTagFilter === "all" ? "selected" : ""}>全部标签</option>
+              <option value="untagged" ${activeTagFilter === "untagged" ? "selected" : ""}>未标注</option>
+              ${tagOptions.map((tag) => `<option value="${escapeAttribute(tag)}" ${activeTagFilter === tag ? "selected" : ""}>${escapeHtml(tag)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="capture-library-batches">
+            ${
+              albums.length
+                ? albums
+                    .map((album) => {
+                      const expanded = expandedAlbumIds.has(album.id);
+                      const albumSelected = album.images.every((image) => ui.selectedCaptureImageIds.has(image.id));
+                      return `
+                        <section class="capture-library-batch">
+                          <div class="capture-library-batch-head">
+                            <label><input type="checkbox" data-action="select-capture-album-images" data-id="${escapeAttribute(album.id)}" ${albumSelected ? "checked" : ""} /></label>
+                            <button data-action="toggle-capture-album" data-id="${escapeAttribute(album.id)}" type="button" aria-expanded="${expanded}">
+                              <span class="capture-batch-chevron ${expanded ? "is-expanded" : ""}" aria-hidden="true">
+                                <svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"/></svg>
+                              </span>
+                              <strong>${escapeHtml(album.folderName)}</strong>
+                              <b>${album.images.length} 张</b>
+                            </button>
+                          </div>
+                          ${
+                            expanded
+                              ? `
+                                <div class="capture-record-image-grid capture-library-image-grid">
+                                  ${
+                                    album.images.length
+                                      ? album.images
+                                          .map(
+                                            (image) => `
+                                              <article class="capture-record-image ${image.id === activeContext?.image.id ? "is-active" : ""}">
+                                                <button class="capture-library-image-select" data-action="toggle-capture-library-image" data-id="${escapeAttribute(image.id)}" type="button">
+                                                  ${
+                                                    image.imageUrl
+                                                      ? `<img src="${escapeAttribute(image.imageUrl)}" alt="${escapeAttribute(image.fileName)}" />`
+                                                      : `<span class="capture-live-placeholder">暂无预览</span>`
+                                                  }
+                                                  <span class="capture-image-check ${ui.selectedCaptureImageIds.has(image.id) ? "is-checked" : ""}">${ui.selectedCaptureImageIds.has(image.id) ? "✓" : ""}</span>
+                                                  ${
+                                                    image.tags?.length
+                                                      ? `<span class="capture-image-tags">${image.tags.slice(0, CAPTURE_TAG_MAX_COUNT).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</span>`
+                                                      : ""
+                                                  }
+                                                </button>
+                                              </article>
+                                            `,
+                                          )
+                                          .join("")
+                                      : ""
+                                  }
+                                </div>
+                              `
+                              : ""
+                          }
+                        </section>
+                      `;
+                    })
+                    .join("")
+                : `<div class="builder-empty">${allSourceImages.length ? `没有匹配“${escapeHtml(tagFilterLabel)}”的图像` : "该图像获取项暂无采集图像"}</div>`
+            }
+          </div>
+        </section>
+        <aside class="capture-record-preview">
+          ${
+            activeContext
+              ? `
+                <div class="capture-record-preview-stage" style="--capture-library-zoom:${ui.captureLibraryZoom};--capture-library-pan-x:${ui.captureLibraryPan.x || 0}px;--capture-library-pan-y:${ui.captureLibraryPan.y || 0}px">
+                  ${
+                    activeContext.image.imageUrl
+                      ? `<img src="${escapeAttribute(activeContext.image.imageUrl)}" alt="${escapeAttribute(activeContext.image.fileName)}" />`
+                      : `<div class="capture-live-placeholder">暂无预览</div>`
+                  }
+                </div>
+                <div class="capture-record-preview-zoom-toolbar">
+                  <button data-action="zoom-capture-library-preview" data-delta="-0.2" type="button" aria-label="缩小预览">−</button>
+                  <span data-library-zoom-label>${Math.round(ui.captureLibraryZoom * 100)}%</span>
+                  <button data-action="zoom-capture-library-preview" data-delta="0.2" type="button" aria-label="放大预览">＋</button>
+                  <button data-action="reset-capture-library-preview" type="button">适应</button>
+                </div>
+                <dl>
+                  <div><dt>图像获取项</dt><dd>${escapeHtml(activeContext.item.acquireName)}</dd></div>
+                  <div><dt>文件名</dt><dd>${escapeHtml(activeContext.image.fileName)}</dd></div>
+                  <div><dt>采集时间</dt><dd>${Demo.formatDateTime(activeContext.image.capturedAt)}</dd></div>
+                  <div><dt>图像尺寸</dt><dd>${escapeHtml(activeMetadata.size)}</dd></div>
+                  <div><dt>采集设备</dt><dd>${escapeHtml(activeMetadata.device)}</dd></div>
+                  <div class="capture-preview-tag-row"><dt>标签</dt><dd><span class="capture-preview-tags">${(activeContext.image.tags || []).map((tag) => `<i>${escapeHtml(tag)}</i>`).join("") || "-"}</span><button class="icon-btn capture-preview-tag-edit" data-action="edit-active-capture-image-tags" type="button" title="修改标签" aria-label="修改标签">${getIconSvg("tag-edit")}</button></dd></div>
+                </dl>
+              `
+              : `<div class="builder-empty">选择图像后查看详情</div>`
+          }
+        </aside>
+      </div>
+    `;
+    els.sharedModalConfirm.textContent = "导出";
+    els.sharedModalConfirm.disabled = ui.selectedCaptureImageIds.size === 0;
+    els.sharedModalExtra.textContent = `同步到云端（${ui.selectedCaptureImageIds.size}）`;
+    els.sharedModalExtra.disabled = ui.selectedCaptureImageIds.size === 0 || !state.runtimeDevice.networkOnline;
+    const root = document.getElementById("captureRecordDetailRoot");
+    root?.addEventListener("click", (event) => {
+      const actionEl = getClosestEventTarget(event, "[data-action]");
+      if (!actionEl) return;
+      const action = actionEl.dataset.action;
+      if (action === "select-capture-library-acquire") {
+        activeAcquireId = actionEl.dataset.id || "";
+        ui.selectedCaptureImageIds.clear();
+        ui.activeCaptureImageId = "";
+        activeTagFilter = "all";
+        lastSelectedCaptureImageId = "";
+        expandedAlbumIds.clear();
+        albumExpansionInitialized = false;
+        render();
+      }
+      if (action === "toggle-capture-album") {
+        if (expandedAlbumIds.has(actionEl.dataset.id)) expandedAlbumIds.delete(actionEl.dataset.id);
+        else expandedAlbumIds.add(actionEl.dataset.id);
+        render();
+      }
+      if (action === "toggle-capture-library-image") {
+        ui.activeCaptureImageId = actionEl.dataset.id || "";
+        ui.captureLibraryZoom = 1;
+        ui.captureLibraryPan = { x: 0, y: 0 };
+        const imageId = actionEl.dataset.id || "";
+        if (event.shiftKey && lastSelectedCaptureImageId && allImages.some((image) => image.id === lastSelectedCaptureImageId)) {
+          const fromIndex = allImages.findIndex((image) => image.id === lastSelectedCaptureImageId);
+          const toIndex = allImages.findIndex((image) => image.id === imageId);
+          if (fromIndex >= 0 && toIndex >= 0) {
+            const [start, end] = [Math.min(fromIndex, toIndex), Math.max(fromIndex, toIndex)];
+            const shouldSelect = !ui.selectedCaptureImageIds.has(imageId);
+            allImages.slice(start, end + 1).forEach((image) => {
+              if (shouldSelect) ui.selectedCaptureImageIds.add(image.id);
+              else ui.selectedCaptureImageIds.delete(image.id);
+            });
+          }
+        } else if (ui.selectedCaptureImageIds.has(imageId)) ui.selectedCaptureImageIds.delete(imageId);
+        else ui.selectedCaptureImageIds.add(imageId);
+        lastSelectedCaptureImageId = imageId;
+        render();
+      }
+      if (action === "open-capture-batch-tag-editor") {
+        openCaptureTagBubble(actionEl, batches, Array.from(ui.selectedCaptureImageIds));
+      }
+      if (action === "edit-active-capture-image-tags" && activeContext) {
+        openCaptureTagBubble(actionEl, batches, [activeContext.image.id]);
+      }
+      if (action === "zoom-capture-library-preview") {
+        ui.captureLibraryZoom = Math.min(3, Math.max(0.5, Number((ui.captureLibraryZoom + Number(actionEl.dataset.delta || 0)).toFixed(1))));
+        render();
+      }
+      if (action === "reset-capture-library-preview") {
+        ui.captureLibraryZoom = 1;
+        ui.captureLibraryPan = { x: 0, y: 0 };
+        render();
+      }
+      if (action === "delete-capture-library-images") {
+        confirmDeleteCaptureImagesAcrossBatches(Array.from(ui.selectedCaptureImageIds), toolId);
+      }
+    });
+    const previewStage = root?.querySelector(".capture-record-preview-stage");
+    previewStage?.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        ui.captureLibraryZoom = Math.min(
+          3,
+          Math.max(0.5, Number((ui.captureLibraryZoom + (event.deltaY < 0 ? 0.1 : -0.1)).toFixed(1))),
+        );
+        previewStage.style.setProperty("--capture-library-zoom", String(ui.captureLibraryZoom));
+        const label = root.querySelector("[data-library-zoom-label]");
+        if (label) label.textContent = `${Math.round(ui.captureLibraryZoom * 100)}%`;
+      },
+      { passive: false },
+    );
+    let previewDragging = false;
+    let previewStartX = 0;
+    let previewStartY = 0;
+    let previewStartPan = { x: 0, y: 0 };
+    previewStage?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      previewDragging = true;
+      previewStartX = event.clientX;
+      previewStartY = event.clientY;
+      previewStartPan = { ...ui.captureLibraryPan };
+      previewStage.classList.add("is-dragging");
+      previewStage.setPointerCapture?.(event.pointerId);
+    });
+    previewStage?.addEventListener("pointermove", (event) => {
+      if (!previewDragging) return;
+      ui.captureLibraryPan = {
+        x: Math.round(previewStartPan.x + event.clientX - previewStartX),
+        y: Math.round(previewStartPan.y + event.clientY - previewStartY),
+      };
+      previewStage.style.setProperty("--capture-library-pan-x", `${ui.captureLibraryPan.x}px`);
+      previewStage.style.setProperty("--capture-library-pan-y", `${ui.captureLibraryPan.y}px`);
+    });
+    const stopPreviewDrag = (event) => {
+      if (!previewDragging) return;
+      previewDragging = false;
+      previewStage.classList.remove("is-dragging");
+      previewStage.releasePointerCapture?.(event.pointerId);
+    };
+    previewStage?.addEventListener("pointerup", stopPreviewDrag);
+    previewStage?.addEventListener("pointercancel", stopPreviewDrag);
+    root?.addEventListener("change", (event) => {
+      const action = event.target.dataset.action || "";
+      if (action === "filter-capture-library-tag") {
+        activeTagFilter = event.target.value || "all";
+        ui.activeCaptureImageId = "";
+        ui.selectedCaptureImageIds.clear();
+        expandedAlbumIds.clear();
+        albumExpansionInitialized = false;
+        lastSelectedCaptureImageId = "";
+        render();
+      }
+      if (action === "select-capture-album-images") {
+        const album = albums.find((entry) => entry.id === event.target.dataset.id);
+        (album?.images || []).forEach((image) => {
+          if (event.target.checked) ui.selectedCaptureImageIds.add(image.id);
+          else ui.selectedCaptureImageIds.delete(image.id);
+        });
+        lastSelectedCaptureImageId = "";
+        render();
+      }
+      if (action === "select-all-capture-library") {
+        allImages.forEach((image) => {
+          if (event.target.checked) ui.selectedCaptureImageIds.add(image.id);
+          else ui.selectedCaptureImageIds.delete(image.id);
+        });
+        lastSelectedCaptureImageId = "";
+        render();
+      }
+    });
+  };
+
+  openSharedModal({
+    title: `${tool.name} · 采图记录`,
+    panelClass: "modal-capture-record",
+    bodyClass: "modal-body-capture-record",
+    body: "",
+    confirmText: "导出",
+    confirmClass: "secondary-btn",
+    extraText: "同步到云端（0）",
+    extraClass: "primary-btn",
+    extraDisabled: true,
+    onOpen: render,
+    onExtra() {
+      if (!state.runtimeDevice.networkOnline) return showToast("客户端离线，暂时不能同步到云端");
+      openCaptureCloudSyncModal(toolId, Array.from(ui.selectedCaptureImageIds));
+    },
+    onConfirm() {
+      const count = ui.selectedCaptureImageIds.size;
+      if (!count) return false;
+      showToast(`下载任务已开始：${tool.name}_${count}张图像.zip`, { tone: "success" });
+      return false;
+    },
+  });
+}
+
+function openCaptureBatchExportModal(batchIds) {
+  const ids = new Set(batchIds);
+  const batches = state.captureRecords.filter((record) => ids.has(record.id));
+  if (!batches.length) {
+    showToast("请先选择要导出的采图批次");
+    return;
+  }
+  const imageCount = batches.reduce((sum, batch) => sum + getCaptureBatchImages(batch).length, 0);
+  if (!imageCount) {
+    showToast("所选采图批次暂无图像");
+    return;
+  }
+  openSharedModal({
+    title: "导出采图记录",
+    panelClass: "modal-lg",
+    body: `
+      <div class="capture-export-summary">
+        <div><span>采图批次</span><strong>${batches.length} 批</strong></div>
+        <div><span>图像数量</span><strong>${imageCount} 张</strong></div>
+      </div>
+      <div class="selection-list selection-list-inline">
+        ${renderRecordExportOption({ id: "exportCaptureOriginal", title: "原始图像", checked: true })}
+        ${renderRecordExportOption({ id: "exportCaptureManifest", title: "图像信息清单.xlsx", checked: true })}
+      </div>
+      <p class="modal-prompt">导出文件将按“批次 / 图像获取项”分目录整理。</p>
+    `,
+    confirmText: "开始导出",
+    onConfirm() {
+      const exportOriginal = Boolean(document.getElementById("exportCaptureOriginal")?.checked);
+      const exportManifest = Boolean(document.getElementById("exportCaptureManifest")?.checked);
+      if (!exportOriginal && !exportManifest) {
+        showToast("请至少选择一种导出内容");
+        return false;
+      }
+      closeSharedModal();
+      showToast(`下载任务已开始：采图记录导出_${formatExportFileTimestamp(state.meta.now)}.zip`, { tone: "success" });
+      return true;
+    },
+  });
+}
+
+function handleToolRuntimeKeydown(event) {
+  const input = getClosestEventTarget(event, "#runtimeTagInput");
+  if (!input || event.key !== "Enter") return;
+  event.preventDefault();
+  addRuntimeTag();
+}
+
+function addRuntimeTag() {
+  const tool = getActiveTool();
+  const record = getActiveRuntimeRecord();
+  const input = document.getElementById("runtimeTagInput");
+  const target = getRuntimeTagTarget(tool, record);
+  if (!target || !input) return;
+  if (!canEditRuntimeTags(record, tool)) {
+    showToast("运行执行中，暂不可编辑标签");
+    return;
+  }
+  const nextTag = input.value.trim();
+  const tags = target.type === "draft" ? getRuntimeDraftTags(tool) : getRuntimeRecordTags(record);
+  if (!nextTag) {
+    showToast("请输入标签内容");
+    return;
+  }
+  if (tags.includes(nextTag)) {
+    showToast("标签已存在");
+    return;
+  }
+  if (tags.length >= 3) {
+    showToast("最多支持 3 个标签");
+    return;
+  }
+  if (target.type === "draft") {
+    target.owner.draftTags = [...tags, nextTag];
+  } else {
+    target.owner.customTags = [...tags, nextTag];
+  }
+  persistState("标签已添加");
+}
+
+function removeRuntimeTag(index) {
+  const tool = getActiveTool();
+  const record = getActiveRuntimeRecord();
+  const target = getRuntimeTagTarget(tool, record);
+  if (!target) return;
+  if (!canEditRuntimeTags(record, tool)) {
+    showToast("运行执行中，暂不可编辑标签");
+    return;
+  }
+  const tags = target.type === "draft" ? getRuntimeDraftTags(tool) : getRuntimeRecordTags(record);
+  const removeIndex = Number(index);
+  if (!Number.isInteger(removeIndex) || removeIndex < 0 || removeIndex >= tags.length) return;
+  if (target.type === "draft") {
+    target.owner.draftTags = tags.filter((_, itemIndex) => itemIndex !== removeIndex);
+  } else {
+    target.owner.customTags = tags.filter((_, itemIndex) => itemIndex !== removeIndex);
+  }
+  persistState("标签已删除");
+}
+
+function openRecordDetailModal(recordId) {
+  if (state.captureRecords.some((item) => item.id === recordId)) {
+    openCaptureBatchDetail(recordId);
+    return;
+  }
+  const session = getDetectionSessions().find((item) => item.id === recordId || item.recordIds.includes(recordId));
+  if (session) {
+    openRecordSessionDrawer(session.id, session.recordIds.includes(recordId) ? recordId : session.cycles[session.cycles.length - 1]?.record?.id || "");
+    return;
+  }
+  openRecordDetailModalWithState(recordId);
+}
+
+function openRecordSessionDetailModalWithState(sessionId, viewerState = {}) {
+  const session = getDetectionSessions().find((item) => item.id === sessionId);
+  if (!session) return;
+  const activeRecordId = viewerState.recordId || ui.recordImageViewer?.recordId || session.cycles[session.cycles.length - 1]?.record?.id || "";
+  const activeRecord = session.records.find((record) => record.id === activeRecordId) || session.cycles[session.cycles.length - 1]?.record || null;
+  ui.recordImageViewer = {
+    sessionId,
+    recordId: activeRecord?.id || "",
+    imageResultId: "",
+    activeSubId: "",
+    showRoi: true,
+    showOverlay: true,
+  };
+  openSharedModal({
+    title: `${session.displayId} · 检测会话详情`,
+    panelClass: "modal-record-result modal-record-session",
+    bodyClass: "modal-body-record-detail",
+    body: renderRecordSessionDetailModal(session),
+    onOpen() {
+      bindRecordSessionDetailModal(session.id);
+    },
+    confirmText: "关闭",
+    hideCancel: true,
+    onConfirm() {
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function renderRecordSessionDetailModal(session, options = {}) {
+  const rootId = options.rootId || "recordSessionDetailModalBody";
+  const compactClass = options.compact ? " is-drawer" : "";
+  const cycleResultFilter = ui.recordImageViewer?.cycleResultFilter || "all";
+  const filteredCycles = getFilteredSessionCycles(session.cycles, cycleResultFilter);
+  const orderedCycles = filteredCycles.slice().reverse();
+  const pageSize = 8;
+  const selectedCycleIndex = orderedCycles.findIndex((cycle) => cycle.record?.id === ui.recordImageViewer?.recordId);
+  const defaultPage = selectedCycleIndex >= 0 ? Math.floor(selectedCycleIndex / pageSize) + 1 : 1;
+  const pageCount = Math.max(1, Math.ceil(orderedCycles.length / pageSize));
+  const requestedPage = Math.max(1, Number(ui.recordImageViewer?.cyclePage || defaultPage) || 1);
+  const currentPage = Math.min(pageCount, requestedPage);
+  const visibleCycles = orderedCycles.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const activeCycle =
+    visibleCycles.find((cycle) => cycle.record?.id === ui.recordImageViewer?.recordId) ||
+    visibleCycles[0] ||
+    null;
+  const activeRecord = activeCycle?.record || null;
+  const activeCycleIndex = activeCycle ? session.cycles.findIndex((cycle) => cycle.record?.id === activeCycle.record?.id) + 1 : 0;
+  const imageResults = getRecordImageResults(activeRecord);
+  const activeRecordCode = activeRecord ? formatDetectionCycleRecordCode(activeRecord, activeCycleIndex || session.cycles.length) : "";
+  if (ui.recordImageViewer) {
+    ui.recordImageViewer.recordId = activeRecord?.id || "";
+    ui.recordImageViewer.cyclePage = currentPage;
+  }
+  return `
+    <div class="record-session-detail${compactClass}" id="${escapeAttribute(rootId)}">
+      <div class="record-session-layout">
+        <aside class="record-session-cycle-list">
+          <div class="record-session-panel-head">
+            <h4>记录列表</h4>
+          </div>
+          ${renderRecordSessionFilterTabs(session.cycles, cycleResultFilter)}
+          <div class="record-session-cycles">
+            ${
+              visibleCycles.length
+                ? visibleCycles
+                    .map((cycle) => {
+                      const sourceIndex = session.cycles.findIndex((item) => item.record?.id === cycle.record?.id);
+                      return renderRecordSessionCycleItem(cycle, sourceIndex + 1 || 1, activeRecord?.id === cycle.record.id);
+                    })
+                    .join("")
+                : `<div class="builder-empty builder-empty-compact">暂无匹配记录</div>`
+            }
+          </div>
+          ${renderRecordSessionPagination(currentPage, pageCount, orderedCycles.length)}
+        </aside>
+        <section class="record-session-image-panel">
+          <div class="record-session-panel-head">
+            <h4>${activeRecord ? escapeHtml(activeRecordCode) : "记录详情"}</h4>
+          </div>
+          <div class="record-session-image-grid">
+            ${
+              imageResults.length
+                ? imageResults.map((imageResult, index) => renderRecordSessionImageTile(activeRecord, imageResult, index)).join("")
+                : `<div class="builder-empty">当前周期暂无图像结果</div>`
+            }
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function getFilteredSessionCycles(cycles = [], filter = "all") {
+  if (filter === "all") return cycles;
+  return cycles.filter((cycle) => getRecordSessionCycleFilterValue(cycle) === filter);
+}
+
+function renderRecordSessionPagination(currentPage, pageCount, total) {
+  if (total <= 8) return "";
+  return `
+    <div class="record-session-pagination">
+      <button data-action="select-record-session-page" data-page="${currentPage - 1}" type="button" ${currentPage <= 1 ? "disabled" : ""}>上一页</button>
+      <span>${currentPage} / ${pageCount}</span>
+      <button data-action="select-record-session-page" data-page="${currentPage + 1}" type="button" ${currentPage >= pageCount ? "disabled" : ""}>下一页</button>
+    </div>
+  `;
+}
+
+function getRecordSessionCycleFilterValue(cycle) {
+  if (!cycle?.complete) return "incomplete";
+  return getDisplayResultText(cycle.record?.totalResult || cycle.record?.businessResult || "-");
+}
+
+function renderRecordSessionFilterTabs(cycles = [], activeFilter = "all") {
+  const filters = [
+    { value: "all", label: "全部" },
+    { value: "OK", label: "OK" },
+    { value: "NG", label: "NG" },
+    { value: "异常", label: "异常" },
+    { value: "incomplete", label: "未完成" },
+  ];
+  const counts = cycles.reduce(
+    (acc, cycle) => {
+      const value = getRecordSessionCycleFilterValue(cycle);
+      acc.all += 1;
+      acc[value] = (acc[value] || 0) + 1;
+      return acc;
+    },
+    { all: 0 },
+  );
+  return `
+    <div class="record-session-filter-tabs" aria-label="按结果筛选记录">
+      ${filters
+        .map(
+          (filter) => `
+            <button
+              class="${activeFilter === filter.value ? "is-active" : ""}"
+              data-action="select-record-session-filter"
+              data-filter="${escapeAttribute(filter.value)}"
+              type="button"
+            >
+              <span>${escapeHtml(filter.label)}</span>
+              <em>${counts[filter.value] || 0}</em>
+            </button>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderRecordSessionCycleItem(cycle, index, active) {
+  const record = cycle.record;
+  const imageResults = getRecordImageResults(record);
+  const resultText = cycle.complete ? getDisplayResultText(record.totalResult || record.businessResult || "-") : "未完成";
+  const cycleTime = cycle.complete ? getRecordCycleDurationText(record, cycle.records) : "-";
+  const recordCode = formatDetectionCycleRecordCode(record, index);
+  const timeText = formatRuntimeRecordDateTime(record.triggeredAt);
+  const durationText = formatCompactDurationText(cycleTime);
+  return `
+    <button class="record-session-cycle ${active ? "is-active" : ""}" data-action="select-record-session-cycle" data-record-id="${escapeAttribute(record.id)}" type="button">
+      <span class="record-session-cycle-main">
+        <strong>${escapeHtml(recordCode)}</strong>
+        <small>
+          <span>${escapeHtml(timeText)}</span>
+          <span>节拍 ${escapeHtml(durationText)}</span>
+        </small>
+      </span>
+      <span class="runtime-record-result ${getRuntimeImageStatusClass(resultText)}">${escapeHtml(resultText)}</span>
+    </button>
+  `;
+}
+
+function formatDetectionCycleRecordCode(record, index) {
+  const value = Math.max(1, Number(index) || 1);
+  const date = new Date(record?.triggeredAt || record?.sessionStartedAt || state.meta.now || Date.now());
+  const dateCode = Number.isNaN(date.getTime())
+    ? "00000000"
+    : `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+  return `REC-${dateCode}-${String(value).padStart(3, "0")}`;
+}
+
+function formatRuntimeRecordDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).replace("T", " ").slice(0, 19) || "-";
+  const datePart = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${datePart} ${formatRuntimeRecordTime(value)}`;
+}
+
+function formatCompactDurationText(value) {
+  if (!value || value === "-") return "-";
+  const parts = String(value).split(":").map((part) => Number(part));
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return String(value);
+  const totalSeconds = Math.max(0, parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes}m${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes || seconds ? `${hours}h${restMinutes ? `${restMinutes}m` : ""}${seconds ? `${seconds}s` : ""}` : `${hours}h`;
+}
+
+function getRecordCycleDurationText(record, cycleRecords = []) {
+  if (record?.cycleTime && record.cycleTime !== "-") return record.cycleTime;
+  const records = Array.isArray(cycleRecords) && cycleRecords.length ? cycleRecords : [record].filter(Boolean);
+  const start = records[0]?.triggeredAt || record?.sessionStartedAt || "";
+  const end = record?.triggeredAt || records[records.length - 1]?.triggeredAt || "";
+  const durationMs = Date.parse(end) - Date.parse(start);
+  return Number.isFinite(durationMs) && durationMs > 0 ? formatRuntimeElapsed(durationMs) : record?.cycleTime || "-";
+}
+
+function renderRecordSessionImageTile(record, imageResult, index) {
+  const resultText = getRecordImageDisplayResult(imageResult);
+  const sourceUrl = getImageResultSourceUrl(imageResult, record?.toolId || "");
+  const aspectRatio = getRuntimeImageAspectRatio(imageResult, record?.toolId || "");
+  const sourceStyle = [`--runtime-source-aspect:${aspectRatio};`, sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : ""].join("");
+  return `
+    <article class="record-session-image-card" data-action="open-record-session-image" data-record-id="${escapeAttribute(record?.id || "")}" data-image-id="${escapeAttribute(imageResult.id)}">
+      <div class="record-session-image-visual">
+        <div class="${sourceUrl ? "runtime-source-canvas has-source" : "runtime-result-tile-canvas"}" style="${escapeAttribute(sourceStyle)}">
+          ${sourceUrl ? renderRuntimeTileSurfaceBoxes(imageResult) : `<div class="runtime-result-placeholder"><strong>${escapeHtml(resultText === "待检测" ? "待检测" : "暂无图像")}</strong></div>`}
+        </div>
+        <span class="runtime-result-tile-status ${getRuntimeImageStatusClass(resultText)}">${escapeHtml(resultText)}</span>
+      </div>
+      <div class="record-session-image-body">
+        <strong>${escapeHtml(imageResult.acquireName || `图像项 ${index + 1}`)}</strong>
+      </div>
+    </article>
+  `;
+}
+
+function getRecordImageDisplayResult(imageResult) {
+  const directResult = getDisplayResultText(imageResult?.result || imageResult?.businessResult || "-");
+  if (directResult !== "-") return directResult;
+  const subResults = Array.isArray(imageResult?.subResults) ? imageResult.subResults : [];
+  const aggregated = getAggregatedBusinessResult(subResults);
+  return aggregated === "-" ? "待检测" : aggregated;
+}
+
+function bindRecordSessionDetailModal(sessionId) {
+  const root = document.getElementById("recordSessionDetailModalBody");
+  if (!root) return;
+  root.querySelectorAll("[data-action='select-record-session-cycle']").forEach((button) => {
+    button.addEventListener("click", () => {
+      openRecordSessionDetailModalWithState(sessionId, { recordId: button.dataset.recordId || "" });
+    });
+  });
+  root.querySelectorAll("[data-action='open-record-session-image']").forEach((button) => {
+    button.addEventListener("click", () => {
+      openRecordImageResultsModal(button.dataset.recordId || "", button.dataset.imageId || "");
+    });
+  });
+}
+
+function openRecordDetailModalWithState(recordId, viewerState = {}) {
+  const record = state.detectionRecords.find((item) => item.id === recordId);
+  if (!record) return;
+  ui.activeRecordId = recordId;
+  const imageResults = getRecordImageResults(record);
+  const targetImageId = viewerState.imageResultId || ui.recordImageViewer?.imageResultId || "";
+  const activeImageResult = imageResults.find((item) => item.id === targetImageId) || imageResults[0] || null;
+  ui.recordImageViewer = {
+    recordId,
+    imageResultId: activeImageResult?.id || "",
+    activeSubId: "",
+    showRoi: viewerState.showRoi !== false,
+    showOverlay: true,
+  };
+  openSharedModal({
+    title: `${record.id} · 检测记录详情`,
+    panelClass: "modal-record-result",
+    bodyClass: "modal-body-record-detail",
+    body: renderRecordDetailModal(record),
+    onOpen() {
+      bindRecordDetailModal(recordId);
+    },
+    confirmText: "关闭",
+    hideCancel: true,
+    onConfirm() {
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function renderRecordDetailModal(record) {
+  const imageResults = getRecordImageResults(record);
+  const activeImageResult = imageResults.find((item) => item.id === ui.recordImageViewer?.imageResultId) || imageResults[0] || null;
+  if (activeImageResult) {
+    ui.recordImageViewer.imageResultId = activeImageResult.id;
+  }
+  return `
+    <div class="record-detail-runtime-layout" id="recordDetailModalBody">
+      <div class="record-detail-runtime-split">
+        <aside class="record-detail-section record-detail-image-list-panel">
+          <div class="record-detail-image-list-head">
+            <h4>图像列表</h4>
+          </div>
+          <div class="record-detail-image-list">
+            ${
+              imageResults.length
+                ? imageResults
+                    .map((imageResult, index) => renderRecordDetailImageItem(record, imageResult, index, imageResult.id === activeImageResult?.id))
+                    .join("")
+                : `<div class="builder-empty builder-empty-compact">当前暂无图像记录</div>`
+            }
+          </div>
+        </aside>
+        <section class="record-detail-section record-detail-image-view-panel">
+          ${
+            activeImageResult
+              ? `
+                <div class="record-detail-image-view-head">
+                  <h4>当前图像</h4>
+                </div>
+                <div class="record-detail-image-stage-shell">
+                  ${renderRecordImageSourceStage(activeImageResult, { showRoi: true })}
+                </div>
+              `
+              : `<div class="builder-empty">当前暂无图像结果</div>`
+          }
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderRecordDetailImageItem(record, imageResult, index, active) {
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  const showResultBadge = Demo.normalizeRunMode(record?.runMode || "detect") === "detect";
+  const resultBadge = showResultBadge ? renderResultWithException(imageResult.result || "-", imageResult.exceptions || []) : "";
+  const showSubResultButton = Demo.normalizeRunMode(record?.runMode || "detect") !== "acquire" && !hasOnlyFullImageSubResults(imageResult);
+  return `
+    <article class="record-detail-image-item ${active ? "is-active" : ""}">
+      <button
+        class="record-detail-image-main"
+        data-action="select-record-detail-image"
+        data-record-id="${record.id}"
+        data-image-id="${imageResult.id}"
+        type="button"
+      >
+        <div class="record-detail-image-copy">
+          <strong>${escapeHtml(imageResult.acquireName || `图像来源 ${index + 1}`)}</strong>
+        </div>
+        ${resultBadge}
+      </button>
+      ${
+        showSubResultButton
+          ? `
+            <div class="record-detail-image-foot">
+              <button
+                class="table-btn"
+                data-action="view-record-image-subresults"
+                data-record-id="${record.id}"
+                data-image-id="${imageResult.id}"
+                type="button"
+                ${subResults.length ? "" : "disabled"}
+              >
+                查看子图（${subResults.length}）
+              </button>
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function bindRecordDetailModal(recordId) {
+  const root = document.getElementById("recordDetailModalBody");
+  if (!root) return;
+  const rerender = () => {
+    const record = state.detectionRecords.find((item) => item.id === recordId);
+    if (!record) return;
+    els.sharedModalBody.innerHTML = renderRecordDetailModal(record);
+    bindRecordDetailModal(recordId);
+  };
+  root.querySelectorAll("[data-action='select-record-detail-image']").forEach((button) => {
+    button.addEventListener("click", () => {
+      ui.recordImageViewer.imageResultId = button.dataset.imageId || "";
+      ui.recordImageViewer.showRoi = true;
+      rerender();
+    });
+  });
+  root.querySelectorAll("[data-action='view-record-image-subresults']").forEach((button) => {
+    button.addEventListener("click", () => {
+      openRecordImageSubResultsModal(recordId, button.dataset.imageId || "");
+    });
+  });
+  root.querySelectorAll("[data-action='focus-record-subresult']").forEach((button) => {
+    button.addEventListener("click", () => {
+      openRecordImageSubResultsModal(recordId, ui.recordImageViewer?.imageResultId || "", button.dataset.subId || "");
+    });
+  });
+}
+
+function openRecordImageSubResultsModal(recordId, imageResultId, activeSubId = "") {
+  const record = state.detectionRecords.find((item) => item.id === recordId);
+  const imageResult = getRecordImageResults(record).find((item) => item.id === imageResultId);
+  if (!record || !imageResult) return;
+  const tool = state.tools.find((item) => item.id === record.toolId) || null;
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  const currentShowRoi = ui.recordImageViewer?.showRoi !== false;
+  openSubResultViewerModal({
+    title: imageResult.acquireName || imageResult.imageLabel || "图像结果",
+    imageResult,
+    subResults,
+    tool,
+    activeSubId,
+    onCloseRestore: () => {
+      openRecordDetailModalWithState(recordId, {
+        imageResultId,
+        showRoi: currentShowRoi,
+      });
+    },
+  });
+}
+
+function openRecordResultImageViewer(recordId = ui.activeRecordId, imageResultId = "", focusedSubId = "") {
+  const record = state.detectionRecords.find((item) => item.id === recordId);
+  if (!record) return;
+  const imageResults = getRecordImageResults(record);
+  const activeImageResult = imageResults.find((item) => item.id === imageResultId) || imageResults[0] || null;
+  if (!activeImageResult) return;
+  ui.activeRecordId = recordId;
+  ui.recordImageViewer = {
+    recordId,
+    imageResultId: activeImageResult.id,
+    activeSubId: focusedSubId || "",
+    showRoi: true,
+    showOverlay: true,
+  };
+  openSharedModal({
+    title: `${record.id} · ${activeImageResult.acquireName || "图像结果"}`,
+    panelClass: "modal-record-result",
+    body: renderRecordResultImageViewer(record, activeImageResult.id, focusedSubId),
+    onOpen() {
+      bindRecordResultViewer(recordId);
+    },
+    confirmText: "关闭",
+    hideCancel: true,
+    onConfirm() {
+      closeSharedModal();
+      return true;
+    },
+  });
+}
+
+function getRecordViewerTool() {
+  const record = getActiveRecord();
+  return state.tools.find((tool) => tool.id === record?.toolId) || getActiveTool();
+}
+
+function openRecordExportModal(recordIds = []) {
+  const selectedIds = new Set(recordIds);
+  const selectedSessions = getDetectionSessions().filter((session) => selectedIds.has(session.id));
+  const selectedDetectionIds = new Set(selectedSessions.flatMap((session) => session.recordIds));
+  const rows = state.detectionRecords.filter((record) => selectedIds.has(record.id) || selectedDetectionIds.has(record.id));
+  const captureRows = state.captureRecords.filter((record) => selectedIds.has(record.id));
+  if (captureRows.length && !rows.length) {
+    openCaptureBatchExportModal(captureRows.map((record) => record.id));
+    return;
+  }
+  if (captureRows.length && rows.length) {
+    const imageCount = captureRows.reduce((sum, record) => sum + getCaptureBatchImages(record).length, 0);
+    openSharedModal({
+      title: "批量导出记录",
+      body: `
+        <div class="record-export-mixed-summary">
+          <div><span>检测记录</span><strong>${rows.length} 条</strong></div>
+          <div><span>采图批次</span><strong>${captureRows.length} 批</strong></div>
+          <div><span>采集图像</span><strong>${imageCount} 张</strong></div>
+        </div>
+        <p class="modal-prompt">将按记录类型分别整理图像和信息清单，并打包为一个压缩文件。</p>
+      `,
+      confirmText: "开始导出",
+      onConfirm() {
+        closeSharedModal();
+        showToast(`下载任务已开始：记录批量导出_${formatExportFileTimestamp(state.meta.now)}.zip`, { tone: "success" });
+        return true;
+      },
+    });
+    return;
+  }
+  if (!rows.length) {
+    showToast("请先选择要导出的记录");
+    return;
+  }
+  const availability = getRecordExportAvailability(rows);
+  const exportFileName = `检测记录导出_${formatExportFileTimestamp(state.meta.now)}.zip`;
+
+  openSharedModal({
+    title: "导出检测记录",
+    panelClass: "modal-lg",
+    body: `
+      <section class="record-export-section">
+        <div class="section-head section-head-tight">
+          <div><h4>检测记录</h4></div>
+        </div>
+        <div class="selection-list selection-list-inline">
+          ${renderRecordExportOption({
+            id: "exportRecordExcel",
+            title: "检测记录.xlsx",
+            checked: true,
+          })}
+        </div>
+      </section>
+      <section class="record-export-section">
+        <div class="section-head section-head-tight">
+          <div><h4>图像</h4></div>
+        </div>
+        <div class="selection-list selection-list-inline">
+          ${renderRecordExportOption({
+            id: "exportImageOriginal",
+            title: "原图",
+            checked: true,
+          })}
+          ${renderRecordExportOption({
+            id: "exportImageSub",
+            title: "子图",
+            desc: availability.subImageEnabled ? "" : "当前筛选记录不包含处理结果采样或完整检测",
+            disabled: !availability.subImageEnabled,
+          })}
+          ${renderRecordExportOption({
+            id: "exportImageRendered",
+            title: "结果渲染图",
+            desc: availability.renderedEnabled ? "" : "当前筛选记录不包含完整检测",
+            disabled: !availability.renderedEnabled,
+          })}
+        </div>
+      </section>
+    `,
+    confirmText: "开始导出",
+    onConfirm() {
+      const selection = getRecordExportSelection();
+      if (!selection.length) {
+        showToast("请至少选择一种导出内容");
+        return false;
+      }
+      const labels = selection.map((item) => item.title).join("、");
+      closeSharedModal();
+      showToast(`下载任务已开始：${exportFileName}（${rows.length} 条，${labels}）`, { tone: "success" });
+      return true;
+    },
+  });
+}
+
+function getRecordNgCount(record) {
+  if (!record) return 0;
+  if (Number.isFinite(record.ngCount)) return record.ngCount;
+  return getRecordImageResults(record).reduce(
+    (count, imageResult) => count + (Array.isArray(imageResult.subResults) ? imageResult.subResults.filter((item) => item.businessResult === "NG").length : 0),
+    0,
+  );
+}
+
+function getRecordExportAvailability(rows) {
+  const normalizedModes = rows.map((record) => Demo.normalizeRunMode(record?.runMode || "detect"));
+  const hasProcess = normalizedModes.includes("process");
+  const hasDetect = normalizedModes.includes("detect");
+  return {
+    subImageEnabled: hasProcess || hasDetect,
+    renderedEnabled: hasDetect,
+  };
+}
+
+function formatExportFileTimestamp(value) {
+  const date = new Date(value || state.meta.now || Date.now());
+  if (Number.isNaN(date.getTime())) return "00000000_000000";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+}
+
+function renderRecordExportOption({ id, title, desc = "", checked = false, disabled = false }) {
+  return `
+    <label class="selection-item selection-item-compact" for="${id}">
+      <div class="selection-item-copy">
+        <strong>${escapeHtml(title)}</strong>
+        ${desc ? `<p>${escapeHtml(desc)}</p>` : ""}
+      </div>
+      <input class="selection-item-check" id="${id}" type="checkbox" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""} />
+    </label>
+  `;
+}
+
+function getRecordExportSelection() {
+  const options = [
+    { id: "exportRecordExcel", title: "检测记录.xlsx" },
+    { id: "exportImageOriginal", title: "图像 / 原图" },
+    { id: "exportImageSub", title: "图像 / 子图" },
+    { id: "exportImageRendered", title: "图像 / 结果渲染图" },
+  ];
+  return options.filter((item) => document.getElementById(item.id)?.checked);
+}
+
+function renderRecordResultImageViewer(
+  record,
+  imageResultId = ui.recordImageViewer?.imageResultId || "",
+  focusedSubId = ui.recordImageViewer?.activeSubId || "",
+) {
+  const imageResults = getRecordImageResults(record);
+  const activeImageResult = imageResults.find((item) => item.id === imageResultId) || imageResults[0] || null;
+  const subResults = Array.isArray(activeImageResult?.subResults) ? activeImageResult.subResults : [];
+  const activeSubId = focusedSubId || "";
+  const activeItem = subResults.find((item) => item.id === activeSubId) || null;
+  const showRoi = true;
+  const showOverlay = true;
+
+  return `
+    <div class="record-image-viewer record-image-viewer-split" id="recordResultViewer">
+      <div class="record-result-layout">
+        <section class="record-detail-section record-result-main-panel">
+          <div class="record-result-main-toolbar">
+            <div class="record-result-toolbar-group">
+              ${activeItem ? `<button class="table-btn table-btn-primary" data-action="show-source" type="button">返回原图</button>` : ""}
+            </div>
+          </div>
+          ${renderRecordResultMainViewport(activeImageResult, activeItem, {
+            showRoi,
+            showOverlay,
+          })}
+        </section>
+        <aside class="record-detail-section record-result-side-panel">
+          <div class="record-result-side-head">
+            <h4>子结果图像</h4>
+          </div>
+          <div class="record-thumb-list">
+            ${
+              subResults.length
+                ? subResults.map((item, index) => renderRecordResultThumb(item, index, item.id === activeSubId)).join("")
+                : `<div class="builder-empty builder-empty-compact">当前暂无子图结果</div>`
+            }
+          </div>
+        </aside>
+      </div>
+    </div>
+  `;
+}
+
+function renderRecordResultMainViewport(imageResult, activeItem, options = {}) {
+  if (!imageResult) {
+    return `<div class="inspection-stage runtime-image-stage runtime-image-stage-empty"><div class="builder-empty">暂无图像结果</div></div>`;
+  }
+  if (!activeItem) {
+    return renderRecordImageSourceStage(imageResult, { showRoi: options.showRoi !== false });
+  }
+
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  const activeIndex = subResults.findIndex((item) => item.id === activeItem.id);
+  return `
+    <div
+      class="inspection-stage inspection-stage-compact record-sub-stage record-result-main-stage"
+      style="${escapeAttribute(getRecordSubStageStyle(activeIndex, "main"))}"
+    >
+      <div class="record-sub-image-grid"></div>
+      ${options.showOverlay === false ? "" : `<div class="record-overlay-layer">${renderVectorOverlay(activeItem, activeIndex, { showLabel: true })}</div>`}
+    </div>
+  `;
+}
+
+function renderRecordImageSourceStage(imageResult, options = {}) {
+  const subResults = Array.isArray(imageResult.subResults) ? imageResult.subResults : [];
+  const sourceUrl = getImageResultSourceUrl(imageResult, getActiveRecord()?.toolId || "");
+  const aspectRatio = getRuntimeImageAspectRatio(imageResult, getActiveRecord()?.toolId || "");
+  const sourceStyle = [
+    `--runtime-source-aspect:${aspectRatio};`,
+    sourceUrl ? `--runtime-source-image:url("${escapeAttribute(sourceUrl)}");` : "",
+  ].join("");
+  return `
+    <div class="inspection-stage runtime-image-stage runtime-source-stage record-result-main-stage">
+      <div class="runtime-source-stage-shell">
+        <div class="runtime-source-canvas ${sourceUrl ? "has-source" : "is-fallback"}" style="${escapeAttribute(sourceStyle)}">
+          <div class="runtime-source-grid"></div>
+          ${
+            options.showRoi === false
+              ? ""
+              : `<div class="runtime-mapped-layer">${subResults.map((item, index) => renderRecordFocusableMappedResult(item, index)).join("")}</div>`
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRecordFocusableMappedResult(item, index) {
+  const style = getRuntimeMappedRegionStyle(item, index);
+  const fullImage = isFullImageSubResult(item);
+  const toneClass = getResultToneModifier(getSubResultBusinessResult(item));
+  const resultText = getSubResultBusinessResult(item);
+  const showResultBadge = resultText !== "-";
+  const regionLabel = getMappedRegionLabel(item, index);
+  if (fullImage) {
+    return renderFullImageDetectionBoxes(item);
+  }
+  return `
+    <button
+      class="runtime-mapped-result record-roi-button ${toneClass} is-roi-only"
+      style="${escapeAttribute(style)}"
+      data-action="focus-record-subresult"
+      data-sub-id="${item.id}"
+      type="button"
+      title="查看对应子图结果"
+      aria-label="查看对应子图结果"
+    >
+      <span class="runtime-mapped-index">${escapeHtml(regionLabel)}</span>
+      ${showResultBadge ? `<span class="runtime-mapped-result-badge ${toneClass}">${escapeHtml(resultText)}</span>` : ""}
+    </button>
+  `;
+}
+
+function renderRecordFullImageOverlay(item) {
+  const detectResults = getSubResultDetectResults(item);
+  if (!detectResults.length) return "";
+  return detectResults
+    .map(
+      (detectResult, detectIndex) => `
+        <div class="record-vector-tag ${getResultToneModifier(detectResult.businessResult)}" style="top:${18 + detectIndex * 38}px;">
+          ${escapeHtml(buildDetectResultSummary(detectResult, detectIndex))}
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderRecordResultThumb(item, index, active) {
+  const displayName = getRuntimeSubResultDisplayName(item, index, getRecordViewerTool());
+  return `
+    <button
+      class="record-thumb-item ${active ? "is-active" : ""}"
+      data-action="focus-subresult"
+      data-sub-id="${item.id}"
+      type="button"
+      title="${escapeAttribute(displayName)}"
+      aria-label="查看${escapeAttribute(displayName)}"
+    >
+      <div
+        class="inspection-stage inspection-stage-compact record-sub-stage record-thumb-stage"
+        style="${escapeAttribute(getRecordSubStageStyle(index, "thumb"))}"
+      >
+        <div class="record-sub-image-grid"></div>
+        <div class="record-overlay-layer record-thumb-overlay">${renderVectorOverlay(item, index, { showLabel: false })}</div>
+        <span class="record-thumb-index">${index + 1}</span>
+      </div>
+    </button>
+  `;
+}
+
+function bindRecordResultViewer(recordId) {
+  const root = document.getElementById("recordResultViewer");
+  if (!root) return;
+
+  const rerender = () => {
+    const record = state.detectionRecords.find((item) => item.id === recordId);
+    if (!record) return;
+    const activeImageResult = getRecordImageResults(record).find((item) => item.id === ui.recordImageViewer?.imageResultId) || getRecordImageResults(record)[0];
+    els.sharedModalTitle.textContent = `${record.id} · ${activeImageResult?.acquireName || "图像结果"}`;
+    els.sharedModalBody.innerHTML = renderRecordResultImageViewer(record);
+    bindRecordResultViewer(recordId);
+  };
+
+  const focusSubResult = (subId) => {
+    ui.recordImageViewer.activeSubId = subId || "";
+    ui.recordImageViewer.showOverlay = true;
+    rerender();
+  };
+
+  root.querySelectorAll("[data-action='focus-subresult']").forEach((button) => {
+    button.addEventListener("click", () => {
+      focusSubResult(button.dataset.subId);
+    });
+  });
+
+  root.querySelectorAll("[data-action='focus-record-subresult']").forEach((button) => {
+    button.addEventListener("click", () => {
+      focusSubResult(button.dataset.subId);
+    });
+  });
+
+  root.querySelectorAll("[data-action='show-source']").forEach((button) => {
+    button.addEventListener("click", () => {
+      ui.recordImageViewer.activeSubId = "";
+      rerender();
+    });
+  });
+}
+
+function getRecordSubStageStyle(index, mode) {
+  const preset = getRecordRoiPreset(index);
+  const backgroundSize = mode === "main" ? "188% 188%" : "172% 172%";
+  return `--record-background-size:${backgroundSize};--record-background-position:${preset.focusX} ${preset.focusY};`;
+}
+
+function getRecordRoiPreset(index) {
+  const presets = [
+    {
+      left: "10%",
+      top: "17%",
+      width: "23%",
+      height: "34%",
+      focusX: "14%",
+      focusY: "22%",
+      vectorLeft: "19%",
+      vectorTop: "26%",
+      vectorWidth: "54%",
+      vectorHeight: "34%",
+    },
+    {
+      left: "41%",
+      top: "21%",
+      width: "22%",
+      height: "30%",
+      focusX: "50%",
+      focusY: "25%",
+      vectorLeft: "21%",
+      vectorTop: "20%",
+      vectorWidth: "56%",
+      vectorHeight: "40%",
+    },
+    {
+      left: "68%",
+      top: "28%",
+      width: "17%",
+      height: "26%",
+      focusX: "76%",
+      focusY: "34%",
+      vectorLeft: "24%",
+      vectorTop: "24%",
+      vectorWidth: "48%",
+      vectorHeight: "36%",
+    },
+    {
+      left: "24%",
+      top: "58%",
+      width: "22%",
+      height: "20%",
+      focusX: "28%",
+      focusY: "74%",
+      vectorLeft: "18%",
+      vectorTop: "24%",
+      vectorWidth: "58%",
+      vectorHeight: "34%",
+    },
+  ];
+  return presets[index % presets.length];
+}
+
+function renderRecordRoiBoxes(record) {
+  return record.subResults
+    .map((item, index) => {
+      const preset = getRecordRoiPreset(index);
+      const toneClass = getResultToneModifier(item.businessResult);
+      return `
+        <button
+          class="record-roi-box ${toneClass}"
+          style="left:${preset.left};top:${preset.top};width:${preset.width};height:${preset.height};"
+          data-action="focus-roi"
+          data-sub-id="${item.id}"
+          type="button"
+          title="双击查看对应子结果"
+          aria-label="双击查看${escapeAttribute(item.name)}"
+        >
+          <span>${index + 1}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderVectorOverlay(item, index, options = {}) {
+  const detectResults = getSubResultDetectResults(item);
+  if (detectResults.length) {
+    return detectResults.map((detectResult, detectIndex) => renderSingleVectorOverlay(detectResult, detectIndex, options)).join("");
+  }
+  return renderSingleVectorOverlay(item, index, options);
+}
+
+function renderSingleVectorOverlay(item, index, options = {}) {
+  const box = item?.detectionBox || item?.box || item?.regionBox || null;
+  const hasBox = box && [box.x, box.y, box.w, box.h].every((value) => Number.isFinite(Number(value)));
+  const preset = getRecordRoiPreset(index);
+  const rawLabel = getOverlayDisplayLabel(item);
+  const label = escapeHtml(rawLabel);
+  const showLabelTag = options.showLabel !== false && rawLabel !== "-";
+  const toneClass = getResultToneModifier(item.businessResult);
+  if (isDimensionModelResult(item)) {
+    return renderMeasurementOverlay(label, getRecordMeasurementShellStyle(index), {
+      tone: getResultTone(item.businessResult),
+      showLabel: showLabelTag,
+    });
+  }
+  if (item?.detectId && !hasBox) {
+    return showLabelTag ? `<div class="record-vector-tag ${toneClass}">${label}</div>` : "";
+  }
+  const vectorStyle = hasBox
+    ? `left:${Math.max(0, Math.min(100, Number(box.x) * 100))}%;top:${Math.max(0, Math.min(100, Number(box.y) * 100))}%;width:${Math.max(2, Math.min(100, Number(box.w) * 100))}%;height:${Math.max(2, Math.min(100, Number(box.h) * 100))}%;`
+    : `left:${preset.vectorLeft};top:${preset.vectorTop};width:${preset.vectorWidth};height:${preset.vectorHeight};`;
+  return `
+    <div
+      class="record-vector-box ${toneClass}"
+      style="${escapeAttribute(vectorStyle)}"
+    ></div>
+    ${showLabelTag ? `<div class="record-vector-tag ${toneClass}">${label}</div>` : ""}
+  `;
+}
+
+function openExportModal(type) {
+  const scopeOptions = getExportScopeOptions(type);
+  const contentOptions = getExportContentOptions(type);
+  openSharedModal({
+    title: "导出设置",
+    body: `
+      <p class="banner banner-neutral">导出完成后将直接触发浏览器下载。</p>
+      <label class="field">
+        <span>导出范围</span>
+        <select id="exportScopeSelect">
+          ${scopeOptions.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field">
+        <span>导出内容</span>
+        <select id="exportContentSelect">
+          ${contentOptions.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join("")}
+        </select>
+      </label>
+    `,
+    confirmText: "开始导出",
+    onConfirm() {
+      const scope = document.getElementById("exportScopeSelect").value;
+      const content = document.getElementById("exportContentSelect").value;
+      closeSharedModal();
+      showToast(`下载任务已开始：${scope} / ${content}`, { tone: "success" });
+      return true;
+    },
+  });
+}
+
+function confirmUnbindClient() {
+  const client = Demo.getRuntimeClient(state);
+  if (!client || !client.bound) {
+    showToast("当前客户端尚未绑定");
+    return;
+  }
+  if (!state.runtimeDevice.networkOnline) {
+    showToast("请联网后再解绑当前设备");
+    return;
+  }
+  openSharedModal({
+    title: "解绑当前设备",
+    body: `<p class="banner banner-danger">解绑后当前设备将退出可用状态，需重新登录并重新绑定后才能继续使用。是否确认解绑？</p>`,
+    confirmText: "确认解绑",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      Demo.advanceDemoClock(state, 1);
+      state.clients = state.clients.filter((item) => item.id !== client.id);
+      state.session.loggedIn = false;
+      state.session.clientId = null;
+      state.session.account = "";
+      state.session.lastMessage = "";
+      closeSharedModal();
+      persistState("解绑成功");
+      return true;
+    },
+  });
+}
+
+function saveStorageThresholds() {
+  const warning = Number(els.warningThresholdInput.value);
+  const block = Number(els.blockThresholdInput.value);
+  if (Number.isNaN(warning) || Number.isNaN(block)) {
+    els.thresholdMessage.hidden = false;
+    els.thresholdMessage.textContent = "请输入有效的阈值数字。";
+    return;
+  }
+  if (block < 10) {
+    els.thresholdMessage.hidden = false;
+    els.thresholdMessage.textContent = "阻断阈值不得小于 10GB。";
+    return;
+  }
+  if (warning <= block) {
+    els.thresholdMessage.hidden = false;
+    els.thresholdMessage.textContent = "提醒阈值必须大于阻断阈值。";
+    return;
+  }
+  els.thresholdMessage.hidden = true;
+  els.thresholdMessage.textContent = "";
+  Demo.advanceDemoClock(state, 1);
+  state.storage.warningGb = warning;
+  state.storage.blockGb = block;
+  checkRunningOperationGuard();
+  persistState(`阈值设置已更新：提醒 ${warning}GB / 阻断 ${block}GB`);
+}
+
+function confirmCleanup(type) {
+  const meta = getCleanupMeta(type);
+  if (!meta) return;
+  const defaultMode = getDefaultCleanupMode(type);
+  const defaultRange = getDefaultCleanupCustomRange();
+
+  openSharedModal({
+    title: meta.title,
+    panelClass: "modal-lg",
+    body: `
+      <p class="banner banner-danger">${escapeHtml(meta.warningText)}</p>
+      <label class="field">
+        <span>清理时间</span>
+        <select id="cleanupCutoffSelect">
+          ${CLEANUP_CUTOFF_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === defaultMode ? "selected" : ""}>${option.label}</option>`).join("")}
+        </select>
+      </label>
+      <div class="form-grid double-column cleanup-custom-range" id="cleanupCustomRangeField" hidden>
+        <label class="field">
+          <span>开始时间</span>
+          <input id="cleanupCustomStartInput" type="datetime-local" value="${escapeAttribute(defaultRange.start)}" max="${escapeAttribute(defaultRange.max)}" />
+        </label>
+        <label class="field">
+          <span>结束时间</span>
+          <input id="cleanupCustomEndInput" type="datetime-local" value="${escapeAttribute(defaultRange.end)}" max="${escapeAttribute(defaultRange.max)}" />
+        </label>
+      </div>
+      <div id="cleanupPreviewCard"></div>
+    `,
+    confirmText: "下一步",
+    onOpen() {
+      const cutoffSelect = document.getElementById("cleanupCutoffSelect");
+      const customField = document.getElementById("cleanupCustomRangeField");
+      const customStartInput = document.getElementById("cleanupCustomStartInput");
+      const customEndInput = document.getElementById("cleanupCustomEndInput");
+      const previewCard = document.getElementById("cleanupPreviewCard");
+
+      const updatePreview = () => {
+        customField.hidden = cutoffSelect.value !== "custom";
+        customStartInput.disabled = cutoffSelect.value !== "custom";
+        customEndInput.disabled = cutoffSelect.value !== "custom";
+        const plan = getCleanupPlan(type, {
+          mode: cutoffSelect.value,
+          customStartValue: customStartInput.value,
+          customEndValue: customEndInput.value,
+        });
+        previewCard.innerHTML = renderCleanupPreview(plan);
+        els.sharedModalConfirm.disabled = !plan?.valid || !plan.matchCount;
+      };
+      cutoffSelect.addEventListener("change", updatePreview);
+      customStartInput.addEventListener("input", updatePreview);
+      customEndInput.addEventListener("input", updatePreview);
+      updatePreview();
+    },
+    onConfirm() {
+      const cutoffSelect = document.getElementById("cleanupCutoffSelect");
+      const customStartInput = document.getElementById("cleanupCustomStartInput");
+      const customEndInput = document.getElementById("cleanupCustomEndInput");
+      const plan = getCleanupPlan(type, {
+        mode: cutoffSelect?.value || defaultMode,
+        customStartValue: customStartInput?.value || "",
+        customEndValue: customEndInput?.value || "",
+      });
+      if (!plan?.valid) {
+        showToast(plan?.invalidReason || "请选择有效的清理时间");
+        return false;
+      }
+      if (!plan?.matchCount) {
+        showToast("当前所选时间条件下没有可清理数据");
+        return false;
+      }
+      closeSharedModal();
+      openCleanupConfirmModal(plan);
+      return true;
+    },
+  });
+}
+
+function openCleanupConfirmModal(plan) {
+  openSharedModal({
+    title: `确认${plan.meta.title}`,
+    panelClass: "modal-lg",
+    body: renderCleanupPreview(plan),
+    confirmText: "确认清理",
+    confirmClass: "danger-btn",
+    onConfirm() {
+      const latestPlan = getCleanupPlan(plan.type, {
+        mode: plan.cutoffMode,
+        customStartValue: plan.customStartValue,
+        customEndValue: plan.customEndValue,
+      });
+      if (!latestPlan?.valid) {
+        closeSharedModal();
+        showToast(latestPlan?.invalidReason || "当前清理时间无效");
+        return false;
+      }
+      if (!latestPlan?.matchCount) {
+        closeSharedModal();
+        showToast("当前所选时间条件下已无可清理数据");
+        return false;
+      }
+      closeSharedModal();
+      applyCleanupPlan(latestPlan);
+      return true;
+    },
+  });
+}
+
+function applyCleanupPlan(plan) {
+  Demo.advanceDemoClock(state, 1);
+  const released = plan.releasedGb;
+  if (plan.type === "detectImages") {
+    state.detectionRecords = state.detectionRecords.filter((record) => !plan.itemIds.includes(record.id));
+    state.storage.usage.detectImages = Demo.roundGb(Math.max(0, state.storage.usage.detectImages - released));
+  }
+  if (plan.type === "captureImages") {
+    state.captureRecords = state.captureRecords.filter((record) => !plan.itemIds.includes(record.id));
+    state.storage.usage.captureImages = Demo.roundGb(Math.max(0, state.storage.usage.captureImages - released));
+  }
+  state.storage.remainingGb = Demo.roundGb(state.storage.remainingGb + released);
+  persistState(`${plan.meta.title}已完成，清理 ${plan.matchCount} 项，释放 ${released.toFixed(1)} GB`);
+}
+
+function mutateStorage(delta) {
+  Demo.advanceDemoClock(state, 1);
+  state.storage.remainingGb = Demo.roundGb(Math.max(1, state.storage.remainingGb + delta));
+  checkRunningOperationGuard();
+  persistState(delta > 0 ? `已模拟释放 ${delta} GB 空间` : `已模拟写入 ${Math.abs(delta)} GB 数据`);
+}
+
+function getCleanupMeta(type) {
+  return {
+    detectImages: {
+      type,
+      title: "清理检测记录",
+      usageKey: "detectImages",
+      itemLabel: "条检测记录及关联图片",
+      warningText: "清理前请先备份数据。确认后将删除本次选定范围内的检测记录及关联图片，操作无法撤回。",
+    },
+    captureImages: {
+      type,
+      title: "清理采图记录",
+      usageKey: "captureImages",
+      itemLabel: "个采图批次及关联图片",
+      warningText: "清理前请先备份数据。确认后将删除本次选定范围内的采图批次及关联图片，操作无法撤回。",
+    },
+  }[type] || null;
+}
+
+function getCleanupEntries(type) {
+  if (type === "detectImages") {
+    return state.detectionRecords
+      .map((record) => ({
+        id: record.id,
+        time: record.triggeredAt,
+      }));
+  }
+  if (type === "captureImages") {
+    return state.captureRecords
+      .map((record) => ({
+        id: record.id,
+        time: record.startedAt,
+      }));
+  }
+  return [];
+}
+
+function getCleanupPlan(type, selection = {}) {
+  const meta = getCleanupMeta(type);
+  if (!meta) return null;
+
+  const eligibleItems = getCleanupEntries(type);
+  const timeSelection = resolveCleanupSelection(selection);
+  if (!timeSelection.valid) {
+    return {
+      type,
+      meta,
+      valid: false,
+      invalidReason: timeSelection.invalidReason,
+      cutoffMode: timeSelection.mode,
+      customStartValue: timeSelection.customStartValue,
+      customEndValue: timeSelection.customEndValue,
+      cutoffLabel: timeSelection.label,
+      selectionKind: timeSelection.selectionKind,
+      itemIds: [],
+      totalCount: eligibleItems.length,
+      matchCount: 0,
+      actualFrom: null,
+      actualTo: null,
+      releasedGb: 0,
+    };
+  }
+
+  const matchedItems = eligibleItems
+    .filter((item) => {
+      const itemTime = new Date(item.time).getTime();
+      if (!Number.isFinite(itemTime)) return false;
+      if (timeSelection.selectionKind === "range") {
+        return itemTime >= timeSelection.rangeStartMs && itemTime <= timeSelection.rangeEndMs;
+      }
+      return itemTime <= timeSelection.cutoffMs;
+    })
+    .sort((left, right) => new Date(left.time).getTime() - new Date(right.time).getTime());
+
+  const releasedGb = estimateCleanupRelease(meta, matchedItems.length, eligibleItems.length);
+
+  return {
+    type,
+    meta,
+    valid: true,
+    cutoffMode: timeSelection.mode,
+    customStartValue: timeSelection.customStartValue,
+    customEndValue: timeSelection.customEndValue,
+    cutoffIso: timeSelection.cutoffIso,
+    cutoffLabel: timeSelection.label,
+    selectionKind: timeSelection.selectionKind,
+    itemIds: matchedItems.map((item) => item.id),
+    totalCount: eligibleItems.length,
+    matchCount: matchedItems.length,
+    actualFrom: matchedItems[0]?.time || null,
+    actualTo: matchedItems[matchedItems.length - 1]?.time || null,
+    releasedGb,
+  };
+}
+
+function estimateCleanupRelease(meta, matchCount, totalCount) {
+  if (!meta || !matchCount || !totalCount) return 0;
+  const usage = Number(state.storage.usage[meta.usageKey] || 0);
+  return Demo.roundGb(Math.min(usage, usage * (matchCount / totalCount)));
+}
+
+function renderCleanupPreview(plan) {
+  if (!plan) return "";
+  if (!plan.valid) {
+    return `<p class="banner banner-warning">${escapeHtml(plan.invalidReason || "请选择有效的清理时间")}</p>`;
+  }
+  const hasMatches = plan.matchCount > 0;
+  const impactText = hasMatches ? `${plan.matchCount} ${plan.meta.itemLabel}` : "0 项";
+  const selectionLabel = plan.selectionKind === "range" ? "清理时间范围" : "清理时间点";
+  const selectionText = plan.selectionKind === "range" ? plan.cutoffLabel : `${plan.cutoffLabel}之前`;
+
+  return `
+    <div class="cleanup-preview-card">
+      <div class="meta-list cleanup-preview-meta">
+        <span>清理对象</span>
+        <span>${escapeHtml(plan.meta.title)}</span>
+        <span>${selectionLabel}</span>
+        <span>${escapeHtml(selectionText)}</span>
+        <span>影响数据</span>
+        <span>${escapeHtml(impactText)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function resolveCleanupSelection(selection = {}) {
+  const mode = selection.mode || "3m";
+  const customStartValue = selection.customStartValue || "";
+  const customEndValue = selection.customEndValue || "";
+  const systemNow = getCurrentCleanupSystemTime();
+  const nowMs = systemNow.getTime();
+
+  if (mode === "custom") {
+    if (!customStartValue || !customEndValue) {
+      return {
+        valid: false,
+        invalidReason: "请选择完整的自定义时间范围",
+        mode,
+        customStartValue,
+        customEndValue,
+        selectionKind: "range",
+        label: "自定义时间范围",
+      };
+    }
+    const rangeStartMs = parseDateTimeLocalToMs(customStartValue);
+    const rangeEndMs = parseDateTimeLocalToMs(customEndValue);
+    if (!Number.isFinite(rangeStartMs) || !Number.isFinite(rangeEndMs)) {
+      return {
+        valid: false,
+        invalidReason: "自定义时间范围格式无效",
+        mode,
+        customStartValue,
+        customEndValue,
+        selectionKind: "range",
+        label: "自定义时间范围",
+      };
+    }
+    if (rangeStartMs > rangeEndMs) {
+      return {
+        valid: false,
+        invalidReason: "开始时间不能晚于结束时间",
+        mode,
+        customStartValue,
+        customEndValue,
+        selectionKind: "range",
+        label: "自定义时间范围",
+      };
+    }
+    if (rangeEndMs > nowMs) {
+      return {
+        valid: false,
+        invalidReason: "结束时间不得晚于当前系统时间",
+        mode,
+        customStartValue,
+        customEndValue,
+        selectionKind: "range",
+        label: "自定义时间范围",
+      };
+    }
+    const rangeStartIso = new Date(rangeStartMs).toISOString();
+    const rangeEndIso = new Date(rangeEndMs).toISOString();
+    return {
+      valid: true,
+      mode,
+      customStartValue,
+      customEndValue,
+      selectionKind: "range",
+      rangeStartMs,
+      rangeEndMs,
+      rangeStartIso,
+      rangeEndIso,
+      label: `${Demo.formatDateTime(rangeStartIso)} 至 ${Demo.formatDateTime(rangeEndIso)}`,
+    };
+  }
+
+  const option = CLEANUP_CUTOFF_OPTIONS.find((item) => item.value === mode) || CLEANUP_CUTOFF_OPTIONS[2];
+  const cutoffDate = getRelativeCleanupCutoffDate(option.value, systemNow);
+  const cutoffMs = cutoffDate.getTime();
+  const cutoffIso = cutoffDate.toISOString();
+  return {
+    valid: true,
+    mode: option.value,
+    customStartValue,
+    customEndValue,
+    selectionKind: "before",
+    cutoffMs,
+    cutoffIso,
+    label: `${option.label}（${Demo.formatDateTime(cutoffIso)}）`,
+  };
+}
+
+function getRelativeCleanupCutoffDate(mode, baseDate) {
+  const next = new Date(baseDate);
+  if (mode === "1y") {
+    next.setFullYear(next.getFullYear() - 1);
+    return next;
+  }
+  if (mode === "6m") {
+    next.setMonth(next.getMonth() - 6);
+    return next;
+  }
+  if (mode === "1m") {
+    next.setMonth(next.getMonth() - 1);
+    return next;
+  }
+  next.setMonth(next.getMonth() - 3);
+  return next;
+}
+
+function getDefaultCleanupCustomRange() {
+  const endDate = getCurrentCleanupSystemTime();
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - 1);
+  const max = formatDateTimeLocalInput(endDate);
+  return {
+    start: formatDateTimeLocalInput(startDate),
+    end: max,
+    max,
+  };
+}
+
+function getCurrentCleanupSystemTime() {
+  return new Date();
+}
+
+function formatDateTimeLocalInput(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function parseDateTimeLocalToMs(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return NaN;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] || "0");
+  const parsed = new Date(year, month, day, hour, minute, second, 0);
+  return parsed.getTime();
+}
+
+function getDefaultCleanupMode(type) {
+  return "3m";
+}
+
+function checkRunningOperationGuard() {
+  if (Demo.isStorageBlocked(state)) {
+    if (ui.pendingDownload) abortModelDownload("剩余空间低于阻断阈值，算子拉取已中断");
+    if (ui.pendingDetectionToolId) abortDetectionRun("剩余空间低于阻断阈值，当前运行任务已中断");
+  }
+  if (!state.runtimeDevice.networkOnline && ui.pendingDownload) {
+    abortModelDownload("客户端离线，算子拉取已中断");
+  }
+}
+
+function toggleNetworkState() {
+  state.runtimeDevice.networkOnline = !state.runtimeDevice.networkOnline;
+  const client = Demo.getRuntimeClient(state);
+  if (state.runtimeDevice.networkOnline) {
+    Demo.advanceDemoClock(state, 1);
+    if (client?.bound) {
+      client.lastLoginAt = state.meta.now;
+      client.lastHeartbeatAt = state.meta.now;
+      client.offlineAt = null;
+      state.session.lastMessage = "客户端已恢复在线，可继续访问云端算子。";
+    }
+  } else {
+    Demo.advanceDemoClock(state, 12);
+    if (client?.bound) {
+      client.offlineAt = state.meta.now;
+      state.session.lastMessage = "客户端已切换为离线状态，首次绑定和平台算子暂不可用。";
+    }
+  }
+  checkRunningOperationGuard();
+  persistState(state.runtimeDevice.networkOnline ? "已切换为在线状态" : "已切换为离线状态");
+}
+
+function submitLogin() {
+  const clientName = els.loginClientName.value.trim();
+  const account = els.loginAccount.value.trim();
+  const password = els.loginPassword.value.trim();
+  const errors = {};
+  if (!clientName) errors.clientName = "请输入设备名称";
+  if (!account) {
+    errors.account = "请输入正确的手机号码";
+  } else if (!/^1\d{10}$/.test(account)) {
+    errors.account = "请输入正确的手机号码";
+  }
+  if (!password) errors.password = "登录密码不能为空";
+  if (Object.keys(errors).length) {
+    showLoginFieldErrors(errors);
+    return;
+  }
+  clearLoginErrors();
+  if (!state.runtimeDevice.networkOnline) {
+    return showLoginError("当前网络异常，暂时无法登录，请检查网络后重试。");
+  }
+  if (account !== state.enterprise.account || password !== state.enterprise.password) {
+    showLoginFieldErrors({ password: "密码错误" });
+    return;
+  }
+
+  Demo.advanceDemoClock(state, 1);
+  let client = Demo.getRuntimeClient(state);
+  state.runtimeDevice.name = clientName;
+
+  const quotaFull = Demo.getQuotaUsage(state) >= state.enterprise.quota;
+  if (!client && quotaFull) {
+    state.session.lastMessage = "当前账号可用设备数已满，请联系销售。";
+    Demo.saveState(state);
+    renderAll();
+    return showLoginError("当前账号可用设备数已满，请联系销售。");
+  }
+
+  if (!client) {
+    client = {
+      id: Demo.makeId("client"),
+      name: clientName,
+      enterpriseAccount: account,
+      hardwareCode: state.runtimeDevice.hardwareCode,
+      bound: true,
+      boundAt: state.meta.now,
+      lastLoginAt: state.meta.now,
+      lastHeartbeatAt: state.meta.now,
+      offlineAt: null,
+      token: `token_${Demo.makeId("bind")}`,
+    };
+    state.clients.push(client);
+  } else {
+    client.bound = true;
+    client.enterpriseAccount = account;
+    client.name = clientName;
+    client.boundAt = client.boundAt || state.meta.now;
+    client.lastLoginAt = state.meta.now;
+    client.lastHeartbeatAt = state.meta.now;
+    client.offlineAt = null;
+    client.token = `token_${Demo.makeId("bind")}`;
+  }
+
+  state.session.loggedIn = true;
+  state.session.clientId = client.id;
+  state.session.account = account;
+  state.session.lastMessage = "登录成功，当前设备已绑定。";
+  persistState("登录成功，当前设备已绑定。");
+}
+
+function showLoginError(message) {
+  clearLoginErrors();
+  els.loginError.hidden = false;
+  els.loginError.textContent = message;
+}
+
+function openSharedModal(config) {
+  ui.modalConfig = config;
+  els.sharedModal.className = ["modal", config.panelClass].filter(Boolean).join(" ");
+  els.sharedModal.onwheel = null;
+  els.sharedModalTitle.textContent = config.title || "提示";
+  els.sharedModalBody.className = ["modal-body", config.bodyClass].filter(Boolean).join(" ");
+  els.sharedModalBody.innerHTML = config.body || "";
+  els.sharedModalConfirm.textContent = config.confirmText || "确认";
+  els.sharedModalConfirm.className = config.confirmClass || "primary-btn";
+  els.sharedModalConfirm.disabled = false;
+  els.sharedModalCancel.textContent = config.cancelText || "取消";
+  els.sharedModalExtra.textContent = config.extraText || "";
+  els.sharedModalExtra.className = config.extraClass || "secondary-btn";
+  els.sharedModalExtra.hidden = !config.extraText;
+  els.sharedModalExtra.disabled = Boolean(config.extraDisabled);
+  els.sharedModalExtra.onclick = typeof config.onExtra === "function" ? config.onExtra : null;
+  els.sharedModalCancel.hidden = Boolean(config.hideCancel);
+  els.sharedModalConfirm.hidden = Boolean(config.hideConfirm);
+  els.sharedModalFooter.hidden = Boolean(config.hideCancel) && Boolean(config.hideConfirm);
+  els.closeSharedModal.onclick = closeSharedModal;
+  els.sharedModalCancel.onclick = typeof config.onCancel === "function" ? config.onCancel : closeSharedModal;
+  els.sharedModalConfirm.onclick = submitSharedModal;
+  els.sharedModal.onkeydown = (event) => {
+    if (event.key !== "Enter" || event.isComposing || els.sharedModalConfirm.hidden || els.sharedModalConfirm.disabled) return;
+    const target = getEventTargetElement(event);
+    if (target?.tagName === "TEXTAREA") return;
+    event.preventDefault();
+    submitSharedModal();
+  };
+  openPanel(els.sharedModal);
+  if (typeof config.onOpen === "function") config.onOpen();
+}
+
+function submitSharedModal() {
+  if (!ui.modalConfig?.onConfirm) {
+    closeSharedModal();
+    return;
+  }
+  ui.modalConfig.onConfirm();
+}
+
+function closeSharedModal() {
+  document.querySelector(".capture-tag-popover")?.remove();
+  ui.modalConfig = null;
+  if (!els.runtimeRecordDrawer || els.runtimeRecordDrawer.hidden) {
+    ui.recordImageViewer = null;
+  }
+  els.sharedModal.onwheel = null;
+  els.sharedModal.onkeydown = null;
+  els.sharedModal.className = "modal";
+  els.sharedModalBody.className = "modal-body";
+  els.sharedModalFooter.hidden = false;
+  els.sharedModalExtra.hidden = true;
+  els.sharedModalExtra.onclick = null;
+  els.sharedModalExtra.className = "secondary-btn";
+  els.sharedModalConfirm.hidden = false;
+  closePanel(els.sharedModal);
+  if (ui.activePage === "detect-tools" && ui.toolView === "runtime") {
+    renderToolRuntime();
+  }
+}
+
+function openPanel(element) {
+  element.hidden = false;
+  updateOverlay();
+}
+
+function closePanel(element) {
+  element.hidden = true;
+  updateOverlay();
+}
+
+function closeAllPanels() {
+  closePanel(els.sharedModal);
+  closePanel(els.addCameraModal);
+  closePanel(els.paramModal);
+  closePanel(els.modelDrawer);
+  closePanel(els.runtimeRecordDrawer);
+}
+
+function updateOverlay() {
+  const visible = [els.sharedModal, els.addCameraModal, els.paramModal, els.modelDrawer, els.runtimeRecordDrawer].some((element) => element && !element.hidden);
+  els.modalBackdrop.hidden = !visible;
+}
+
+function hasUsableSession() {
+  const client = Demo.getRuntimeClient(state);
+  return Boolean(client?.bound);
+}
+
+function getActiveTool() {
+  return state.tools.find((tool) => tool.id === ui.activeToolId) || null;
+}
+
+function getActiveRuntimeRecord() {
+  const tool = getActiveTool();
+  if (!tool) return null;
+  if (ui.runtimePlaybackRecordId) {
+    const playbackRecord = state.detectionRecords.find((record) => record.id === ui.runtimePlaybackRecordId && record.toolId === tool.id);
+    if (playbackRecord) return playbackRecord;
+  }
+  const sessionRecords = getRuntimeSessionRecords(tool);
+  if (sessionRecords.length) return sessionRecords[sessionRecords.length - 1];
+  return state.detectionRecords.find((record) => record.toolId === tool.id) || null;
+}
+
+function getLatestToolRuntimeRecord(toolId) {
+  if (!toolId) return null;
+  const tool = state.tools.find((item) => item.id === toolId) || null;
+  if (tool) {
+    const sessionRecords = getRuntimeSessionRecords(tool);
+    if (sessionRecords.length) return sessionRecords[sessionRecords.length - 1];
+  }
+  return state.detectionRecords.find((record) => record.toolId === toolId) || null;
+}
+
+function getRecordImageResults(record) {
+  if (!record) return [];
+  if (Array.isArray(record.imageResults) && record.imageResults.length) {
+    return record.imageResults;
+  }
+  if (!Array.isArray(record.subResults) || !record.subResults.length) {
+    return [];
+  }
+  const tool = state.tools.find((item) => item.id === record.toolId);
+  const acquire = tool?.acquire?.[0] || null;
+  return [
+    {
+      id: `${record.id}_img_1`,
+      acquireId: acquire?.id || "",
+      acquireName: acquire?.name || record.inputSource || "图像 1",
+      imageLabel: acquire ? getAcquireSampleName(acquire) : record.inputSource || "图像 1",
+      sourceImageUrl: getAcquireSampleUrl(acquire),
+      sourceImageName: acquire ? getAcquireSampleName(acquire) : "",
+      sourceImageWidth: Number(acquire?.sampleImageWidth || 0),
+      sourceImageHeight: Number(acquire?.sampleImageHeight || 0),
+      result: record.totalResult || record.businessResult || "-",
+      subResults: record.subResults,
+    },
+  ];
+}
+
+function getActiveRecord() {
+  return state.detectionRecords.find((record) => record.id === ui.activeRecordId) || null;
+}
+
+function getActiveCamera() {
+  return state.cameras.find((camera) => camera.id === ui.activeCameraId) || null;
+}
+
+function getActiveParamGroup() {
+  const camera = getActiveCamera();
+  return camera?.paramGroups?.find((group) => group.id === ui.activeParamGroupId) || null;
+}
+
+function getFilteredCameras() {
+  return state.cameras.filter((camera) => {
+    const keyword = ui.cameraFilters.keyword.toLowerCase();
+    const keywordMatch =
+      !keyword ||
+      [camera.name || "", camera.id, camera.vendor, camera.model, camera.serial].some((value) => value.toLowerCase().includes(keyword));
+    return keywordMatch;
+  });
+}
+
+function getCameraConnectionStatus(camera) {
+  return camera?.status === "离线" ? "未连接" : "已连接";
+}
+
+function getFilteredIoModules() {
+  const keyword = ui.ioFilters.keyword.toLowerCase();
+  return (state.ioModules || []).filter((module) => {
+    if (!keyword) return true;
+    return [module.name, module.model, module.ip, module.deviceId].some((value) => String(value || "").toLowerCase().includes(keyword));
+  });
+}
+
+function getIoModulePointCount(model) {
+  const option = IO_MODULE_MODEL_OPTIONS.find((item) => item.value === model);
+  return option?.points || 4;
+}
+
+function normalizeIoPointList(points, prefix, count) {
+  const byPoint = new Map((Array.isArray(points) ? points : []).map((item) => [String(item.point || ""), item]));
+  return Array.from({ length: count }, (_, index) => {
+    const point = `${prefix}-${index + 1}`;
+    const source = byPoint.get(point) || {};
+    return {
+      point,
+      name: String(source.name || ""),
+    };
+  });
+}
+
+function createEmptyIoConfig() {
+  return { moduleIds: [], input: [], output: [] };
+}
+
+function getToolIoConfig(tool) {
+  if (!tool.ioConfig || typeof tool.ioConfig !== "object") tool.ioConfig = createEmptyIoConfig();
+  if (!Array.isArray(tool.ioConfig.moduleIds)) tool.ioConfig.moduleIds = [];
+  if (!Array.isArray(tool.ioConfig.input)) tool.ioConfig.input = [];
+  if (!Array.isArray(tool.ioConfig.output)) tool.ioConfig.output = [];
+  const referencedModuleIds = [...tool.ioConfig.input, ...tool.ioConfig.output].map((item) => item.moduleId).filter(Boolean);
+  referencedModuleIds.forEach((moduleId) => {
+    if (!tool.ioConfig.moduleIds.includes(moduleId)) tool.ioConfig.moduleIds.push(moduleId);
+  });
+  return tool.ioConfig;
+}
+
+function getToolSelectedIoModules(tool) {
+  const config = getToolIoConfig(tool);
+  return config.moduleIds.map((moduleId) => state.ioModules.find((module) => module.id === moduleId)).filter(Boolean);
+}
+
+function getToolBlockingIoModuleForRun(tool) {
+  if (!tool) return null;
+  const selectedModules = getToolSelectedIoModules(tool);
+  return selectedModules.find((module) => {
+    if (module.parallel) return false;
+    return state.tools.some((otherTool) => {
+      if (otherTool.id === tool.id || !isToolSessionRunning(otherTool)) return false;
+      return getToolSelectedIoModules(otherTool).some((otherModule) => otherModule.id === module.id);
+    });
+  }) || null;
+}
+
+function getActiveToolIoModule(tool) {
+  const selectedModules = getToolSelectedIoModules(tool);
+  if (!selectedModules.length) return null;
+  const selected =
+    selectedModules.find((module) => module.id === ui.activeToolIoModuleId) ||
+    selectedModules[0];
+  ui.activeToolIoModuleId = selected?.id || "";
+  return selected || null;
+}
+
+function findToolIoConfigByPoint(tool, moduleId, point, direction) {
+  return findToolIoConfigsByPoint(tool, moduleId, point, direction)[0] || null;
+}
+
+function findToolIoConfigsByPoint(tool, moduleId, point, direction) {
+  const config = getToolIoConfig(tool);
+  return (config[direction] || []).filter((item) => item.moduleId === moduleId && item.point === point);
+}
+
+function getIoActionOptions(tool, direction) {
+  if (direction === "output") {
+    const captureOutputOptions = (tool.acquire || []).flatMap((acquire, index) => {
+      const label = `采图${index + 1}`;
+      return [
+        { value: `capture:${index + 1}:done`, label: `${label}完成` },
+        { value: `capture:${index + 1}:ok`, label: `${label}结果OK` },
+        { value: `capture:${index + 1}:ng`, label: `${label}结果NG` },
+        { value: `capture:${index + 1}:error`, label: `${label}结果异常` },
+      ];
+    });
+    return IO_OUTPUT_ACTIONS.concat(captureOutputOptions);
+  }
+  const captureInputOptions = (tool.acquire || []).map((acquire, index) => ({
+    value: `capture:${index + 1}`,
+    label: `触发采图${index + 1}`,
+  }));
+  return IO_INPUT_ACTIONS.slice(0, 1).concat(captureInputOptions, IO_INPUT_ACTIONS.slice(1));
+}
+
+function getIoActionLabel(tool, type, direction) {
+  return getIoActionOptions(tool, direction).find((item) => item.value === type)?.label || type || "-";
+}
+
+function getIoEventScopeOptions(tool, direction) {
+  return [{ value: "cycle", label: "整个周期" }].concat(
+    (tool.acquire || []).map((acquire, index) => ({
+      value: `capture:${index + 1}`,
+      label: `采图${index + 1}`,
+    }))
+  );
+}
+
+function getIoEventActionOptions(direction, scope) {
+  if (direction === "input") {
+    if (scope === "cycle") {
+      return [
+        { value: "start", label: "开始" },
+        { value: "capture-next", label: "触发下一个采图" },
+        { value: "capture-all", label: "依次触发全部采图" },
+        { value: "reset", label: "重置" },
+      ];
+    }
+    return [{ value: "trigger", label: "触发采图" }];
+  }
+  return [
+    { value: "done", label: "完成" },
+    { value: "ok", label: "OK" },
+    { value: "ng", label: "NG" },
+    { value: "error", label: "异常" },
+  ];
+}
+
+function createDefaultIoEventItem(tool, direction) {
+  const scope = "cycle";
+  const action = getIoEventActionOptions(direction, scope)[0]?.value || "";
+  const type = buildIoEventType(scope, action, direction);
+  return {
+    id: Demo.makeId(`io_${direction}`),
+    type,
+    name: getIoActionLabel(tool, type, direction),
+    moduleId: "",
+    point: "",
+    priority: 1,
+    duration: 1,
+  };
+}
+
+function parseIoEventType(type, direction) {
+  const text = String(type || "");
+  const captureMatch = text.match(/^capture:(\d+)(?::(.+))?$/);
+  if (direction === "input") {
+    if (text === "reset-cycle") return { scope: "cycle", action: "reset" };
+    if (text === "capture-next") return { scope: "cycle", action: "capture-next" };
+    if (text === "capture-all") return { scope: "cycle", action: "capture-all" };
+    if (captureMatch) return { scope: `capture:${captureMatch[1]}`, action: "trigger" };
+    return { scope: "cycle", action: "start" };
+  }
+  if (captureMatch) return { scope: `capture:${captureMatch[1]}`, action: captureMatch[2] || "done" };
+  const cycleMatch = text.match(/^cycle-(.+)$/);
+  return { scope: "cycle", action: cycleMatch?.[1] || "done" };
+}
+
+function buildIoEventType(scope, action, direction) {
+  if (direction === "input") {
+    if (scope === "cycle") {
+      if (action === "reset") return "reset-cycle";
+      if (action === "capture-next") return "capture-next";
+      if (action === "capture-all") return "capture-all";
+      return "new-cycle";
+    }
+    return scope;
+  }
+  if (scope === "cycle") return `cycle-${action || "done"}`;
+  return `${scope}:${action || "done"}`;
+}
+
+function getFilteredRecords() {
+  return getAllRecordRows().filter((record) => {
+    const runModeMatch = ui.recordFilters.runMode === "all" || (record.runMode || "detect") === ui.recordFilters.runMode;
+    const keyword = ui.recordFilters.keyword.toLowerCase();
+    const tagKeyword = (record.kind === "capture" ? getCaptureRecordTags(record) : record.tags || []).join(" ").toLowerCase();
+    const keywordMatch =
+      !keyword ||
+      record.id.toLowerCase().includes(keyword) ||
+      String(record.displayId || "").toLowerCase().includes(keyword) ||
+      record.toolName.toLowerCase().includes(keyword) ||
+      tagKeyword.includes(keyword);
+    const recordTime = new Date(record.startedAt || record.triggeredAt).getTime();
+    const startMs = ui.recordFilters.startAt ? new Date(ui.recordFilters.startAt).getTime() : null;
+    const endMs = ui.recordFilters.endAt ? new Date(ui.recordFilters.endAt).getTime() : null;
+    const startMatch = !Number.isFinite(startMs) || recordTime >= startMs;
+    const endMatch = !Number.isFinite(endMs) || recordTime <= endMs;
+    return runModeMatch && keywordMatch && startMatch && endMatch;
+  });
+}
+
+function getAllRecordRows() {
+  return getDetectionSessions().sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
+}
+
+function getDetectionSessionKey(record) {
+  if (record?.sessionId) return record.sessionId;
+  const date = String(record?.triggeredAt || "").slice(0, 10) || "unknown";
+  return `legacy-${record?.toolId || "tool"}-${date}`;
+}
+
+function getDetectionSessions(records = state.detectionRecords) {
+  const groups = new Map();
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    if (!record) return;
+    const key = getDetectionSessionKey(record);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  });
+  return Array.from(groups.entries()).map(([sessionId, groupRecords]) => buildDetectionSessionRow(sessionId, groupRecords));
+}
+
+function buildDetectionSessionRow(sessionId, groupRecords) {
+  const records = groupRecords
+    .slice()
+    .sort((a, b) => String(a.triggeredAt || "").localeCompare(String(b.triggeredAt || "")));
+  const first = records[0] || {};
+  const cycles = buildDetectionSessionCycles(records);
+  const completedRecords = cycles.filter((cycle) => cycle.complete).map((cycle) => cycle.record);
+  const resultOf = (record) => getDisplayResultText(record.totalResult || record.businessResult || "-");
+  const okCount = completedRecords.filter((record) => resultOf(record) === "OK").length;
+  const ngCount = completedRecords.filter((record) => resultOf(record) === "NG").length;
+  const errorCount = completedRecords.filter((record) => resultOf(record) === "异常").length;
+  const detectedCount = completedRecords.length;
+  const businessResult = errorCount ? "异常" : ngCount ? "NG" : okCount ? "OK" : "-";
+  const startedAt = first.sessionStartedAt || first.triggeredAt || "";
+  const endedAt = records[records.length - 1]?.triggeredAt || startedAt;
+  const durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  const tags = Array.from(new Set(records.flatMap((record) => getRuntimeRecordTags(record))));
+  const exceptions = records.flatMap((record) => getRecordExceptions(record));
+  return {
+    id: sessionId,
+    kind: "detection-session",
+    displayId: makeRunSessionCode(startedAt || first.triggeredAt || sessionId),
+    toolId: first.toolId || "",
+    toolName: first.toolName || "-",
+    runMode: first.runMode || "detect",
+    startedAt,
+    endedAt,
+    triggeredAt: startedAt,
+    records,
+    cycles,
+    recordIds: records.map((record) => record.id),
+    detectedCount,
+    imageCount: completedRecords.reduce((sum, record) => sum + getRecordImageResults(record).length, 0),
+    okCount,
+    ngCount,
+    errorCount,
+    businessResult,
+    totalResult: businessResult,
+    yieldRate: detectedCount ? `${Math.round((okCount / detectedCount) * 100)}%` : "0%",
+    durationText: Number.isFinite(durationMs) && durationMs > 0 ? formatRuntimeElapsed(durationMs) : "-",
+    tags,
+    exceptions,
+  };
+}
+
+function buildDetectionSessionCycles(records = []) {
+  const sortedRecords = records
+    .slice()
+    .sort((a, b) => String(a.triggeredAt || "").localeCompare(String(b.triggeredAt || "")));
+  const cycles = [];
+  let pendingRecords = [];
+  sortedRecords.forEach((record) => {
+    pendingRecords.push(record);
+    if (record.cycleComplete !== false) {
+      cycles.push({
+        id: record.id,
+        record,
+        records: pendingRecords,
+        complete: true,
+      });
+      pendingRecords = [];
+    }
+  });
+  if (pendingRecords.length) {
+    const record = pendingRecords[pendingRecords.length - 1];
+    cycles.push({
+      id: record.id,
+      record,
+      records: pendingRecords,
+      complete: false,
+    });
+  }
+  return cycles;
+}
+
+function syncSelectedRecordsWithRows(rows) {
+  const visibleIds = new Set(rows.map((record) => record.id));
+  Array.from(ui.selectedRecordIds).forEach((id) => {
+    if (!visibleIds.has(id)) ui.selectedRecordIds.delete(id);
+  });
+}
+
+function getBuilderStepIndex(step) {
+  return BUILDER_STEPS.indexOf(step);
+}
+
+function canEnterBuilderStepForTool(tool, step) {
+  if (!tool) return false;
+  if (step === "acquire") return true;
+  if (step === "process") return tool.acquire.length > 0;
+  if (step === "detect") return tool.acquire.length > 0 && tool.process.length > 0;
+  if (step === "rule") return tool.acquire.length > 0 && tool.process.length > 0 && tool.detect.length > 0;
+  return false;
+}
+
+function canEnterBuilderStep(step) {
+  return canEnterBuilderStepForTool(getActiveTool(), step);
+}
+
+function getRecommendedBuilderStep(tool, preferredStep = "acquire") {
+  if (!tool) return "acquire";
+  if (!tool.acquire.length) return "acquire";
+  if (!tool.process.length) {
+    return canEnterBuilderStepForTool(tool, preferredStep) && preferredStep !== "detect" ? preferredStep : "process";
+  }
+  if (!tool.detect.length) {
+    return canEnterBuilderStepForTool(tool, preferredStep) ? preferredStep : "detect";
+  }
+  return canEnterBuilderStepForTool(tool, preferredStep) ? preferredStep : "rule";
+}
+
+function getRunModeMeta(mode) {
+  return RUN_MODE_OPTIONS.find((item) => item.value === mode) || RUN_MODE_OPTIONS[2];
+}
+
+function getRunModeLabel(mode) {
+  return getRunModeMeta(mode).label;
+}
+
+function getRunActionLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "检测" : "采图";
+}
+
+function getRunWaitingLabel(mode) {
+  return Demo.normalizeRunMode(mode) === "detect" ? "待检测" : "等待开始采图";
+}
+
+function getProcessCategoryOptions(process) {
+  if (normalizeProcessMode(process?.mode) === "model-roi" && process?.modelId) {
+    const modelCategories = getModelCategoriesById(process.modelId);
+    if (modelCategories.length) return modelCategories;
+  }
+  return Demo.normalizeModelCategories(process);
+}
+
+function isProcessReady(process) {
+  const mode = normalizeProcessMode(process?.mode);
+  if (mode === "model-roi") return !process?.modelId || getProcessCategoryOptions(process).length > 0;
+  if (mode === "manual-roi") return getProcessRegions(process).some((item) => item.type !== "ignore");
+  return true;
+}
+
+function isDetectTargetValid(tool, target) {
+  const process = tool?.process?.find((item) => item.id === target?.processId);
+  if (!process) return false;
+  const mode = normalizeProcessMode(process.mode);
+  if (mode !== "model-roi") return true;
+  return Boolean(target?.categoryKey) && getProcessCategoryOptions(process).includes(target.categoryKey);
+}
+
+function getDetectTargets(detect) {
+  if (Array.isArray(detect?.targets) && detect.targets.length) return detect.targets;
+  return Array.isArray(detect?.processIds) ? detect.processIds.filter(Boolean).map((processId) => ({ processId, categoryKey: "", categoryLabel: "" })) : [];
+}
+
+function evaluateToolRunModeAvailability(tool, mode) {
+  if (!tool) return false;
+  if (mode === "acquire") {
+    return Array.isArray(tool.acquire) && tool.acquire.length > 0;
+  }
+  if (mode === "process") {
+    return Array.isArray(tool.acquire) && tool.acquire.length > 0 && Array.isArray(tool.process) && tool.process.some((item) => isProcessReady(item));
+  }
+  if (mode === "detect") {
+    if (!Demo.evaluateToolCompletion(tool)) return false;
+    return tool.detect.some((detect) => getDetectTargets(detect).every((target) => isDetectTargetValid(tool, target)));
+  }
+  return false;
+}
+
+function getToolAvailableRunModes(tool) {
+  return RUN_MODE_OPTIONS.filter((item) => evaluateToolRunModeAvailability(tool, item.value));
+}
+
+function getHighestAvailableRunMode(tool) {
+  if (evaluateToolRunModeAvailability(tool, "detect")) return "detect";
+  if (evaluateToolRunModeAvailability(tool, "process")) return "process";
+  if (evaluateToolRunModeAvailability(tool, "acquire")) return "acquire";
+  return "detect";
+}
+
+function isToolSessionRunning(tool) {
+  if (!tool?.runtime?.sessionActive) return false;
+  return !["未运行", "未配置"].includes(String(tool.runtime.status || "").trim());
+}
+
+function endToolRunSessionState(tool) {
+  const toolId = typeof tool === "string" ? tool : tool?.id;
+  if (!toolId) return null;
+  let nextTool = null;
+  state.tools = state.tools.map((item) => {
+    if (item.id !== toolId) return item;
+    nextTool = {
+      ...item,
+      runtime: {
+        ...(item.runtime && typeof item.runtime === "object" ? item.runtime : {}),
+        sessionActive: false,
+        status: "未运行",
+        sessionStartedAt: null,
+        sessionRecordBaseline: null,
+        sequenceCursor: 0,
+        pendingAcquireIndex: null,
+        cycleActive: false,
+        cycleStartedAt: null,
+        currentCycleTime: "-",
+        cycleTime: "-",
+        currentCycleResult: "-",
+        mockCycleNg: false,
+        mockCycleNgAcquireIndex: -1,
+        activeTags: [],
+        draftTags: [],
+      },
+    };
+    syncToolCompletionState(nextTool);
+    return nextTool;
+  });
+  if (ui.pendingDetectionToolId === toolId) {
+    ui.pendingDetectionToolId = null;
+    ui.pendingDetectionStartedAt = 0;
+  }
+  clearRuntimeInitialState(toolId);
+  return nextTool;
+}
+
+function syncToolCompletionState(tool) {
+  if (!tool) return;
+  if (!tool.runtime) {
+    tool.runtime = {
+      lastRunAt: null,
+      status: "未配置",
+      primaryResult: "-",
+      cycleTime: "-",
+      draftTags: [],
+      activeTags: [],
+      mockCycleNg: false,
+      mockCycleNgAcquireIndex: -1,
+      sessionActive: false,
+      sessionMode: "detect",
+    };
+  }
+  if (!Array.isArray(tool.runtime.draftTags)) tool.runtime.draftTags = [];
+  if (!Array.isArray(tool.runtime.activeTags)) tool.runtime.activeTags = [];
+  if (typeof tool.runtime.mockCycleNg !== "boolean") tool.runtime.mockCycleNg = false;
+  if (!Number.isFinite(Number(tool.runtime.mockCycleNgAcquireIndex))) tool.runtime.mockCycleNgAcquireIndex = -1;
+  if (typeof tool.runtime.sessionActive !== "boolean") tool.runtime.sessionActive = false;
+  tool.runtime.sessionMode = Demo.normalizeRunMode(tool.runtime.sessionMode || "detect");
+
+  if (tool.configInvalid) {
+    tool.runtime.lastRunAt = null;
+    tool.runtime.status = "配置异常";
+    tool.runtime.primaryResult = "-";
+    tool.runtime.cycleTime = "-";
+    tool.runtime.sessionActive = false;
+    return;
+  }
+
+  const hasAnyMode = RUN_MODE_OPTIONS.some((item) => evaluateToolRunModeAvailability(tool, item.value));
+  if (!hasAnyMode) {
+    tool.runtime.lastRunAt = null;
+    tool.runtime.status = "未配置";
+    tool.runtime.primaryResult = "-";
+    tool.runtime.cycleTime = "-";
+    tool.runtime.sessionActive = false;
+    tool.runtime.sessionMode = "detect";
+    if (ui.activeToolId === tool.id) {
+      ui.builderStep = getRecommendedBuilderStep(tool, ui.builderStep);
+    }
+    return;
+  }
+
+  if (!tool.runtime.sessionActive) {
+    tool.runtime.status = "未运行";
+    tool.runtime.sessionMode = getHighestAvailableRunMode(tool);
+  } else if (ui.pendingDetectionToolId !== tool.id && tool.runtime.status !== "已中断") {
+    tool.runtime.status = "等待信号";
+  }
+  if (ui.activeToolId === tool.id) {
+    ui.builderStep = getRecommendedBuilderStep(tool, ui.builderStep);
+  }
+}
+
+function canMoveNextFromStep(step) {
+  const tool = getActiveTool();
+  if (!tool) return false;
+  if (step === "acquire") return tool.acquire.length > 0;
+  if (step === "process") return tool.process.length > 0;
+  if (step === "detect") return tool.detect.length > 0;
+  if (step === "rule") return Demo.evaluateToolCompletion(tool);
+  return false;
+}
+
+function renderBuilderStepSection({ title, limitText, actionLabel, actionKey, items, emptyText, disabled = false }) {
+  return `
+    <div class="section-head">
+      <div>
+        <h3>${title}</h3>
+      </div>
+      <div class="section-head-actions">
+        ${limitText ? `<span class="inline-metric">${escapeHtml(limitText)}</span>` : ""}
+        <button class="primary-btn" data-action="${actionKey}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+      </div>
+    </div>
+    <div class="builder-list">
+      ${items.length ? items.join("") : `<div class="builder-empty">${emptyText}</div>`}
+    </div>
+  `;
+}
+
+function saveStateSilently() {
+  try {
+    syncSystemNow();
+    Demo.saveState(state);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function getJudgmentRoiLabel(process) {
+  return String(process?.name || "图像处理").trim() || "图像处理";
+}
+
+function getJudgmentRuleStructureSignature(tool) {
+  if (!tool) return "";
+  return JSON.stringify({
+    version: "detect-node-v2",
+    acquire: (tool.acquire || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+    })),
+    process: (tool.process || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      inputId: item.inputId,
+      mode: item.mode,
+    })),
+    detect: (tool.detect || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      modelId: item.modelId,
+      sceneType: getDetectSceneType(item),
+      targets: getDetectTargets(item).map((target) => ({
+        processId: target.processId,
+      })),
+    })),
+  });
+}
+
+function isJudgmentRuleStructureStale(tool) {
+  if (!tool?.ruleConfig) return false;
+  return String(tool.ruleConfig.structureSignature || "") !== getJudgmentRuleStructureSignature(tool);
+}
+
+function getJudgmentRuleNodes(tool) {
+  if (!tool) return [];
+  const nodes = [
+    {
+      id: "cycle",
+      parentId: "",
+      label: "总结果",
+      type: "cycle",
+      configurable: false,
+      selectable: true,
+      depth: 0,
+    },
+  ];
+
+  tool.acquire.forEach((acquire) => {
+    const acquireNodeId = `acquire:${acquire.id}`;
+    nodes.push({
+      id: acquireNodeId,
+      parentId: "cycle",
+      label: acquire.name || "图片",
+      type: "acquire",
+      configurable: false,
+      selectable: true,
+      depth: 1,
+      acquireId: acquire.id,
+    });
+
+    tool.process
+      .filter((process) => process.inputId === acquire.id)
+      .forEach((process) => {
+        const roiNodeId = `roi:${process.id}`;
+        nodes.push({
+          id: roiNodeId,
+          parentId: acquireNodeId,
+          label: getJudgmentRoiLabel(process),
+          type: "roi",
+          configurable: true,
+          selectable: true,
+          depth: 2,
+          acquireId: acquire.id,
+          processId: process.id,
+          processName: process.name || "",
+        });
+
+      });
+  });
+
+  tool.detect.forEach((detect) => {
+    nodes.push({
+      id: `detect:${detect.id}`,
+      parentId: "cycle",
+      label: detect.name || "检测项",
+      type: "detect",
+      configurable: true,
+      selectable: true,
+      depth: 1,
+      detectId: detect.id,
+      processIds: Array.from(new Set(getDetectTargets(detect).map((target) => target.processId).filter(Boolean))),
+      sceneType: getDetectSceneType(detect),
+    });
+  });
+
+  return nodes;
+}
+
+function getNodeChildren(nodes, nodeId, type = "") {
+  return nodes.filter((node) => node.parentId === nodeId && (!type || node.type === type));
+}
+
+function findJudgmentRuleNode(tool, nodeId) {
+  return getJudgmentRuleNodes(tool).find((node) => node.id === nodeId) || null;
+}
+
+function getRuleNodeTypeLabel(node) {
+  if (!node) return "";
+  if (node.type === "cycle") return "总结果";
+  if (node.type === "roi") return "图像处理";
+  if (node.type === "detect") return "检测项";
+  return "图像";
+}
+
+function getDetectByNode(tool, node) {
+  if (!tool || !node?.detectId) return null;
+  return tool.detect.find((detect) => detect.id === node.detectId) || null;
+}
+
+function getDetectPositiveLabel(detect) {
+  const categories = getModelCategoriesById(detect?.modelId);
+  if (categories.length) return categories[0];
+  if (/头像/.test(detect?.name || "")) return "头像朝上";
+  if (/焊点/.test(detect?.name || "")) return "有焊点";
+  if (/卡扣/.test(detect?.name || "")) return "有卡扣";
+  return "目标";
+}
+
+function getDefaultDimensionRows(tool, node) {
+  const detect = getDetectByNode(tool, node);
+  const categories = getModelCategoriesById(detect?.modelId);
+  const presetRanges = tool?.id === "tool_001" ? { 螺杆1: { min: "9.0", max: "10.0" }, 螺杆2: { min: "6.0", max: "7.0" } } : {};
+  if (categories.length) {
+    return categories.map((label) => ({
+      label,
+      min: presetRanges[label]?.min ?? "",
+      max: presetRanges[label]?.max ?? "",
+    }));
+  }
+  if (tool?.id === "tool_001") {
+    return [
+      { label: "螺杆1", min: "9.0", max: "10.0" },
+      { label: "螺杆2", min: "6.0", max: "7.0" },
+    ];
+  }
+  return [
+    { label: "尺寸项1", min: "", max: "" },
+  ];
+}
+
+function createDefaultJudgmentRule(tool, node, nodes) {
+  if (node.type === "cycle") {
+    return {
+      id: Demo.makeId("rule"),
+      name: "最终结果判定",
+      template: "all-selected-ok",
+      selectedNodeIds: nodes.filter((item) => item.type === "detect").map((item) => item.id),
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+
+  if (node.type === "roi") {
+    const detectNodes = getNodeChildren(nodes, node.id, "detect");
+    return {
+      id: Demo.makeId("rule"),
+      name: "区域结果汇总",
+      template: "all-selected-ok",
+      selectedNodeIds: detectNodes.map((item) => item.id),
+      relation: "all-selected-ok",
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  if (sceneType === "尺寸") {
+    return {
+      id: Demo.makeId("rule"),
+      name: `${node.label}判定`,
+      template: "dimension-conditions",
+      conditionRelation: "all",
+      dimensions: getDefaultDimensionRows(tool, node),
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+  if (sceneType === "分类") {
+    return {
+      id: Demo.makeId("rule"),
+      name: `${node.label}判定`,
+      template: "classify-conditions",
+      conditionRelation: "all",
+      conditions: [
+        {
+          label: getDetectPositiveLabel(detect),
+          operator: "eq",
+          expectedCount: 1,
+        },
+      ],
+      resultOnHit: "OK",
+      failResult: "NG",
+      enabled: true,
+    };
+  }
+  return {
+    id: Demo.makeId("rule"),
+    name: `${node.label}判定`,
+    template: "defect-conditions",
+    conditionRelation: "all",
+    conditions: [
+      {
+        label: "缺陷",
+        operator: "eq",
+        expectedCount: 0,
+      },
+    ],
+    resultOnHit: "OK",
+    failResult: "NG",
+    enabled: true,
+  };
+}
+
+function buildDefaultJudgmentRuleConfig(tool) {
+  const nodes = getJudgmentRuleNodes(tool);
+  const rulesByNode = {};
+  nodes
+    .filter((node) => node.configurable || node.type === "cycle")
+    .forEach((node) => {
+      rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
+    });
+  return {
+    mode: "visual",
+    expressionDraft: "",
+    expressionErrors: [],
+    structureSignature: getJudgmentRuleStructureSignature(tool),
+    rulesByNode,
+  };
+}
+
+function ensureJudgmentRuleState(tool) {
+  if (!tool) return;
+  if (!tool.ruleConfig || typeof tool.ruleConfig !== "object") {
+    tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+  }
+  if (!tool.ruleConfig.rulesByNode || typeof tool.ruleConfig.rulesByNode !== "object") {
+    tool.ruleConfig.rulesByNode = {};
+  }
+  if (!["visual", "expression"].includes(tool.ruleConfig.mode)) tool.ruleConfig.mode = "visual";
+  if (typeof tool.ruleConfig.expressionDraft !== "string") tool.ruleConfig.expressionDraft = "";
+  if (!Array.isArray(tool.ruleConfig.expressionErrors)) tool.ruleConfig.expressionErrors = [];
+  if (typeof tool.ruleConfig.structureSignature !== "string") {
+    tool.ruleConfig.structureSignature = getJudgmentRuleStructureSignature(tool);
+  }
+  if (String(tool.ruleConfig.structureSignature || "") !== getJudgmentRuleStructureSignature(tool)) {
+    const previousMode = tool.ruleConfig.mode;
+    tool.ruleConfig = buildDefaultJudgmentRuleConfig(tool);
+    tool.ruleConfig.mode = previousMode === "expression" ? "expression" : "visual";
+  }
+  const nodes = getJudgmentRuleNodes(tool);
+  nodes
+    .filter((node) => node.configurable || node.type === "cycle")
+    .forEach((node) => {
+      if (!Array.isArray(tool.ruleConfig.rulesByNode[node.id]) || !tool.ruleConfig.rulesByNode[node.id].length) {
+        tool.ruleConfig.rulesByNode[node.id] = [createDefaultJudgmentRule(tool, node, nodes)];
+      }
+      tool.ruleConfig.rulesByNode[node.id].forEach((rule) => {
+        applyJudgmentRuleTemplateDefaults(rule, node, tool);
+      });
+    });
+  if (!tool.ruleConfig.expressionDraft.trim()) {
+    tool.ruleConfig.expressionDraft = composeJudgmentConfigExpression(tool);
+  }
+  tool.ruleConfig.expressionErrors = validateJudgmentExpression(tool.ruleConfig.expressionDraft);
+}
+
+function syncJudgmentRuleSelection(tool) {
+  if (!tool) return;
+  ensureJudgmentRuleState(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const selectableNodes = nodes.filter((node) => node.type === "detect" && node.selectable !== false);
+  if (!selectableNodes.some((node) => node.id === ui.builderRuleNodeId)) {
+    ui.builderRuleNodeId = selectableNodes[0]?.id || "";
+  }
+  const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  if (!rules.some((rule) => rule.id === ui.builderRuleId)) {
+    ui.builderRuleId = rules[0]?.id || "";
+  }
+}
+
+function getSelectedJudgmentRule(tool) {
+  const rules = Array.isArray(tool?.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  return rules.find((rule) => rule.id === ui.builderRuleId) || null;
+}
+
+function applyJudgmentRuleTemplateDefaults(rule, node, tool) {
+  if (!rule || !node) return;
+  const nodes = getJudgmentRuleNodes(tool);
+  if (node.type === "cycle") {
+    const detectNodeIds = nodes.filter((item) => item.type === "detect").map((item) => item.id);
+    const selectedNodeIds = Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [];
+    const hasInvalidSelection = selectedNodeIds.some((nodeId) => !detectNodeIds.includes(nodeId));
+    if (!selectedNodeIds.length || hasInvalidSelection) {
+      rule.selectedNodeIds = detectNodeIds;
+    }
+    return;
+  }
+  if (node.type === "roi") {
+    if (!Array.isArray(rule.selectedNodeIds) || !rule.selectedNodeIds.length) {
+      rule.selectedNodeIds = getNodeChildren(nodes, node.id, "detect").map((item) => item.id);
+    }
+    rule.template = "all-selected-ok";
+    rule.relation = "all-selected-ok";
+    return;
+  }
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  if (sceneType === "尺寸") {
+    if (rule.template !== "dimension-conditions") {
+      const legacyRows = Array.isArray(rule.dimensions) ? rule.dimensions : [];
+      rule.template = "dimension-conditions";
+      rule.dimensions = legacyRows.flatMap((item) => {
+        if (item.min !== undefined || item.max !== undefined) {
+          return [{ label: item.label, min: item.min ?? "", max: item.max ?? "" }];
+        }
+        return [];
+      });
+    }
+    if (!Array.isArray(rule.dimensions) || !rule.dimensions.length) {
+      const legacyConditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+      if (legacyConditions.length) {
+        const grouped = {};
+        legacyConditions.forEach((item) => {
+          if (!grouped[item.label]) grouped[item.label] = { label: item.label, min: "", max: "" };
+          if (item.operator === "ge" || item.operator === "gt") grouped[item.label].min = item.value ?? "";
+          if (item.operator === "le" || item.operator === "lt") grouped[item.label].max = item.value ?? "";
+        });
+        rule.dimensions = Object.values(grouped);
+      }
+    }
+    if (!Array.isArray(rule.dimensions) || !rule.dimensions.length) {
+      rule.dimensions = getDefaultDimensionRows(tool, node);
+    }
+    const templateRows = getDefaultDimensionRows(tool, node);
+    if (templateRows.length) {
+      const previousMap = new Map((Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => [item.label, item]));
+      rule.dimensions = templateRows.map((item) => {
+        const previous = previousMap.get(item.label);
+        return {
+          label: item.label,
+          min: previous?.min ?? item.min ?? "",
+          max: previous?.max ?? item.max ?? "",
+        };
+      });
+    }
+    if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
+    return;
+  }
+  if (sceneType === "分类") {
+    if (rule.template !== "classify-conditions") {
+      const previousTemplate = rule.template;
+      rule.template = "classify-conditions";
+      rule.conditions = [
+        {
+          label: rule.targetLabel || getDetectPositiveLabel(detect),
+          operator: previousTemplate === "label-count-gte" ? "gte" : "eq",
+          expectedCount: Number(rule.expectedCount ?? 1),
+        },
+      ];
+    }
+    if (!Array.isArray(rule.conditions) || !rule.conditions.length) {
+      rule.conditions = [
+        {
+          label: getDetectPositiveLabel(detect),
+          operator: "eq",
+          expectedCount: 1,
+        },
+      ];
+    }
+    if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
+    return;
+  }
+  if (rule.template !== "defect-conditions") {
+    const previousTemplate = rule.template;
+    rule.template = "defect-conditions";
+    rule.conditions = [
+      {
+        label: "缺陷",
+        operator: previousTemplate === "defect-label-count-lte" ? "le" : "eq",
+        expectedCount: Number(rule.expectedCount ?? 0),
+      },
+    ];
+  }
+  if (!Array.isArray(rule.conditions) || !rule.conditions.length) {
+    rule.conditions = [{ label: "缺陷", operator: "eq", expectedCount: 0 }];
+  }
+  rule.conditions = [rule.conditions[0]];
+  rule.conditions[0].label = "缺陷";
+  if (!["all", "any"].includes(rule.conditionRelation)) rule.conditionRelation = "all";
+}
+
+function getJudgmentRuleSummary(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    const nodes = getJudgmentRuleNodes(tool);
+    const children = (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+      .map((id) => nodes.find((item) => item.id === id)?.label || "")
+      .filter(Boolean);
+    const relation = node.type === "roi" ? rule.relation || rule.template : rule.template;
+    const relationText =
+      relation === "exactly-one-ok" ? "仅一满足" : relation === "any-selected-ok" ? "任一满足" : "全部满足";
+    return `${relationText}：${children.join("、")} 的判定结果都按 OK 参与`;
+  }
+  if (rule.template === "dimension-conditions") {
+    const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
+    const conditions = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => `${item.label || "尺寸项"} ${item.min || "-"} ~ ${item.max || "-"}`)
+      .join("；");
+    return `${relationText}：${conditions}`;
+  }
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const relationText = rule.conditionRelation === "any" ? "任一满足" : "全部满足";
+    const conditions = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `${item.label || "目标"} ${getConditionOperatorLabel(item.operator)} ${item.value ?? item.expectedCount ?? ""}`)
+      .join("；");
+    return `${relationText}：${conditions}`;
+  }
+  return `标签“${rule.targetLabel || "目标"}”数量等于 ${rule.expectedCount || 0}`;
+}
+
+function getJudgmentRuleExpression(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    const relation = node.type === "roi" ? rule.relation || rule.template : rule.template;
+    if (relation === "exactly-one-ok") return "eq(countArray(eq(result,'OK')),1)";
+    if (relation === "any-selected-ok") return "gt(countArray(eq(result,'OK')),0)";
+    return "allArray(eq(result,'OK'))";
+  }
+  if (rule.template === "dimension-conditions") {
+    const relationFn = rule.conditionRelation === "any" ? "any" : "all";
+    const items = (Array.isArray(rule.dimensions) ? rule.dimensions : []).map((item) => {
+      const checks = [`eq(label,'${item.label || ""}')`];
+      if (item.min !== "" && item.min !== undefined) checks.push(`ge(data.value,'${item.min}')`);
+      if (item.max !== "" && item.max !== undefined) checks.push(`le(data.value,'${item.max}')`);
+      return `all(${checks.join(",")})`;
+    });
+    return `${relationFn}(${items.join(",")})`;
+  }
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const relationFn = rule.conditionRelation === "any" ? "any" : "all";
+    const items = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `${item.operator || "eq"}(countArray(eq(label,'${item.label || ""}')),'${item.value ?? item.expectedCount ?? 0}')`);
+    return `${relationFn}(${items.join(",")})`;
+  }
+  return `eq(countArray(eq(label,'${rule.targetLabel || ""}')),'${rule.expectedCount || 0}')`;
+}
+
+function getJudgmentNodePathLabel(node, nodes) {
+  if (!node) return "";
+  const labels = [];
+  let current = node;
+  while (current) {
+    labels.unshift(current.label);
+    current = nodes.find((item) => item.id === current.parentId) || null;
+  }
+  return labels.join("##");
+}
+
+function composeJudgmentConfigExpression(tool) {
+  if (!tool) return "";
+  const nodes = getJudgmentRuleNodes(tool);
+  return nodes
+    .filter((node) => node.configurable || node.type === "cycle")
+    .flatMap((node) => {
+      const rules = Array.isArray(tool.ruleConfig?.rulesByNode?.[node.id]) ? tool.ruleConfig.rulesByNode[node.id] : [];
+      const nodePath = getJudgmentNodePathLabel(node, nodes);
+      return rules.map((rule) => `${nodePath}:${getJudgmentRuleExpression(rule, node, tool)}`);
+    })
+    .join("\n");
+}
+
+function getJudgmentConfigExpression(tool) {
+  if (!tool) return "";
+  ensureJudgmentRuleState(tool);
+  return composeJudgmentConfigExpression(tool);
+}
+
+function validateJudgmentExpression(expression) {
+  const text = String(expression || "");
+  const errors = [];
+  if (!text.trim()) {
+    return ["表达式不能为空"];
+  }
+
+  const FUNCTION_NAMES = ["eq", "ne", "lt", "le", "gt", "ge", "all", "any", "countArray", "allArray"];
+  const lines = text.split("\n");
+  const stack = [];
+  let quoteOpen = null;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const colonIndex = line.indexOf(":");
+    if (colonIndex <= 0 || colonIndex === line.length - 1) {
+      errors.push(`第 ${lineIndex + 1} 行缺少“路径:表达式”格式`);
+      continue;
+    }
+
+    const expr = line.slice(colonIndex + 1).trim();
+    if (!expr) {
+      errors.push(`第 ${lineIndex + 1} 行冒号后缺少表达式`);
+      continue;
+    }
+    if (/[,({:]$/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行表达式结尾不完整`);
+    }
+    if (/\(\s*\)|\{\s*\}/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行存在空参数`);
+    }
+    if (/[,(]\s*,/.test(expr) || /,\s*[)}]/.test(expr)) {
+      errors.push(`第 ${lineIndex + 1} 行存在空参数位置`);
+    }
+
+    FUNCTION_NAMES.forEach((name) => {
+      const missingBracket = new RegExp(`\\b${name}\\b(?!\\s*[({])`);
+      if (missingBracket.test(expr)) {
+        errors.push(`第 ${lineIndex + 1} 行函数 ${name} 缺少括号`);
+      }
+    });
+
+    for (let charIndex = 0; charIndex < rawLine.length; charIndex += 1) {
+      const char = rawLine[charIndex];
+      const previous = rawLine[charIndex - 1];
+      if (char === "'" && previous !== "\\") {
+        quoteOpen = quoteOpen ? null : { line: lineIndex + 1, column: charIndex + 1 };
+        continue;
+      }
+      if (quoteOpen) continue;
+      if (char === "(" || char === "{") {
+        stack.push({ char, line: lineIndex + 1, column: charIndex + 1 });
+      } else if (char === ")" || char === "}") {
+        const last = stack.pop();
+        const expected = char === ")" ? "(" : "{";
+        if (!last || last.char !== expected) {
+          errors.push(`第 ${lineIndex + 1} 行第 ${charIndex + 1} 列括号不匹配`);
+        }
+      }
+    }
+  }
+
+  if (quoteOpen) {
+    errors.push(`第 ${quoteOpen.line} 行第 ${quoteOpen.column} 列开始的单引号未闭合`);
+  }
+  stack.forEach((item) => {
+    errors.push(`第 ${item.line} 行第 ${item.column} 列开始的括号未闭合`);
+  });
+
+  return Array.from(new Set(errors));
+}
+
+function isJudgmentExpressionMode(tool) {
+  return tool?.ruleConfig?.mode === "expression";
+}
+
+function getConditionOperatorLabel(operator) {
+  if (operator === "le") return "数量≦";
+  if (operator === "lt") return "数量<";
+  if (operator === "ge") return "数量≧";
+  if (operator === "gt") return "数量>";
+  if (operator === "ne") return "数量≠";
+  return "数量=";
+}
+
+function getConditionOperatorText(operator) {
+  if (operator === "le") return "数量小于等于";
+  if (operator === "lt") return "数量小于";
+  if (operator === "ge") return "数量大于等于";
+  if (operator === "gt") return "数量大于";
+  if (operator === "ne") return "数量不等于";
+  return "数量等于";
+}
+
+function renderJudgmentNameOkHtml(name) {
+  return `<span class="judgment-copy-name">${escapeHtml(name || "项目")}</span><span class="judgment-copy-ok">OK</span>`;
+}
+
+function getJudgmentNaturalRelationText(relation) {
+  return relation === "any" || relation === "any-selected-ok" ? "或者" : "并且";
+}
+
+function renderJudgmentAggregateSummaryHtml(names = [], relation = "all-selected-ok") {
+  if (!names.length) return "";
+  if (relation === "exactly-one-ok") {
+    return `满足且仅满足其中一项：<span class="judgment-copy-name">${escapeHtml(names.join("、"))}</span> 中的一项为 <span class="judgment-copy-ok">OK</span>`;
+  }
+  const joinText = ` ${getJudgmentNaturalRelationText(relation)} `;
+  return names.map((name) => `满足 ${renderJudgmentNameOkHtml(name)}`).join(joinText);
+}
+
+function getJudgmentDetailSummaryHtml(rule) {
+  if (rule.template === "dimension-conditions") {
+    const items = (Array.isArray(rule.dimensions) ? rule.dimensions : [])
+      .map((item) => {
+        return `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "尺寸项")}</span> 在 <span class="judgment-copy-value">${escapeHtml(String(item.min || "-"))}</span> 到 <span class="judgment-copy-value">${escapeHtml(String(item.max || "-"))}</span> 之间`;
+      })
+      .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
+    return items;
+  }
+  if (rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    const items = (Array.isArray(rule.conditions) ? rule.conditions : [])
+      .map((item) => `满足 <span class="judgment-copy-name">${escapeHtml(item.label || "目标")}</span> ${escapeHtml(getConditionOperatorText(item.operator))} <span class="judgment-copy-value">${escapeHtml(String(item.expectedCount ?? ""))}</span>`)
+      .join(` ${getJudgmentNaturalRelationText(rule.conditionRelation)} `);
+    return items;
+  }
+  return "";
+}
+
+function renderJudgmentRuleSummaryHtml(rule, node, tool) {
+  if (!rule || !node) return "";
+  if (node.type === "cycle" || node.type === "roi") {
+    const nodes = getJudgmentRuleNodes(tool);
+    const labels =
+      node.type === "cycle"
+        ? Array.from(
+            new Set(
+              (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+                .map((id) => nodes.find((item) => item.id === id) || null)
+                .map((item) => nodes.find((candidate) => candidate.id === item?.parentId) || null)
+                .map((item) => item?.label || "")
+                .filter(Boolean),
+            ),
+          )
+        : (Array.isArray(rule.selectedNodeIds) ? rule.selectedNodeIds : [])
+            .map((id) => nodes.find((item) => item.id === id)?.label || "")
+            .filter(Boolean);
+    return renderJudgmentAggregateSummaryHtml(labels, rule?.relation || rule?.template || "all-selected-ok");
+  }
+  if (rule.template === "dimension-conditions" || rule.template === "classify-conditions" || rule.template === "defect-conditions") {
+    return getJudgmentDetailSummaryHtml(rule);
+  }
+  return escapeHtml(getJudgmentRuleSummary(rule, node, tool));
+}
+
+function isJudgmentRuleConfigValid(tool) {
+  if (!tool) return false;
+  ensureJudgmentRuleState(tool);
+  if (isJudgmentRuleStructureStale(tool)) return false;
+  if (isJudgmentExpressionMode(tool)) {
+    return !tool.ruleConfig.expressionErrors.length;
+  }
+  return true;
+}
+
+function renderJudgmentRuleBuilder(tool) {
+  ensureJudgmentRuleState(tool);
+  syncJudgmentRuleSelection(tool);
+  const isStale = isJudgmentRuleStructureStale(tool);
+  const nodes = getJudgmentRuleNodes(tool);
+  const visualNodes = nodes.filter((node) => node.type === "detect");
+  const activeNode = nodes.find((node) => node.id === ui.builderRuleNodeId) || null;
+  const nodeRules = Array.isArray(tool.ruleConfig?.rulesByNode?.[ui.builderRuleNodeId]) ? tool.ruleConfig.rulesByNode[ui.builderRuleNodeId] : [];
+  const activeRule = nodeRules[0] || null;
+  applyJudgmentRuleTemplateDefaults(activeRule, activeNode, tool);
+  return `
+    <div class="judgment-builder-page">
+      <div class="judgment-builder-toolbar">
+        <div>
+          <h3>判定规则</h3>
+        </div>
+        <div class="judgment-toolbar-actions">
+          <button
+            class="secondary-btn judgment-switch-btn"
+            type="button"
+            data-action="prompt-switch-rule-mode"
+            data-mode="${tool.ruleConfig.mode === "visual" ? "expression" : "visual"}"
+          >
+            <span aria-hidden="true">⇄</span>
+            <span>${tool.ruleConfig.mode === "visual" ? "切换表达式编辑" : "切换可视化配置"}</span>
+          </button>
+          <button class="secondary-btn" type="button" data-action="reset-default-rules">恢复默认</button>
+        </div>
+      </div>
+      ${
+        isJudgmentExpressionMode(tool)
+          ? renderJudgmentExpressionPanel(tool)
+          : `
+            <div class="judgment-builder-shell">
+              <aside class="judgment-tree-panel">
+                <div class="section-head section-head-tight">
+                  <div>
+                    <h3>检测项</h3>
+                  </div>
+                </div>
+                <div class="judgment-tree">
+                  ${
+                    visualNodes.length
+                      ? visualNodes.map((node) => renderJudgmentDetectListItem(node)).join("")
+                      : `<div class="builder-empty">还没有检测项，请先完成图像检测配置。</div>`
+                  }
+                </div>
+              </aside>
+              <section class="judgment-editor-panel">
+                ${renderJudgmentRuleEditor(tool, activeNode, activeRule)}
+              </section>
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
+function renderJudgmentDetectListItem(node) {
+  const isActive = node.id === ui.builderRuleNodeId;
+  const mainClass = `judgment-tree-node-main is-configurable ${isActive ? "is-active" : ""}`;
+  return `
+    <div class="judgment-tree-node depth-0">
+      <button
+        class="${mainClass}"
+        type="button"
+        data-action="select-rule-node"
+        data-node-id="${escapeAttribute(node.id)}"
+      >
+        <strong>${escapeHtml(node.label)}</strong>
+        ${node.sceneType ? `<span>${escapeHtml(node.sceneType)}</span>` : ""}
+      </button>
+    </div>
+  `;
+}
+
+function renderJudgmentTreeNode(node, nodes, tool) {
+  const children = getNodeChildren(nodes, node.id);
+  const isActive = node.id === ui.builderRuleNodeId;
+  const mainClass = `judgment-tree-node-main ${isActive ? "is-active" : ""} ${node.configurable ? "is-configurable" : "is-readonly"}`;
+  return `
+    <div class="judgment-tree-node depth-${node.depth}">
+      <button
+        class="${mainClass}"
+        type="button"
+        data-action="select-rule-node"
+        data-node-id="${escapeAttribute(node.id)}"
+      >
+        <strong>${escapeHtml(node.label)}</strong>
+      </button>
+      ${children.length ? `<div class="judgment-tree-children">${children.map((child) => renderJudgmentTreeNode(child, nodes, tool)).join("")}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderJudgmentRuleEditor(tool, node, rule) {
+  if (!node) {
+    return `<div class="builder-empty">请从左侧选择一项。</div>`;
+  }
+  if (!node.configurable) {
+    return renderJudgmentReadonlyPanel(tool, node);
+  }
+  if (!rule) {
+    return `<div class="builder-empty">当前项还没有条件，请先恢复默认。</div>`;
+  }
+  const nodes = getJudgmentRuleNodes(tool);
+  const availableChildren =
+    node.type === "cycle"
+      ? nodes.filter((item) => item.type === "detect")
+      : node.type === "roi"
+        ? getNodeChildren(nodes, node.id, "detect")
+        : [];
+  const detect = getDetectByNode(tool, node);
+  const sceneType = node.sceneType || getDetectSceneType(detect);
+  const categoryOptions = detect ? getModelCategoriesById(detect.modelId) : [];
+  const modelTypeText = sceneType || "";
+
+  return `
+    <div class="judgment-editor-scroll">
+      <div class="section-head section-head-tight">
+        <h3>${escapeHtml(node.label)}</h3>
+        ${modelTypeText ? `<span class="chip">${escapeHtml(modelTypeText)}</span>` : ""}
+      </div>
+
+      ${renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions)}
+    </div>
+  `;
+}
+
+function getJudgmentReadonlySummaries(tool, node) {
+  if (!tool || !node) return [];
+  const nodes = getJudgmentRuleNodes(tool);
+  if (node.type === "cycle") {
+    const cycleRule = tool.ruleConfig?.rulesByNode?.cycle?.[0] || null;
+    return cycleRule ? [{ summaryHtml: renderJudgmentRuleSummaryHtml(cycleRule, node, tool) }] : [];
+  }
+  if (node.type === "acquire") {
+    const processNames = getNodeChildren(nodes, node.id, "roi").map((item) => item.label).filter(Boolean);
+    if (!processNames.length) return [];
+    return [
+      {
+        summaryHtml: renderJudgmentAggregateSummaryHtml(processNames, "all-selected-ok"),
+      },
+    ];
+  }
+  return [];
+}
+
+function renderJudgmentReadonlyPanel(tool, node) {
+  const rows = getJudgmentReadonlySummaries(tool, node);
+  return `
+    <div class="judgment-editor-scroll">
+      <div class="section-head section-head-tight">
+        <h3>${escapeHtml(node.label)}</h3>
+      </div>
+      ${
+        rows.length
+          ? `
+            <div class="judgment-summary-lines">
+              ${rows
+                .map(
+                  (item) => `
+                    <p class="judgment-summary-line">${item.summaryHtml || escapeHtml(item.summary)}</p>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : `<div class="builder-empty">当前还没有可用内容</div>`
+      }
+    </div>
+  `;
+}
+
+function renderJudgmentExpressionPanel(tool) {
+  const errors = tool.ruleConfig.expressionErrors || [];
+  return `
+    <div class="judgment-global-expression-panel">
+      <div class="section-head section-head-tight">
+        <h3>表达式编辑</h3>
+        <div class="judgment-expression-status ${errors.length ? "is-error" : "is-ok"}">
+          ${errors.length ? "语法检查不通过" : "语法检查通过"}
+        </div>
+      </div>
+      <textarea
+        rows="14"
+        class="${errors.length ? "has-error" : ""}"
+        data-rule-config-field="expressionDraft"
+      >${escapeHtml(tool.ruleConfig.expressionDraft || "")}</textarea>
+    </div>
+  `;
+}
+
+function getJudgmentTemplateOptions(node, sceneType = "") {
+  if (node?.type === "cycle") {
+    return [
+      { value: "all-selected-ok", label: "所有关键结果都 OK" },
+      { value: "any-selected-ok", label: "任一关键结果 OK 即通过" },
+    ];
+  }
+  if (node?.type === "roi") {
+    return [
+      { value: "all-selected-ok", label: "全部满足" },
+      { value: "any-selected-ok", label: "任一满足" },
+      { value: "exactly-one-ok", label: "仅一满足" },
+    ];
+  }
+  return [];
+}
+
+function renderJudgmentRuleConditionEditor(rule, node, availableChildren, categoryOptions) {
+  if (node.type === "cycle") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+        </div>
+        <div class="judgment-checkbox-list judgment-display-list">
+          ${availableChildren
+            .map((item) => `<div class="judgment-checkbox-item"><span>${escapeHtml(item.label)}</span><strong>OK</strong></div>`)
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  if (node.type === "roi") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <label class="field judgment-inline-select">
+            <select data-rule-field="relation">
+              ${getJudgmentTemplateOptions(node).map((item) => `<option value="${item.value}" ${item.value === (rule.relation || rule.template) ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="judgment-checkbox-list judgment-display-list">
+          ${availableChildren
+            .map((item) => `<div class="judgment-checkbox-item"><span>${escapeHtml(item.label)}</span><strong>OK</strong></div>`)
+            .join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  if (rule.template === "dimension-conditions") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <div class="section-head-actions">
+            <label class="field judgment-inline-select">
+              <select data-rule-field="conditionRelation">
+                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
+                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <table class="judgment-dimension-table">
+          <thead>
+            <tr>
+              <th>尺寸项</th>
+              <th>下限</th>
+              <th>上限</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(rule.dimensions || [])
+              .map(
+                (item, index) => `
+                  <tr>
+                    <td><div class="judgment-fixed-field">${escapeHtml(item.label || "尺寸项")}</div></td>
+                    <td><input type="number" step="any" value="${escapeAttribute(String(item.min ?? ""))}" data-dimension-index="${index}" data-dimension-field="min" /></td>
+                    <td><input type="number" step="any" value="${escapeAttribute(String(item.max ?? ""))}" data-dimension-index="${index}" data-dimension-field="max" /></td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  if (rule.template === "classify-conditions") {
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+          <div class="section-head-actions">
+            <label class="field judgment-inline-select">
+              <select data-rule-field="conditionRelation">
+                <option value="all" ${rule.conditionRelation === "all" ? "selected" : ""}>全部满足</option>
+                <option value="any" ${rule.conditionRelation === "any" ? "selected" : ""}>任一满足</option>
+              </select>
+            </label>
+            <button class="secondary-btn" type="button" data-action="add-classify-condition">新增条件</button>
+          </div>
+        </div>
+        <div class="judgment-condition-list">
+          ${renderJudgmentConditionRows(rule.conditions || [], { categoryOptions, fixedLabel: false })}
+        </div>
+      </div>
+    `;
+  }
+
+  if (rule.template === "defect-conditions") {
+    const defectCondition = (Array.isArray(rule.conditions) && rule.conditions.length ? rule.conditions[0] : null) || {
+      label: "缺陷",
+      operator: "eq",
+      expectedCount: 0,
+    };
+    return `
+      <div class="judgment-selection-card">
+        <div class="section-head section-head-tight">
+          <h4>OK判定条件</h4>
+        </div>
+        <div class="judgment-condition-list">
+          ${renderJudgmentConditionRows([defectCondition], { fixedLabel: "缺陷", hideRemove: true })}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="form-grid double-column">
+      <label class="field">
+        <span>标签名称</span>
+        <select data-rule-field="targetLabel">
+          ${Array.from(new Set((categoryOptions.length ? categoryOptions : [rule.targetLabel || "目标"]).filter(Boolean)))
+            .map((item) => `<option value="${escapeAttribute(item)}" ${item === rule.targetLabel ? "selected" : ""}>${escapeHtml(item)}</option>`)
+            .join("")}
+        </select>
+      </label>
+      <label class="field">
+        <span>数量要求</span>
+        <input type="number" min="0" value="${escapeAttribute(String(rule.expectedCount ?? 1))}" data-rule-field="expectedCount" />
+      </label>
+    </div>
+  `;
+}
+
+function getConditionOperatorOptions() {
+  return [
+    { value: "eq", label: "数量=" },
+    { value: "le", label: "数量≦" },
+    { value: "lt", label: "数量<" },
+    { value: "ge", label: "数量≧" },
+    { value: "gt", label: "数量>" },
+    { value: "ne", label: "数量≠" },
+  ];
+}
+
+function getDimensionConditionLabels(conditions = []) {
+  const labels = conditions.map((item) => item.label).filter(Boolean);
+  return Array.from(new Set(labels.length ? labels : ["尺寸项1"]));
+}
+
+function renderJudgmentConditionRows(conditions = [], options = {}) {
+  const categoryOptions = Array.from(new Set((options.categoryOptions || []).filter(Boolean)));
+  const operatorOptions = getConditionOperatorOptions();
+  return conditions
+    .map((item, index) => {
+      const labelOptions = Array.from(new Set((categoryOptions.length ? categoryOptions : [item.label || options.fixedLabel || "目标"]).filter(Boolean)));
+      return `
+        <div class="judgment-condition-row">
+          ${
+            options.fixedLabel
+              ? `<div class="judgment-fixed-field">${escapeHtml(options.fixedLabel)}</div>`
+              : `
+                <select data-condition-index="${index}" data-condition-field="label">
+                  ${labelOptions.map((label) => `<option value="${escapeAttribute(label)}" ${label === item.label ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+                </select>
+              `
+          }
+          <select data-condition-index="${index}" data-condition-field="operator">
+            ${operatorOptions.map((option) => `<option value="${option.value}" ${option.value === item.operator ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+          </select>
+          <input type="number" min="0" step="any" value="${escapeAttribute(String(item.value ?? item.expectedCount ?? 1))}" data-condition-index="${index}" data-condition-field="${item.value !== undefined ? "value" : "expectedCount"}" />
+          ${options.hideRemove ? "" : `<button class="ghost-btn judgment-condition-remove" type="button" data-action="remove-classify-condition" data-condition-index="${index}" ${conditions.length <= 1 ? "disabled" : ""}>删除</button>`}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderAcquireItem(tool, item) {
+  const editingLocked = isToolEditingLocked(tool);
+  const camera = state.cameras.find((cameraItem) => cameraItem.id === item.cameraId);
+  const sourceText =
+    item.type === "camera"
+      ? `${Demo.getCameraLabel(camera)} / ${Demo.getParamGroupLabel(camera, item.paramGroupId)}`
+      : item.endpoint;
+  return `
+    <article class="builder-item">
+      <div class="builder-thumb builder-thumb-sample">
+        ${renderSamplePreviewHtml(item.sampleImageUrl, getAcquireSampleName(item), true)}
+      </div>
+      <div class="builder-item-main">
+        <div class="builder-item-title">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="chip">${item.type === "camera" ? "相机获取" : "接口获取"}</span>
+        </div>
+        <div class="builder-meta">
+          <span>来源：${escapeHtml(sourceText || "-")}</span>
+          <span>示例图片：${escapeHtml(getAcquireSampleName(item))}</span>
+        </div>
+      </div>
+      <div class="builder-actions">
+        <button class="table-btn table-btn-primary" data-action="edit-acquire" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
+        <button class="table-btn table-btn-danger" data-action="delete-acquire" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderProcessItem(tool, item) {
+  const editingLocked = isToolEditingLocked(tool);
+  const source = tool.acquire.find((acquire) => acquire.id === item.inputId);
+  const mode = normalizeProcessMode(item.mode);
+  const categoryText = getProcessCategoryOptions(item).join(" / ");
+  return `
+    <article class="builder-item">
+      <div class="builder-item-main">
+        <div class="builder-item-title">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="chip">${escapeHtml(getProcessModeLabel(mode))}</span>
+        </div>
+        <div class="builder-meta">
+          <span>输入实例：${escapeHtml(source?.name || "-")}</span>
+          ${
+            mode === "manual-roi"
+              ? `<span>${escapeHtml(getProcessRoiSummary(item))}</span>`
+              : mode === "model-roi"
+                ? `<span>ROI 识别算子：${escapeHtml(item.modelId ? Demo.getModelLabel(state, item.modelId) : "算子未关联")}</span><span>类别：${escapeHtml(categoryText || "-")}</span>`
+                : `<span>输出整图结果，不裁切 ROI</span>`
+          }
+        </div>
+      </div>
+      <div class="builder-actions">
+        <button class="table-btn table-btn-primary" data-action="edit-process" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
+        <button class="table-btn table-btn-danger" data-action="delete-process" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderDetectItem(tool, item) {
+  const editingLocked = isToolEditingLocked(tool);
+  const targetLabels = getDetectTargets(item).map((target) => getDetectTargetLabel(tool, target)).filter(Boolean);
+  const hasInvalidTarget = getInvalidDetectTargetCount(tool, item) > 0;
+  const sceneType = getDetectSceneType(item);
+  const dimensionConfig = getNormalizedDimensionConfig(item);
+  const dimensionOffsetCount = (dimensionConfig?.outputOffsets || []).filter((row) => Number(row.offset || 0) !== 0).length;
+  return `
+    <article class="builder-item">
+      <div class="builder-item-main">
+        <div class="builder-item-title">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="chip">${escapeHtml(sceneType === "尺寸" ? "尺寸方案" : "算子")}</span>
+        </div>
+        <div class="builder-meta">
+          <span>关联输入目标：${escapeHtml(targetLabels.join(" / ") || "-")}</span>
+          <span>算子：${escapeHtml(item.modelId ? Demo.getModelLabel(state, item.modelId) : "算子未关联")}</span>
+          ${sceneType === "尺寸" && dimensionConfig ? `<span>参数配置：${dimensionOffsetCount ? `${dimensionOffsetCount} 个尺寸项已设偏移` : "未设置偏移"}</span>` : ""}
+        </div>
+      </div>
+      <div class="builder-actions">
+        ${hasInvalidTarget ? `<span class="config-error-mark" title="配置失效" aria-label="配置失效">!</span>` : ""}
+        <button class="table-btn table-btn-primary" data-action="edit-detect" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>编辑</button>
+        <button class="table-btn" data-action="edit-detect-params" data-id="${item.id}" ${editingLocked || sceneType !== "尺寸" ? "disabled" : ""}>参数配置</button>
+        <button class="table-btn table-btn-danger" data-action="delete-detect" data-id="${item.id}" ${editingLocked ? "disabled" : ""}>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function getProcessModeLabel(mode) {
+  if (mode === "manual-roi") return "手绘 ROI";
+  if (mode === "model-roi") return "算子识别 ROI";
+  return "全图处理";
+}
+
+function getDetectTargetLabel(tool, target) {
+  const process = tool?.process?.find((item) => item.id === target?.processId);
+  if (!process) return "";
+  const base = process.name || "未命名输入";
+  if (normalizeProcessMode(process.mode) !== "model-roi") return base;
+  return `${base} / ${target.categoryLabel || target.categoryKey || "未指定类别"}`;
+}
+
+function getInvalidDetectTargetCount(tool, detect) {
+  return getDetectTargets(detect).filter((target) => !isDetectTargetValid(tool, target)).length;
+}
+
+function getToolInvalidDetectTargetCount(tool) {
+  if (!Array.isArray(tool?.detect) || !tool.detect.length) return 0;
+  return tool.detect.reduce((count, detect) => count + getInvalidDetectTargetCount(tool, detect), 0);
+}
+
+function getAcquireSampleName(item) {
+  return String(item?.sampleImageName || item?.sampleImage || "").trim() || "未上传";
+}
+
+function getAcquireSampleUrl(item) {
+  return String(item?.sampleImageUrl || "").trim();
+}
+
+function getImageResultAcquire(imageResult, toolId = "") {
+  const tool = toolId ? state.tools.find((item) => item.id === toolId) || null : getActiveTool();
+  return tool?.acquire?.find((item) => item.id === imageResult?.acquireId) || null;
+}
+
+function getImageResultSourceUrl(imageResult, toolId = "") {
+  if (imageResult?.waitingForDetection) return "";
+  const directUrl = String(imageResult?.sourceImageUrl || "").trim();
+  if (directUrl) return directUrl;
+  const resultText = getDisplayResultText(imageResult?.result || imageResult?.businessResult || "-");
+  const hasSubResults = Array.isArray(imageResult?.subResults) && imageResult.subResults.length > 0;
+  if (resultText === "-" && !hasSubResults) return "";
+  return getAcquireSampleUrl(getImageResultAcquire(imageResult, toolId));
+}
+
+function readImageFileAsDemoPreview(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const sourceUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!sourceUrl) {
+        reject(new Error("empty_image"));
+        return;
+      }
+      const image = new Image();
+      image.onload = () => {
+        const naturalWidth = Number(image.naturalWidth || image.width) || 1;
+        const naturalHeight = Number(image.naturalHeight || image.height) || 1;
+        const maxWidth = 960;
+        const maxHeight = 720;
+        const scale = Math.min(1, maxWidth / naturalWidth, maxHeight / naturalHeight);
+        const targetWidth = Math.max(1, Math.round(naturalWidth * scale));
+        const targetHeight = Math.max(1, Math.round(naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          resolve({
+            url: sourceUrl,
+            width: naturalWidth,
+            height: naturalHeight,
+          });
+          return;
+        }
+        context.drawImage(image, 0, 0, targetWidth, targetHeight);
+        resolve({
+          url: canvas.toDataURL("image/jpeg", 0.68),
+          width: naturalWidth,
+          height: naturalHeight,
+        });
+      };
+      image.onerror = () => reject(new Error("image_decode_failed"));
+      image.src = sourceUrl;
+    };
+    reader.onerror = () => reject(new Error("file_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderSamplePreviewHtml(imageUrl, imageName, compact = false) {
+  if (imageUrl) {
+    return `
+      <div class="sample-preview-frame ${compact ? "is-compact" : ""}">
+        <img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(imageName || "示例图片")}" />
+      </div>
+    `;
+  }
+  return `
+    <div class="sample-preview-frame is-placeholder ${compact ? "is-compact" : ""}">
+      <div class="sample-preview-grid"></div>
+      <span>${escapeHtml(imageName || "未上传示例图片")}</span>
+    </div>
+  `;
+}
+
+function normalizeProcessMode(mode) {
+  return Demo.normalizeToolProcessMode(mode);
+}
+
+function getProcessRegions(process) {
+  return Array.isArray(process?.regions)
+    ? process.regions
+    : Array.isArray(process?.roiRegions)
+      ? process.roiRegions
+      : [];
+}
+
+function getProcessRoiRegionCount(process) {
+  return getProcessRegions(process).filter((item) => item.type !== "ignore").length;
+}
+
+function getProcessIgnoreRegionCount(process) {
+  return getProcessRegions(process).filter((item) => item.type === "ignore").length;
+}
+
+function isFullImageRegion(region) {
+  if (!region || region.type === "ignore") return false;
+  return Number(region.x) <= 0.001 && Number(region.y) <= 0.001 && Number(region.w) >= 0.999 && Number(region.h) >= 0.999;
+}
+
+function isFullImageSubResult(subResult) {
+  if (!subResult) return false;
+  const semanticType = String(subResult.outputType || subResult.type || "").trim();
+  const sourceLabel = String(subResult.source || subResult.categoryKey || "").trim();
+  return semanticType === "full-image" || sourceLabel === "全图" || isFullImageRegion(subResult.regionBox);
+}
+
+function hasOnlyFullImageSubResults(imageResult) {
+  const subResults = Array.isArray(imageResult?.subResults) ? imageResult.subResults : [];
+  if (!subResults.length) return false;
+  return subResults.every((subResult) => isFullImageSubResult(subResult));
+}
+
+function hasOnlyFullImageProcessOutputs(tool, acquireId) {
+  if (!tool || !acquireId) return false;
+  const processList = Array.isArray(tool.process) ? tool.process.filter((process) => process.inputId === acquireId && isProcessReady(process)) : [];
+  if (!processList.length) return false;
+  return processList.every((process) => normalizeProcessMode(process.mode) === "full-image");
+}
+
+function buildSplitRegions(count) {
+  const side = Math.sqrt(count);
+  if (!Number.isInteger(side) || side <= 0) return [];
+  const regions = [];
+  for (let row = 0; row < side; row += 1) {
+    for (let col = 0; col < side; col += 1) {
+      regions.push({
+        id: Demo.makeId("roi"),
+        type: "roi",
+        x: col / side,
+        y: row / side,
+        w: 1 / side,
+        h: 1 / side,
+      });
+    }
+  }
+  return regions;
+}
+
+function getProcessRoiSummary(process) {
+  const roiRegions = getProcessRegions(process).filter((item) => item.type !== "ignore");
+  const ignoreCount = getProcessIgnoreRegionCount(process);
+  return `ROI 区域：${roiRegions.length} 个${ignoreCount ? `，不检测区域：${ignoreCount} 个` : ""}`;
+}
+
+function buildClassifierPreviewRegion(index, total) {
+  const safeTotal = Math.max(1, Number(total) || 1);
+  const presets = [
+    { x: 0.12, y: 0.18, w: 0.34, h: 0.42 },
+    { x: 0.54, y: 0.22, w: 0.28, h: 0.38 },
+    { x: 0.22, y: 0.56, w: 0.26, h: 0.24 },
+    { x: 0.58, y: 0.58, w: 0.22, h: 0.22 },
+  ];
+  if (safeTotal === 1) {
+    return { x: 0.22, y: 0.18, w: 0.52, h: 0.5 };
+  }
+  return presets[index % presets.length];
+}
+
+function isGearSurfaceProcess(process) {
+  const text = `${process?.id || ""} ${process?.name || ""} ${process?.modelId || ""}`;
+  return /gear.*surface|齿面/.test(text);
+}
+
+function isBackplateFullImageProcess(process, detect) {
+  const text = `${process?.id || ""} ${process?.name || ""} ${process?.modelId || ""} ${detect?.id || ""} ${detect?.name || ""} ${detect?.modelId || ""}`;
+  return normalizeProcessMode(process?.mode) === "full-image" && /backplate|背板/.test(text);
+}
+
+function getGearSurfacePreviewRegions() {
+  return [
+    { x: 0.25, y: 0.3, w: 0.42, h: 0.12 },
+    { x: 0.255, y: 0.41, w: 0.425, h: 0.12 },
+    { x: 0.26, y: 0.52, w: 0.425, h: 0.12 },
+    { x: 0.26, y: 0.63, w: 0.43, h: 0.12 },
+    { x: 0.26, y: 0.74, w: 0.43, h: 0.12 },
+  ];
+}
+
+function getGearBubbleDefectBox(index) {
+  const boxes = [
+    { x: 0.48, y: 0.12, w: 0.08, h: 0.72 },
+    { x: 0.28, y: 0.12, w: 0.08, h: 0.72 },
+    { x: 0.58, y: 0.12, w: 0.08, h: 0.72 },
+    { x: 0.42, y: 0.12, w: 0.08, h: 0.72 },
+    { x: 0.62, y: 0.12, w: 0.08, h: 0.72 },
+  ];
+  return boxes[index % boxes.length];
+}
+
+function getBackplateDefectBoxes() {
+  return [
+    { x: 0.31, y: 0.69, w: 0.13, h: 0.08 },
+    { x: 0.62, y: 0.58, w: 0.14, h: 0.1 },
+  ];
+}
+
+function renderCloudVersionRow(model, version) {
+  const downloaded = state.localModels.some((item) => item.version === version.version);
+  const downloading = ui.pendingDownload?.versionId === version.id;
+  return `
+    <div class="cloud-version-row">
+      <div class="cloud-version-code">${escapeHtml(Demo.getModelVersionLabel(version))}</div>
+      <div class="cloud-version-time">训练完成时间：${Demo.formatDateTime(version.completedAt)}</div>
+      <div class="cloud-version-action">
+        <button
+          class="table-btn ${downloaded ? "table-btn-neutral" : "table-btn-primary"}"
+          data-action="download-model"
+          data-model-id="${model.id}"
+          data-version-id="${version.id}"
+          ${downloaded || downloading || Demo.isStorageBlocked(state) ? "disabled" : ""}
+        >
+          ${downloaded ? "已缓存" : downloading ? "拉取中..." : "拉取并使用"}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderParamFields(camera, group) {
+  const fields = getParamFieldSchema(camera.brand);
+  const rows = [
+    `
+      <label class="field field-span-full param-name-field">
+        <span>参数组名称</span>
+        <input id="param_field_name" type="text" maxlength="24" value="${escapeAttribute(getParamGroupDisplayName(group))}" />
+      </label>
+    `,
+  ];
+
+  fields.forEach((field) => {
+    const value = group.settings?.[field.key] ?? field.defaultValue;
+    if (field.type === "boolean") {
+      rows.push(`
+        <label class="field">
+          <span>${field.label}</span>
+          <select id="param_field_${field.key}">
+            <option value="true" ${value ? "selected" : ""}>开启</option>
+            <option value="false" ${!value ? "selected" : ""}>关闭</option>
+          </select>
+        </label>
+      `);
+      return;
+    }
+
+    if (field.type === "select") {
+      rows.push(`
+        <label class="field">
+          <span>${field.label}</span>
+          <select id="param_field_${field.key}">
+            ${field.options.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`).join("")}
+          </select>
+        </label>
+      `);
+      return;
+    }
+
+    rows.push(`
+      <label class="field">
+        <span>${field.label}</span>
+        ${field.stepper ? renderParamStepperField(field, value) : `<input id="param_field_${field.key}" type="number" value="${escapeAttribute(String(value))}" />`}
+      </label>
+    `);
+  });
+
+  return rows.join("");
+}
+
+function renderParamStepperField(field, value) {
+  return `
+    <div class="number-stepper">
+      <button type="button" data-action="param-step" data-field="${field.key}" data-delta="-${field.step || 1}" aria-label="${escapeAttribute(field.label)}减少">−</button>
+      <input id="param_field_${field.key}" type="number" value="${escapeAttribute(String(value))}" step="${escapeAttribute(String(field.step || 1))}" />
+      <button type="button" data-action="param-step" data-field="${field.key}" data-delta="${field.step || 1}" aria-label="${escapeAttribute(field.label)}增加">＋</button>
+    </div>
+  `;
+}
+
+function getParamFieldSchema() {
+  return [
+    { key: "autoExposure", label: "自动曝光:", type: "boolean", defaultValue: false },
+    { key: "exposure", label: "曝光时间 (μs):", type: "number", defaultValue: 10000 },
+    { key: "autoGain", label: "自动增益:", type: "boolean", defaultValue: false },
+    { key: "gain", label: "增益时间 (dB):", type: "number", defaultValue: 0 },
+    { key: "width", label: "宽 (px):", type: "number", defaultValue: 1920, stepper: true, step: 1 },
+    { key: "height", label: "高 (px):", type: "number", defaultValue: 1200, stepper: true, step: 1 },
+    { key: "offsetX", label: "X偏移 (px):", type: "number", defaultValue: 0, stepper: true, step: 1 },
+    { key: "offsetY", label: "Y偏移 (px):", type: "number", defaultValue: 0, stepper: true, step: 1 },
+  ];
+}
+
+function getDefaultParamSettings(brand) {
+  return getParamFieldSchema(brand).reduce((result, field) => {
+    result[field.key] = field.defaultValue;
+    return result;
+  }, {});
+}
+
+function getParamGroupDisplayName(group) {
+  return String(group?.name || "").trim() || "未命名参数组";
+}
+
+function getParamPreviewAspectRatio(group) {
+  const width = Number(group?.settings?.width) || 2448;
+  const height = Number(group?.settings?.height) || 2048;
+  return `${Math.max(1, width)} / ${Math.max(1, height)}`;
+}
+
+function getParamPreviewCaption(camera, group) {
+  const width = Number(group?.settings?.width) || 2448;
+  const height = Number(group?.settings?.height) || 2048;
+  return `${Demo.getCameraLabel(camera)} · ${width} × ${height}`;
+}
+
+function getAcquireInputSource(acquire) {
+  return acquire?.type === "camera"
+    ? `${Demo.getCameraLabel(state.cameras.find((camera) => camera.id === acquire.cameraId))} / ${Demo.getParamGroupLabel(state.cameras.find((camera) => camera.id === acquire.cameraId), acquire.paramGroupId)}`
+    : acquire?.endpoint || "外部输入";
+}
+
+function buildFullImageRegion() {
+  return { x: 0, y: 0, w: 1, h: 1 };
+}
+
+function buildProcessOutputs(process) {
+  const mode = normalizeProcessMode(process.mode);
+  if (mode === "full-image") {
+    return [
+      {
+        name: process.name,
+        source: "全图",
+        modelId: process.modelId || "",
+        imageLabel: process.name,
+        outputType: "full-image",
+        processId: process.id,
+        categoryKey: "",
+        regionBox: buildFullImageRegion(),
+      },
+    ];
+  }
+  if (mode === "model-roi") {
+    const categories = getProcessCategoryOptions(process);
+    if (isGearSurfaceProcess(process) && categories.includes("齿面")) {
+      return getGearSurfacePreviewRegions().map((regionBox, index) => ({
+        name: `${process.name} 齿面${index + 1}`,
+        source: "齿面",
+        modelId: process.modelId || "",
+        imageLabel: process.name,
+        outputType: "roi",
+        processId: process.id,
+        regionId: `${process.id}_齿面${index + 1}`,
+        categoryKey: "齿面",
+        regionBox,
+      }));
+    }
+    return categories.map((category, index, list) => ({
+      name: `${process.name} ${category}`,
+      source: category,
+      modelId: process.modelId || "",
+      imageLabel: process.name,
+      outputType: "roi",
+      processId: process.id,
+      regionId: `${process.id}_${category}`,
+      categoryKey: category,
+      regionBox: buildClassifierPreviewRegion(index, list.length),
+    }));
+  }
+  const roiRegions = getProcessRegions(process).filter((item) => item.type !== "ignore");
+  const effectiveRegions = roiRegions.length ? roiRegions : [{ id: `${process.id}_roi_1`, x: 0.18, y: 0.18, w: 0.32, h: 0.24 }];
+  return effectiveRegions.map((region, index) => ({
+    name: `${process.name} ROI${index + 1}`,
+    source: `ROI${index + 1}`,
+    modelId: process.modelId || "",
+    imageLabel: process.name,
+    outputType: "roi",
+    processId: process.id,
+    regionId: region.id,
+    categoryKey: "",
+    regionBox: {
+      x: Number(region.x) || 0,
+      y: Number(region.y) || 0,
+      w: Number(region.w) || 1,
+      h: Number(region.h) || 1,
+    },
+  }));
+}
+
+function buildDetectOutputs(tool, acquire) {
+  return tool.detect.flatMap((detect) =>
+    getDetectTargets(detect).flatMap((target) => {
+      const process = tool.process.find((item) => item.id === target.processId && item.inputId === acquire.id);
+      if (!process) return [];
+      const mode = normalizeProcessMode(process.mode);
+      if (mode === "model-roi") {
+        if (!target.categoryKey || !getProcessCategoryOptions(process).includes(target.categoryKey)) return [];
+        const outputs = buildProcessOutputs(process, detect);
+        return outputs.filter((output) => output.categoryKey === target.categoryKey);
+      }
+      return buildProcessOutputs(process, detect);
+    }),
+  );
+}
+
+function buildProcessSampleOutputs(tool, acquire) {
+  return tool.process
+    .filter((process) => process.inputId === acquire.id && isProcessReady(process))
+    .flatMap((process) => buildProcessOutputs(process));
+}
+
+function doesDetectTargetMatchOutput(target, process, output) {
+  if (!target || target.processId !== output.processId) return false;
+  if (normalizeProcessMode(process?.mode) !== "model-roi") return true;
+  return Boolean(target.categoryKey) && target.categoryKey === output.categoryKey;
+}
+
+function buildDetectionRecord(tool, runMode = "detect", options = {}) {
+  const normalizedRunMode = Demo.normalizeRunMode(runMode);
+  const detectItems = Array.isArray(tool.detect) ? tool.detect : [];
+  const primaryDetect = detectItems[0] || null;
+  const dimensionDetects = getDimensionDetectItems(tool);
+  const acquireItems = Array.isArray(tool.acquire) ? tool.acquire : [];
+  const completedAcquireCount =
+    Number.isFinite(Number(options.completedAcquireCount)) && Number(options.completedAcquireCount) > 0
+      ? Math.min(acquireItems.length, Math.floor(Number(options.completedAcquireCount)))
+      : acquireItems.length;
+  const activeAcquireIndex = Number.isFinite(Number(options.activeAcquireIndex)) ? Number(options.activeAcquireIndex) : completedAcquireCount - 1;
+  const mockCycleNgAcquireIndex = Number.isFinite(Number(options.mockCycleNgAcquireIndex)) ? Number(options.mockCycleNgAcquireIndex) : -1;
+  const cycleComplete = completedAcquireCount >= acquireItems.length;
+  const previousByAcquireId = new Map(
+    (Array.isArray(options.previousImageResults) ? options.previousImageResults : [])
+      .filter((item) => item?.acquireId && getDisplayResultText(item.result || item.businessResult || "-") !== "-")
+      .map((item) => [item.acquireId, item]),
+  );
+
+  const imageResults = acquireItems.map((acquire, acquireIndex) => {
+    const previousResult = previousByAcquireId.get(acquire.id);
+    if (previousResult && acquireIndex < completedAcquireCount - 1) {
+      return previousResult;
+    }
+    if (acquireIndex >= completedAcquireCount) {
+      return {
+        id: Demo.makeId("img"),
+        acquireId: acquire.id,
+        acquireName: acquire.name,
+        imageLabel: getAcquireSampleName(acquire),
+        sourceImageUrl: "",
+        sourceImageName: "",
+        sourceImageWidth: Number(acquire.sampleImageWidth || 0),
+        sourceImageHeight: Number(acquire.sampleImageHeight || 0),
+        result: "-",
+        businessResult: "-",
+        waitingForDetection: true,
+        exceptions: [],
+        subResults: [],
+        inputSource: getAcquireInputSource(acquire),
+      };
+    }
+    const imageExceptions = getImageResultExceptions(tool, acquire);
+    const outputs = normalizedRunMode === "acquire" ? [] : buildProcessSampleOutputs(tool, acquire);
+    const seedNg =
+      normalizedRunMode === "detect" &&
+      Boolean(options.mockCycleNg) &&
+      acquireIndex === activeAcquireIndex &&
+      activeAcquireIndex === mockCycleNgAcquireIndex;
+    let detectResultCursor = 0;
+    const subResults = imageExceptions.length
+      ? []
+      : outputs.map((output, index) => {
+          const process = tool.process.find((item) => item.id === output.processId && item.inputId === acquire.id) || null;
+          const detectResults =
+            normalizedRunMode === "detect"
+              ? detectItems
+                  .filter((detect) => Boolean(detect.modelId && findModelMetaById(detect.modelId)))
+                  .filter((detect) => getDetectTargets(detect).some((target) => doesDetectTargetMatchOutput(target, process, output)))
+                  .map((detect, detectIndex) => {
+                    const businessResult = seedNg && detectResultCursor === 0 ? "NG" : "OK";
+                    detectResultCursor += 1;
+                    const modelSceneType = getModelSceneTypeById(detect.modelId);
+                    const gearDefectBox = businessResult === "NG" && isGearSurfaceProcess(process) ? getGearBubbleDefectBox(index) : null;
+                    const backplateDefectBoxes = businessResult === "NG" && isBackplateFullImageProcess(process, detect) ? getBackplateDefectBoxes() : [];
+                    return {
+                      id: Demo.makeId("detres"),
+                      name: detect.name || `检测结果 ${detectIndex + 1}`,
+                      detectId: detect.id || "",
+                      detectName: detect.name || "",
+                      modelId: detect.modelId || "",
+                      modelSceneType,
+                      businessResult,
+                      algorithmOutput: buildMockAlgorithmOutput(output, businessResult, modelSceneType),
+                      suspicious: businessResult === "NG",
+                      detectionBox: gearDefectBox || backplateDefectBoxes[0] || null,
+                      detectionBoxes: backplateDefectBoxes,
+                    };
+                  })
+              : [];
+          const subResultBusinessResult = normalizedRunMode === "detect" ? getAggregatedBusinessResult(detectResults) : "-";
+          return {
+            id: Demo.makeId("sub"),
+            name: output.name || `子图 ${index + 1}`,
+            source: output.source,
+            modelId: output.modelId || "",
+            modelSceneType: getModelSceneTypeById(output.modelId),
+            businessResult: subResultBusinessResult,
+            algorithmOutput: detectResults.length === 1 ? detectResults[0].algorithmOutput : "",
+            imageLabel: output.imageLabel,
+            suspicious: detectResults.some((item) => item.suspicious),
+            processId: output.processId,
+            regionId: output.regionId || "",
+            regionBox: output.regionBox || null,
+            outputType: output.outputType,
+            categoryKey: output.categoryKey || "",
+            detectResults,
+          };
+        });
+    const result = imageExceptions.length
+      ? "异常"
+      : normalizedRunMode === "detect"
+        ? getAggregatedBusinessResult(subResults)
+        : "-";
+
+    return {
+      id: Demo.makeId("img"),
+      acquireId: acquire.id,
+      acquireName: acquire.name,
+      imageLabel: getAcquireSampleName(acquire),
+      sourceImageUrl: "",
+      sourceImageName: "",
+      sourceImageWidth: Number(acquire.sampleImageWidth || 0),
+      sourceImageHeight: Number(acquire.sampleImageHeight || 0),
+      result,
+      businessResult: result,
+      exceptions: imageExceptions,
+      subResults,
+      inputSource: getAcquireInputSource(acquire),
+    };
+  });
+
+  const completedImageResults = imageResults.filter((item) => getDisplayResultText(item.result || item.businessResult || "-") !== "-");
+  const flatSubResults = completedImageResults.flatMap((item) => item.subResults);
+  const flatDetectResults = flatSubResults.flatMap((item) => getSubResultDetectResults(item));
+  const exceptions = completedImageResults.flatMap((item) => item.exceptions || []);
+  const totalResult = exceptions.length
+    ? "异常"
+    : normalizedRunMode === "detect"
+      ? (completedImageResults.length ? getAggregatedBusinessResult(completedImageResults) : "-")
+      : "-";
+
+  return {
+    id: `REC-${state.meta.now.slice(0, 10).replace(/-/g, "")}-${String(state.detectionRecords.length + 1).padStart(3, "0")}`,
+    toolId: tool.id,
+    toolName: tool.name,
+    sessionId: tool.runtime?.sessionId || makeRunSessionCode(state.meta.now),
+    sessionStartedAt: Number.isFinite(Number(tool.runtime?.sessionStartedAt)) ? new Date(Number(tool.runtime.sessionStartedAt)).toISOString() : state.meta.now,
+    detectId: normalizedRunMode === "detect" && detectItems.length === 1 ? primaryDetect?.id || "" : "",
+    detectName: normalizedRunMode === "detect" && detectItems.length === 1 ? primaryDetect?.name || "" : getRunModeLabel(normalizedRunMode),
+    triggeredAt: state.meta.now,
+    inputSource: imageResults.map((item) => item.inputSource).join(" / "),
+    executionStatus: "已完成",
+    cycleComplete,
+    completedAcquireCount,
+    runMode: normalizedRunMode,
+    completedStages:
+      normalizedRunMode === "acquire" ? ["acquire"] : normalizedRunMode === "process" ? ["acquire", "process"] : ["acquire", "process", "detect"],
+    totalResult,
+    businessResult: totalResult,
+    exceptions,
+    customTags: getRuntimeActiveTags(tool).length ? getRuntimeActiveTags(tool) : getRuntimeDraftTags(tool),
+    dimensionBindings: dimensionDetects.map((detect) => {
+      const config = getNormalizedDimensionConfig(detect);
+      return {
+        detectId: detect.id,
+        detectName: detect.name,
+        publishedSchemeName: config?.publishedSchemeName || "",
+        publishedVersion: config?.publishedVersion || "",
+        calibrationConfigId: config?.calibrationConfigId || "",
+      };
+    }),
+    imageResults,
+    ngCount: flatDetectResults.filter((item) => item.businessResult === "NG").length,
+    suspiciousCount: flatDetectResults.filter((item) => item.suspicious).length,
+    subResults: flatSubResults,
+  };
+}
+
+function renderStorageSummaryCard(label, value, options = {}) {
+  return `
+    <article class="summary-card">
+      <div class="summary-card-body">
+        <span class="summary-label">${escapeHtml(label)}</span>
+        <strong class="summary-value">${escapeHtml(value)}</strong>
+        ${options.meta ? `<span class="summary-meta">${escapeHtml(options.meta)}</span>` : ""}
+      </div>
+      ${
+        options.actionType
+          ? `
+            <div class="summary-card-actions">
+              <button class="secondary-btn summary-action-btn" data-clean-type="${options.actionType}" ${options.disabled ? "disabled" : ""}>
+                ${escapeHtml(options.actionLabel || "清理数据")}
+              </button>
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderTopbarAlert(tone, text, actionLabel = "", action = "") {
+  return `
+    <span class="topbar-inline-alert topbar-inline-alert-${tone}">
+      <span>${escapeHtml(text)}</span>
+      ${actionLabel && action ? `<button class="topbar-inline-alert-action" data-action="${escapeAttribute(action)}" type="button">${escapeHtml(actionLabel)}</button>` : ""}
+    </span>
+  `;
+}
+
+function renderStatusBadgeHtml(text) {
+  return `<span class="status-badge ${getStatusClass(text)}">${escapeHtml(text)}</span>`;
+}
+
+function renderStatusBadgeInto(element, text, exceptions = []) {
+  element.innerHTML = `${escapeHtml(text)}${text === "异常" ? renderExceptionIcon(exceptions) : ""}`;
+  element.className = `status-badge ${getStatusClass(text)}`;
+}
+
+function renderBusinessBadge(text) {
+  const value = getDisplayResultText(text);
+  if (value === "-") return "";
+  const cls = value === "OK" ? "status-online" : value === "NG" || value === "异常" ? "status-danger" : "status-offline";
+  return `<span class="status-badge ${cls}">${escapeHtml(value)}</span>`;
+}
+
+function renderResultPill(text) {
+  const value = getDisplayResultText(text);
+  if (value === "-") return "";
+  const cls = value === "OK" ? "is-ok" : value === "NG" || value === "异常" ? "is-ng" : "is-neutral";
+  return `<span class="result-pill ${cls}">${escapeHtml(value)}</span>`;
+}
+
+function renderResultWithException(text, exceptions = []) {
+  const badge = renderBusinessBadge(text);
+  if (getDisplayResultText(text) !== "异常") return badge;
+  return `<span class="result-with-exception">${badge}${renderExceptionIcon(exceptions)}</span>`;
+}
+
+function renderExceptionIcon(exceptions = [], fallbackTitle = "异常信息") {
+  const valid = Array.isArray(exceptions) ? exceptions.filter(Boolean) : [];
+  const title = valid.length
+    ? valid.map((item) => `${item.title || "异常"}\n${item.text || ""}`.trim()).join("\n\n")
+    : fallbackTitle;
+  return `<span class="exception-hint" title="${escapeAttribute(title)}">!</span>`;
+}
+
+function getDisplayResultText(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "未判定") return "-";
+  return text;
+}
+
+function getResultTone(value) {
+  const text = getDisplayResultText(value);
+  if (text === "异常") return "ng";
+  if (text === "NG") return "ng";
+  if (text === "OK") return "ok";
+  return "neutral";
+}
+
+function getResultToneModifier(value) {
+  const tone = getResultTone(value);
+  return tone === "ng" ? "is-ng" : tone === "ok" ? "is-ok" : "is-neutral";
+}
+
+function getLocalModelReferenceCount(modelId) {
+  return state.tools.reduce((count, tool) => {
+    const processCount = Array.isArray(tool.process) ? tool.process.filter((item) => item.modelId === modelId).length : 0;
+    const detectCount = Array.isArray(tool.detect) ? tool.detect.filter((item) => item.modelId === modelId).length : 0;
+    return count + processCount + detectCount;
+  }, 0);
+}
+
+function renderReferenceStatusHtml(referenceCount) {
+  const referenced = Number(referenceCount) > 0;
+  return `<span class="reference-status ${referenced ? "is-referenced" : "is-idle"}">${referenced ? "已引用" : "未引用"}</span>`;
+}
+
+function getBusinessBannerHtml(result) {
+  if (result === "放行") {
+    return `<p class="banner banner-success">外部控制系统业务判定结果：放行。JetCheck 本身仅负责记录算法结果和外部业务结论。</p>`;
+  }
+  if (result === "拦截") {
+    return `<p class="banner banner-danger">外部控制系统业务判定结果：拦截。详情中保留本次算法执行结果及子结果图像。</p>`;
+  }
+  return `<p class="banner banner-warning">外部控制系统业务判定结果：复检。可在子结果列表中继续标记可疑并导出图像。</p>`;
+}
+
+function getExportScopeOptions(type) {
+  if (type === "records-list") {
+    return [
+      { value: "当前筛选结果", label: "当前筛选结果下的全部记录" },
+      { value: "当前页记录", label: "当前页可见记录" },
+    ];
+  }
+  if (type === "record-detail") {
+    return [
+      { value: "当前总记录", label: "当前总记录详情" },
+    ];
+  }
+  if (type === "record-images") {
+    return [
+      { value: "当前记录全部子结果图像", label: "当前记录全部子结果图像" },
+      { value: "当前已标记可疑图像", label: "当前已标记可疑的子结果图像" },
+      { value: "当前选中子结果图像", label: "当前筛选结果下的子结果图像" },
+    ];
+  }
+  if (type === "records-images") {
+    return [
+      { value: "当前筛选结果下的全部子结果图像", label: "当前筛选结果下的全部子结果图像" },
+      { value: "当前筛选结果下的可疑图像", label: "当前筛选结果下已标记可疑的图像" },
+    ];
+  }
+  return [
+    { value: "当前工具采图记录", label: "当前工具采图记录" },
+  ];
+}
+
+function getExportContentOptions(type) {
+  if (type === "records-list" || type === "record-detail") {
+    return [
+      { value: "总记录+子结果信息", label: "总记录信息 + 子结果信息" },
+      { value: "总记录摘要", label: "仅总记录摘要" },
+    ];
+  }
+  return [
+    { value: "仅图像", label: "仅图像" },
+    { value: "图像+子结果信息", label: "图像 + 子结果信息" },
+    { value: "图像+人工标记结果", label: "图像 + 人工标记结果" },
+  ];
+}
+
+function getStatusClass(text) {
+  if (["OK"].includes(text)) return "status-online";
+  if (["NG"].includes(text)) return "status-danger";
+  if (["在线", "空闲", "可用", "已完成", "已连接"].includes(text)) return "status-online";
+  if (["离线", "未连接", "待机", "未运行", "未绑定", "已添加", "未配置", "-"].includes(text)) return "status-offline";
+  if (["拦截", "已阻断", "已中断", "异常", "配置异常"].includes(text)) return "status-danger";
+  if (["放行", "已引用", "运行中", "等待信号", "下载中...", "执行中"].includes(text)) return "status-primary";
+  if (["未判定"].includes(text)) return "status-offline";
+  return "status-pending";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+function getEventTargetElement(event) {
+  const target = event?.target;
+  if (target instanceof Element) return target;
+  return target?.parentElement instanceof Element ? target.parentElement : null;
+}
+
+function getClosestEventTarget(event, selector) {
+  const element = getEventTargetElement(event);
+  return element ? element.closest(selector) : null;
+}
+
+function showToast(message, options = {}) {
+  const text = String(message || "").trim();
+  if (!text) return;
+  const tone = options.tone || (/(失败|异常|错误|不足|无法|拒绝)/.test(text) ? "error" : "warning");
+  const duration = Number(options.duration) || 3200;
+  const duplicate = Array.from(els.toastStack.children).find((item) => item.dataset.message === text);
+  if (duplicate) return;
+  const toast = document.createElement("div");
+  toast.className = `toast is-${tone}`;
+  toast.dataset.message = text;
+  toast.setAttribute("role", tone === "error" ? "alert" : "status");
+  toast.textContent = text;
+  els.toastStack.appendChild(toast);
+  window.setTimeout(() => {
+    toast.remove();
+  }, duration);
+}
+
+init();

@@ -1,0 +1,24 @@
+{
+  "group": "main",
+  "created_at": "2026-05-26",
+  "status": {
+    "label": "设计中",
+    "tone": "design"
+  },
+  "title": "捷检 1.5",
+  "summary": "复用 1.4 页面骨架，围绕齿轮等工业视觉场景独立推进客户端、平台端与尺寸工具的 1.5 新需求。",
+  "buttons": [
+    {
+      "label": "尺寸工具",
+      "url": "demo/dimension-tool.html"
+    },
+    {
+      "label": "客户端",
+      "url": "demo/client.html"
+    },
+    {
+      "label": "平台端",
+      "url": "demo/platform.html"
+    }
+  ]
+}
